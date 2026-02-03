@@ -27,6 +27,18 @@ function matchList<T extends { name: string }>(query: string, list: T[]): T[] {
   return list.filter((item) => query.includes(item.name));
 }
 
+export function resolveEntitiesFromNames(input: {
+  players?: string[];
+  teams?: string[];
+}): Pick<ResolvedEntities, "players" | "teams"> {
+  const playerNames = (input.players ?? []).map((p) => p.toLowerCase());
+  const teamNames = (input.teams ?? []).map((t) => t.toLowerCase());
+  return {
+    players: players.filter((p) => playerNames.some((name) => name.includes(p.name) || p.name.includes(name))),
+    teams: teams.filter((t) => teamNames.some((name) => name.includes(t.name) || t.name.includes(name))),
+  };
+}
+
 export function extractEntities(query: string): ResolvedEntities {
   const normalized = query.toLowerCase();
   const playersMatched = matchList(normalized, players);

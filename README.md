@@ -8,10 +8,16 @@ This repo contains a Bun backend and Svelte frontend for a natural‑language NB
 - `infra/schema` SQL schemas for Postgres + ClickHouse
 
 ## Quick start
+### Local services (recommended for dev)
+```bash
+docker compose up -d
+```
+
 ### API
 ```bash
 cd apps/api
 bun install
+bun run bootstrap
 bun run dev
 ```
 
@@ -25,20 +31,54 @@ bun run dev
 ## Environment variables
 API (`apps/api/.env`):
 - `PORT=8787`
-- `LLM_PROVIDER=openai|anthropic|mock`
+- `LLM_PROVIDER=openai|mock`
 - `LLM_API_KEY=...`
+- `LLM_BASE_URL=https://api.openai.com/v1`
+- `LLM_MODEL=gpt-5-mini`
+- `LLM_REASONING_EFFORT=low`
 - `CLICKHOUSE_URL=http://localhost:8123`
 - `CLICKHOUSE_USER=default`
 - `CLICKHOUSE_PASSWORD=`
 - `POSTGRES_URL=postgres://...`
 - `REDIS_URL=redis://localhost:6379`
 - `AWS_REGION=us-east-1`
+- `AWS_ACCESS_KEY_ID=...`
+- `AWS_SECRET_ACCESS_KEY=...`
 - `S3_RAW_BUCKET=hoophub-raw`
 - `S3_CLIP_BUCKET=hoophub-clips`
+- `S3_ENDPOINT=` (optional, for S3-compatible stores like Cloudflare R2)
 - `CLIP_URL_TTL_SECONDS=86400`
 
 Web (`apps/web/.env`):
 - `VITE_API_BASE=http://localhost:8787`
+
+## ClickHouse on DigitalOcean + API on Fly.io (recommended cheap setup)
+If you want ClickHouse on a DigitalOcean droplet but keep your Bun API on Fly.io, the safest setup is
+to **avoid exposing ClickHouse publicly** and instead connect via an **SSH local port-forward** from Fly.
+
+1. Create a DO ClickHouse 1‑Click droplet (example IP: `167.71.191.168`).
+2. Keep ClickHouse's HTTP port (`8123`) private (bind to localhost and/or block via firewall).
+3. Deploy the API to Fly using the Dockerfile + tunnel entrypoint:
+   - `apps/api/Dockerfile`
+   - `apps/api/scripts/start-with-tunnel.sh`
+   - `apps/api/fly.toml.example` (copy to `apps/api/fly.toml` and set your app name)
+4. Set Fly secrets:
+```bash
+fly secrets set \\
+  DO_CLICKHOUSE_HOST=167.71.191.168 \\
+  DO_CLICKHOUSE_SSH_USER=root \\
+  DO_SSH_PRIVATE_KEY=\"$(cat ~/.ssh/id_ed25519)\" \\
+  CLICKHOUSE_USER=default \\
+  CLICKHOUSE_PASSWORD=\"<your-clickhouse-password>\"
+```
+
+Optional (recommended): pin host key to avoid MITM. From your machine:
+```bash
+ssh-keyscan -H 167.71.191.168
+```
+Then set it as `DO_SSH_KNOWN_HOSTS` in Fly secrets.
+
+Once deployed, your API will talk to ClickHouse through `http://127.0.0.1:18123` inside the Fly machine.
 
 ## Notes
 - This is a functional skeleton with clear extension points for ingestion, cataloging, and clip compilation.

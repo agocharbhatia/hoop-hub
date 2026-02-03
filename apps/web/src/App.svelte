@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { afterUpdate, tick } from "svelte";
   import { runQuery, type NLQResponse } from "./lib/api";
 
   const examples = [
@@ -8,43 +9,222 @@
     "All clutch isolation buckets by Jimmy Butler in the playoffs",
   ];
 
+  type Message = {
+    role: "user" | "assistant";
+    text?: string;
+    response?: NLQResponse;
+    error?: string;
+  };
+
+  let headerEl: HTMLElement;
+  let threadEl: HTMLDivElement;
+  let composerEl: HTMLDivElement;
+  let headerOffset = 0;
+  let threadOffset = 0;
+  let composerOffset = 0;
+  let docked = false;
+  let suppressTransition = false;
+  let lastMessageCount = 0;
+
   let query = "";
   let loading = false;
-  let error: string | null = null;
-  let response: NLQResponse | null = null;
+  let messages: Message[] = [];
+  let openClips = new Set<string>();
 
   async function submit() {
     if (!query.trim()) return;
+    const userText = query.trim();
+    messages = [...messages, { role: "user", text: userText }];
+    query = "";
     loading = true;
-    error = null;
-    response = null;
 
     try {
-      response = await runQuery(query.trim());
+      const response = await runQuery(userText);
+      messages = [...messages, { role: "assistant", response }];
     } catch (err) {
-      error = err instanceof Error ? err.message : "Failed to run query";
+      messages = [
+        ...messages,
+        {
+          role: "assistant",
+          error: err instanceof Error ? err.message : "Failed to run query",
+        },
+      ];
     } finally {
       loading = false;
     }
   }
+
+  function toggleClip(key: string) {
+    if (openClips.has(key)) openClips.delete(key);
+    else openClips.add(key);
+    // force reactivity
+    openClips = new Set(openClips);
+  }
+
+  async function animatePageToDocked() {
+    await tick();
+    if (!headerEl || !threadEl || !composerEl || docked) return;
+    const headerFirstTop = headerEl.getBoundingClientRect().top;
+    const threadFirstTop = threadEl.getBoundingClientRect().top;
+    const composerFirstTop = composerEl.getBoundingClientRect().top;
+
+    docked = true;
+    await tick();
+
+    const headerLastTop = headerEl.getBoundingClientRect().top;
+    const threadLastTop = threadEl.getBoundingClientRect().top;
+    const composerLastTop = composerEl.getBoundingClientRect().top;
+    const headerDelta = headerFirstTop - headerLastTop;
+    const threadDelta = threadFirstTop - threadLastTop;
+    const composerDelta = composerFirstTop - composerLastTop;
+
+    suppressTransition = true;
+    headerOffset = headerDelta;
+    threadOffset = threadDelta;
+    composerOffset = composerDelta;
+    await tick();
+
+    headerEl.getBoundingClientRect();
+    threadEl.getBoundingClientRect();
+    composerEl.getBoundingClientRect();
+
+    suppressTransition = false;
+    await tick();
+    requestAnimationFrame(() => {
+      headerOffset = 0;
+      threadOffset = 0;
+      composerOffset = 0;
+    });
+  }
+
+  afterUpdate(() => {
+    if (!docked && messages.length > 0 && lastMessageCount === 0) {
+      animatePageToDocked();
+    }
+    lastMessageCount = messages.length;
+  });
 </script>
 
 <svelte:head>
   <title>Hoop Hub</title>
 </svelte:head>
 
-<main class="page">
-  <section class="hero">
-    <div class="hero-text">
-      <p class="eyebrow">NBA Natural‑Language Engine</p>
-      <h1>Ask any basketball question. Get the stats and the clips.</h1>
-      <p class="lead">
-        Hoop Hub translates natural language into authoritative NBA.com stats and the video evidence that
-        supports them.
-      </p>
+<main class="page" class:docked={docked} class:landing={!docked}>
+  <header
+    class="top"
+    class:no-transition={suppressTransition}
+    bind:this={headerEl}
+    style={`transform: translate3d(0, ${headerOffset}px, 0);`}
+  >
+    <p class="eyebrow">NBA Natural‑Language Engine</p>
+    <h1>Ask any basketball question.</h1>
+    <p class="lead">
+      Hoop Hub translates natural language into authoritative NBA.com stats and the video evidence that
+      supports them.
+    </p>
+  </header>
+
+  <section class="chat" class:docked={docked}>
+    <div
+      class="thread"
+      class:no-transition={suppressTransition}
+      bind:this={threadEl}
+      style={`transform: translate3d(0, ${threadOffset}px, 0);`}
+    >
+      {#if messages.length === 0}
+        <div class="message assistant intro">
+          <div class="intro-card">
+            <p class="intro-title">Start with a question.</p>
+            <p class="intro-body">
+              Ask about players, shots, or games. We’ll translate it into stats and evidence.
+            </p>
+          </div>
+        </div>
+      {:else}
+        {#each messages as message}
+          <div class={`message ${message.role}`}>
+            {#if message.role === "user"}
+              <p>{message.text}</p>
+            {:else if message.error}
+              <div class="error">{message.error}</div>
+            {:else if message.response}
+              <div class="summary">
+                <p><strong>Intent:</strong> {message.response.intent}</p>
+                <p><strong>Explanation:</strong> {message.response.explanation}</p>
+              </div>
+
+              {#if message.response.stats}
+                <div class="card">
+                  <h3>Stats</h3>
+                  <div class="table">
+                    <div class="table-header">
+                      {#each message.response.stats.columns as col}
+                        <div>{col}</div>
+                      {/each}
+                    </div>
+                    {#each message.response.stats.rows as row}
+                      <div class="table-row">
+                        {#each message.response.stats.columns as col}
+                          <div>{row[col]}</div>
+                        {/each}
+                      </div>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+
+              {#if message.response.clips}
+                <div class="card">
+                  <h3>Clips</h3>
+                  <p class="muted">
+                    Coverage: {message.response.clips.coverage.available} /
+                    {message.response.clips.coverage.requested}
+                  </p>
+                  {#if message.response.clips.compiledUrl}
+                    <video controls class="video" src={message.response.clips.compiledUrl}>
+                      <track kind="captions" />
+                    </video>
+                  {/if}
+                  <div class="clip-list">
+                    {#each message.response.clips.items as clip}
+                      <div class="clip-item">
+                        <div class="clip-meta">
+                          <div>
+                            <strong>Game:</strong> {clip.gameId} <strong>Event:</strong> {clip.eventId}
+                          </div>
+                          {#if clip.videoAvailable && clip.url}
+                            <div class="clip-actions">
+                              <button class="link" type="button" on:click={() => toggleClip(`${clip.gameId}:${clip.eventId}`)}>
+                                {openClips.has(`${clip.gameId}:${clip.eventId}`) ? "Hide" : "Play"}
+                              </button>
+                              <a href={clip.url} target="_blank" rel="noreferrer">Open</a>
+                            </div>
+                          {:else}
+                            <span class="muted">Clip unavailable</span>
+                          {/if}
+                        </div>
+                        {#if clip.videoAvailable && clip.url && openClips.has(`${clip.gameId}:${clip.eventId}`)}
+                          <video class="video inline" controls preload="metadata" src={clip.url}>
+                            <track kind="captions" />
+                          </video>
+                        {/if}
+                      </div>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+            {/if}
+          </div>
+        {/each}
+      {/if}
     </div>
-    <div class="hero-card">
-      <label class="label" for="query">Your question</label>
+
+    <div
+      class="composer"
+      class:no-transition={suppressTransition}
+      bind:this={composerEl}
+      style={`transform: translate3d(0, ${composerOffset}px, 0);`}
+    >
       <div class="input-row">
         <input
           id="query"
@@ -53,11 +233,20 @@
           bind:value={query}
           on:keydown={(event) => event.key === "Enter" && submit()}
         />
-        <button class="cta" on:click={submit} disabled={loading}>
-          {loading ? "Running…" : "Run Query"}
+        <button class="cta" on:click={submit} disabled={loading} aria-label="Send">
+          {#if loading}
+            Running…
+          {:else}
+            <svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M3.6 11.1 20 4.5a.6.6 0 0 1 .8.7l-3.2 13.6a.6.6 0 0 1-1 .3l-5.1-4.2-3.1 3.4a.6.6 0 0 1-1-.4l.2-4.8-4-1.8a.6.6 0 0 1 0-1.2Z"
+                fill="currentColor"
+              />
+            </svg>
+          {/if}
         </button>
       </div>
-      <div class="chips">
+      <div class="chips" class:collapsed={messages.length > 0}>
         {#each examples as example}
           <button class="chip" type="button" on:click={() => (query = example)}>
             {example}
@@ -65,69 +254,5 @@
         {/each}
       </div>
     </div>
-  </section>
-
-  <section class="results">
-    <div class="results-header">
-      <h2>Results</h2>
-      <p>Stats are sourced from NBA.com endpoints; clips are resolved per play.</p>
-    </div>
-
-    {#if error}
-      <div class="error">{error}</div>
-    {:else if !response}
-      <div class="empty">Run a query to see answers, rankings, and clips.</div>
-    {:else}
-      <div class="summary">
-        <p><strong>Intent:</strong> {response.intent}</p>
-        <p><strong>Explanation:</strong> {response.explanation}</p>
-      </div>
-
-      {#if response.stats}
-        <div class="card">
-          <h3>Stats</h3>
-          <div class="table">
-            <div class="table-header">
-              {#each response.stats.columns as col}
-                <div>{col}</div>
-              {/each}
-            </div>
-            {#each response.stats.rows as row}
-              <div class="table-row">
-                {#each response.stats.columns as col}
-                  <div>{row[col]}</div>
-                {/each}
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/if}
-
-      {#if response.clips}
-        <div class="card">
-          <h3>Clips</h3>
-          <p class="muted">
-            Coverage: {response.clips.coverage.available} / {response.clips.coverage.requested}
-          </p>
-          {#if response.clips.compiledUrl}
-            <video controls class="video" src={response.clips.compiledUrl}></video>
-          {/if}
-          <div class="clip-list">
-            {#each response.clips.items as clip}
-              <div class="clip-item">
-                <div>
-                  <strong>Game:</strong> {clip.gameId} <strong>Event:</strong> {clip.eventId}
-                </div>
-                {#if clip.videoAvailable && clip.url}
-                  <a href={clip.url} target="_blank" rel="noreferrer">Open clip</a>
-                {:else}
-                  <span class="muted">Clip unavailable</span>
-                {/if}
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/if}
-    {/if}
   </section>
 </main>

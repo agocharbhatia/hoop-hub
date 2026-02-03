@@ -1,0 +1,35 @@
+# fly.toml app configuration file generated for hoophub-api on 2026-02-03T16:56:55-05:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'hoophub-api'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  CLICKHOUSE_TUNNEL_LOCAL_PORT = '18123'
+  LLM_MODEL = 'gpt-5-mini'
+  LLM_PROVIDER = 'openai'
+  LLM_REASONING_EFFORT = 'low'
+  PORT = '8787'
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = 'requests'
+    hard_limit = 50
+    soft_limit = 25
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 1024

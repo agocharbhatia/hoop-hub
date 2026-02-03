@@ -6,12 +6,16 @@
   "scripts": {
     "dev": "bun --hot src/server.ts",
     "start": "bun src/server.ts",
+    "bootstrap": "bun src/scripts/bootstrap.ts",
     "worker:ingest": "bun src/workers/ingest.ts",
     "worker:clips": "bun src/workers/clipCompilerWorker.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.758.0",
+    "@aws-sdk/s3-request-presigner": "^3.758.0",
     "dotenv": "^16.4.5",
     "hono": "^4.6.0",
+    "ioredis": "^5.5.0",
     "postgres": "^3.4.4",
     "zod": "^3.23.8"
   },

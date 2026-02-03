@@ -1,6 +1,6 @@
 import type { NLQResponse } from "../../types/domain";
 import { classifyIntent } from "./intent";
-import { extractEntities } from "./entityResolver";
+import { extractEntities, resolveEntitiesFromNames } from "./entityResolver";
 import { resolveStat } from "../catalog";
 import { deriveStatPlan } from "./derived";
 import { buildPbpQuery, buildStatQuery } from "../queryPlanner";
@@ -8,11 +8,42 @@ import { executeStatQuery } from "../statsService";
 import { executePbpQuery } from "../pbpService";
 import { resolveClipRefs } from "../../video/urlResolver";
 import { compileClips } from "../../video/clipCompiler";
+import { config } from "../../config";
+import { cacheGet, cacheSet } from "../../utils/cache";
+import { sha256Hex } from "../../utils/hash";
+import { planNlqWithOpenAI } from "../llm/openai";
 
 export async function handleNLQ(query: string): Promise<NLQResponse> {
-  const intent = classifyIntent(query);
-  const entities = extractEntities(query);
-  const statEntry = await resolveStat(query);
+  const cacheKey = `nlq:plan:${await sha256Hex(query)}`;
+  const cached = await cacheGet<any>(cacheKey);
+
+  let intent = classifyIntent(query);
+  let entities = extractEntities(query);
+  let statSearchTerm: string | null = null;
+  let llmPlan: any = null;
+
+  if (config.llmProvider === "openai") {
+    llmPlan = cached ?? (await planNlqWithOpenAI(query));
+    if (!cached) await cacheSet(cacheKey, llmPlan, 60 * 60);
+
+    intent = llmPlan.intent;
+    statSearchTerm = llmPlan.stat_search_term ?? null;
+    const resolved = resolveEntitiesFromNames(llmPlan.entities ?? {});
+    entities = {
+      ...entities,
+      players: resolved.players,
+      teams: resolved.teams,
+      season: llmPlan.time?.season ?? entities.season,
+      seasonType: llmPlan.time?.season_type ?? entities.seasonType,
+      shotZones: llmPlan.filters?.shot_zone ?? entities.shotZones,
+      shotTypes: llmPlan.filters?.shot_type ?? entities.shotTypes,
+      playCategories: llmPlan.filters?.play_category ?? entities.playCategories,
+      coverageTypes: llmPlan.filters?.coverage_type ?? entities.coverageTypes,
+      clutch: llmPlan.filters?.clutch ?? entities.clutch,
+    };
+  }
+
+  const statEntry = await resolveStat(statSearchTerm ?? query);
   const derivedPlan = deriveStatPlan(query, statEntry?.statId);
 
   const statQuery = buildStatQuery(statEntry, entities);
@@ -65,6 +96,7 @@ export async function handleNLQ(query: string): Promise<NLQResponse> {
       derivedPlan,
       statQuery,
       pbpQuery,
+      llmPlan,
     },
   };
 }

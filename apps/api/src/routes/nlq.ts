@@ -15,8 +15,12 @@ router.post("/", async (c) => {
     return c.json({ error: "Invalid request", details: parsed.error.flatten() }, 400);
   }
 
-  const response = await handleNLQ(parsed.data.query);
-  return c.json(response);
+  try {
+    const response = await handleNLQ(parsed.data.query);
+    return c.json(response);
+  } catch (error) {
+    return c.json({ error: "NLQ failed", message: String(error) }, 500);
+  }
 });
 
 export default router;

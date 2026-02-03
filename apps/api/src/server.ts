@@ -5,6 +5,7 @@ import statsRoutes from "./routes/stats";
 import pbpRoutes from "./routes/pbp";
 import clipRoutes from "./routes/clips";
 import catalogRoutes from "./routes/catalog";
+import healthRoutes from "./routes/health";
 
 const app = new Hono();
 
@@ -20,6 +21,7 @@ app.use("*", async (c, next) => {
 
 app.get("/", (c) => c.json({ status: "ok", service: "hoophub-api" }));
 
+app.route("/api/health", healthRoutes);
 app.route("/api/nlq", nlqRoutes);
 app.route("/api/stats", statsRoutes);
 app.route("/api/pbp", pbpRoutes);
