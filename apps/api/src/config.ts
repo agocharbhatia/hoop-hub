@@ -7,6 +7,7 @@ export const config = {
   llmProvider: env.LLM_PROVIDER ?? "mock",
   llmApiKey: env.LLM_API_KEY ?? "",
   llm: {
+    // Default OpenAI base URL for the Responses API.
     baseUrl: env.LLM_BASE_URL ?? "https://api.openai.com/v1",
     model: env.LLM_MODEL ?? "gpt-5-mini",
     // Keep this low for cost and latency; bump for gnarly queries.

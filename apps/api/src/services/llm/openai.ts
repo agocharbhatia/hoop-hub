@@ -118,7 +118,9 @@ export async function planNlqWithOpenAI(query: string): Promise<OpenAiNlqPlan> {
     throw new Error("LLM_API_KEY is not configured");
   }
 
-  const url = new URL("/responses", config.llm.baseUrl).toString();
+  // IMPORTANT: Use path-join semantics. `new URL("/responses", "https://.../v1")` would drop `/v1`.
+  const base = config.llm.baseUrl.replace(/\/+$/, "");
+  const url = `${base}/responses`;
 
   const instructions = [
     "You are a query planner for an NBA stats + video engine.",
