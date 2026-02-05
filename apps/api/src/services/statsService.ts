@@ -17,6 +17,11 @@ function buildWhere(filters: Record<string, unknown>) {
 }
 
 export async function executeStatQuery(query: StatQuery) {
+  let selectExpr = "sum(value) AS value";
+  if (query.aggregationType === "avg" || query.aggregationType === "ratio") {
+    selectExpr = "avg(value) AS value";
+  }
+
   const where: string[] = [];
   if (query.entityIds?.length) {
     where.push(`entity_id IN (${query.entityIds.map((id) => `'${id}'`).join(", ")})`);
@@ -34,7 +39,7 @@ export async function executeStatQuery(query: StatQuery) {
 
   const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const sql = `
-    SELECT entity_id, stat_id, sum(value) AS value
+    SELECT entity_id, stat_id, ${selectExpr}
     FROM stats_fact
     ${whereClause}
     GROUP BY entity_id, stat_id

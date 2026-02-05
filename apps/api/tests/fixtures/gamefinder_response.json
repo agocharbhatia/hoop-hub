@@ -1,0 +1,18 @@
+{
+  "resultSets": [
+    {
+      "name": "LeagueGameFinderResults",
+      "headers": [
+        "GAME_ID",
+        "GAME_DATE",
+        "MATCHUP",
+        "HOME_TEAM_ID",
+        "VISITOR_TEAM_ID"
+      ],
+      "rowSet": [
+        ["0022300001", "2023-10-24", "GSW vs PHX", "1610612744", "1610612756"],
+        ["0022300001", "2023-10-24", "PHX @ GSW", "1610612744", "1610612756"]
+      ]
+    }
+  ]
+}

@@ -5,6 +5,7 @@ export type StatCatalogEntry = {
   statName: string;
   description: string;
   unit: string;
+  sourceEndpoint?: string;
   entityType: string;
   dimensions: string[];
   aggregationType: string;
@@ -20,6 +21,7 @@ const localCatalog: StatCatalogEntry[] = [
     statName: "Points",
     description: "Total points scored",
     unit: "points",
+    sourceEndpoint: "leaguedashplayerstats",
     entityType: "player",
     dimensions: ["season", "season_type", "team_id"],
     aggregationType: "sum",
@@ -31,6 +33,7 @@ const localCatalog: StatCatalogEntry[] = [
     statName: "True Shooting %",
     description: "True shooting percentage",
     unit: "percent",
+    sourceEndpoint: "leaguedashplayerstats",
     entityType: "player",
     dimensions: ["season", "season_type"],
     aggregationType: "ratio",
@@ -44,6 +47,7 @@ const localCatalog: StatCatalogEntry[] = [
     statName: "Mid-range FG%",
     description: "Field goal percentage from mid-range",
     unit: "percent",
+    sourceEndpoint: "leaguedashplayershotlocations",
     entityType: "player",
     dimensions: ["season", "season_type", "shot_zone"],
     aggregationType: "ratio",
@@ -72,6 +76,7 @@ export async function searchCatalog(term: string): Promise<StatCatalogEntry[]> {
       stat_name: string;
       description: string;
       unit: string;
+      source_endpoint: string | null;
       entity_type: string;
       dimensions: string[];
       aggregation_type: string;
@@ -80,11 +85,12 @@ export async function searchCatalog(term: string): Promise<StatCatalogEntry[]> {
       allowed_filters: string[];
       examples: string[];
     }[]>`
-      select stat_id, stat_name, description, unit, entity_type, dimensions,
+      select stat_id, stat_name, description, unit, source_endpoint, entity_type, dimensions,
              aggregation_type, numerator_field, denominator_field,
              allowed_filters, examples
       from stat_catalog
       where stat_name ilike ${"%" + term + "%"}
+         or stat_id ilike ${"%" + term + "%"}
          or description ilike ${"%" + term + "%"}
       limit 10
     `;
@@ -93,6 +99,7 @@ export async function searchCatalog(term: string): Promise<StatCatalogEntry[]> {
       statName: row.stat_name,
       description: row.description,
       unit: row.unit,
+      sourceEndpoint: row.source_endpoint ?? undefined,
       entityType: row.entity_type,
       dimensions: row.dimensions,
       aggregationType: row.aggregation_type,

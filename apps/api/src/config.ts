@@ -32,4 +32,12 @@ export const config = {
     maxClipCount: Number(env.MAX_CLIP_COUNT ?? 40),
     maxClipSeconds: Number(env.MAX_CLIP_SECONDS ?? 600),
   },
+  ingest: {
+    seasonStart: Number(env.INGEST_SEASON_START ?? 1946),
+    backfillBatch: Number(env.INGEST_BACKFILL_BATCH ?? 2),
+    rateLimitMs: Number(env.INGEST_RATE_LIMIT_MS ?? 450),
+    maxRetries: Number(env.INGEST_MAX_RETRIES ?? 5),
+    retryBaseMs: Number(env.INGEST_RETRY_BASE_MS ?? 600),
+    archiveRaw: env.INGEST_ARCHIVE_RAW?.toLowerCase() !== "false",
+  },
 };

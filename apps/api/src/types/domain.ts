@@ -2,6 +2,9 @@ export type EntityType = "player" | "team" | "game" | "season" | "league";
 
 export type StatQuery = {
   statId: string;
+  aggregationType?: string;
+  numeratorField?: string;
+  denominatorField?: string;
   entityType: EntityType;
   entityIds?: string[];
   season?: string;

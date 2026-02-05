@@ -21,6 +21,12 @@ bun run bootstrap
 bun run dev
 ```
 
+### Preflight (validates DBs + R2/S3)
+```bash
+cd apps/api
+bun run preflight
+```
+
 ### Web
 ```bash
 cd apps/web
@@ -83,6 +89,34 @@ Once deployed, your API will talk to ClickHouse through `http://127.0.0.1:18123`
 ## Notes
 - This is a functional skeleton with clear extension points for ingestion, cataloging, and clip compilation.
 - NBA.com endpoint ingestion and full stat coverage should be implemented in `apps/api/src/workers/ingest.ts`.
+
+## Ingestion (DO ClickHouse droplet)
+Run the ingestion worker on your ClickHouse droplet (best performance) or locally for tests.
+
+```bash
+cd apps/api
+bun run worker:ingest
+```
+
+## Tests
+```bash
+cd apps/api
+bun test
+```
+
+Integration tests (opt-in, hit real services):
+```bash
+cd apps/api
+INTEGRATION_TESTS=1 bun test
+```
+
+Env vars for ingestion:
+- `INGEST_SEASON_START=1946`
+- `INGEST_BACKFILL_BATCH=2`
+- `INGEST_RATE_LIMIT_MS=450`
+- `INGEST_MAX_RETRIES=5`
+- `INGEST_RETRY_BASE_MS=600`
+- `INGEST_ARCHIVE_RAW=true`
 
 ## Legal
 This project is not affiliated with the NBA. Video clips are fetched from NBA.com and compiled on‑demand without permanent hosting.

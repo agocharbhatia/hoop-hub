@@ -7,8 +7,10 @@
     "dev": "bun --hot src/server.ts",
     "start": "bun src/server.ts",
     "bootstrap": "bun src/scripts/bootstrap.ts",
+    "preflight": "bun src/scripts/preflight.ts",
     "worker:ingest": "bun src/workers/ingest.ts",
-    "worker:clips": "bun src/workers/clipCompilerWorker.ts"
+    "worker:clips": "bun src/workers/clipCompilerWorker.ts",
+    "test": "bun test"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.758.0",

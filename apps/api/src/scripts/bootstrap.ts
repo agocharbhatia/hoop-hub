@@ -10,14 +10,16 @@ async function runPostgresSchema() {
     return;
   }
   const sql = getPostgres();
-  const schemaPath = resolve(import.meta.dir, "../../../infra/schema/postgres.sql");
+  const repoRoot = resolve(import.meta.dir, "../../../..");
+  const schemaPath = resolve(repoRoot, "infra/schema/postgres.sql");
   const schema = await readFile(schemaPath, "utf8");
   await sql.unsafe(schema);
   console.log("[bootstrap] applied Postgres schema");
 }
 
 async function runClickHouseSchema() {
-  const schemaPath = resolve(import.meta.dir, "../../../infra/schema/clickhouse.sql");
+  const repoRoot = resolve(import.meta.dir, "../../../..");
+  const schemaPath = resolve(repoRoot, "infra/schema/clickhouse.sql");
   const schema = await readFile(schemaPath, "utf8");
 
   // ClickHouse HTTP interface accepts a single statement; split on semicolons.
@@ -33,7 +35,11 @@ async function runClickHouseSchema() {
 }
 
 async function main() {
-  await runClickHouseSchema();
+  try {
+    await runClickHouseSchema();
+  } catch (err) {
+    console.warn("[bootstrap] skipping ClickHouse schema (unreachable)", String(err));
+  }
   await runPostgresSchema();
 }
 

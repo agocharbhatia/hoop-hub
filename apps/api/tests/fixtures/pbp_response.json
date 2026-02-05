@@ -1,0 +1,35 @@
+{
+  "game": {
+    "actions": [
+      {
+        "actionNumber": 1,
+        "period": 4,
+        "clock": "PT02M15.00S",
+        "teamId": 1610612744,
+        "personId": 201939,
+        "shotDistance": 24,
+        "shotType": "3PT Field Goal",
+        "shotResult": "Made",
+        "actionType": "3pt",
+        "scoreMargin": "2",
+        "videoAvailable": true,
+        "videoUUID": "123e4567-e89b-12d3-a456-426614174000",
+        "description": "Curry 3PT"
+      },
+      {
+        "actionNumber": 2,
+        "period": 2,
+        "clock": "PT07M01.00S",
+        "teamId": 1610612744,
+        "personId": 201939,
+        "shotDistance": 15,
+        "shotType": "Jump Shot",
+        "shotResult": "Missed",
+        "actionType": "jump",
+        "scoreMargin": "TIE",
+        "videoAvailable": false,
+        "description": "Missed jumper"
+      }
+    ]
+  }
+}

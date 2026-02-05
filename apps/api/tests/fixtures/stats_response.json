@@ -1,0 +1,18 @@
+{
+  "resultSets": [
+    {
+      "name": "LeagueDashPlayerStats",
+      "headers": [
+        "PLAYER_ID",
+        "PLAYER_NAME",
+        "TEAM_ID",
+        "PTS",
+        "FG_PCT",
+        "MID_RANGE_FG_PCT"
+      ],
+      "rowSet": [
+        [201939, "Stephen Curry", 1610612744, 28.5, 0.472, 0.441]
+      ]
+    }
+  ]
+}

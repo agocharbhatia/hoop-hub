@@ -15,6 +15,9 @@ export function buildStatQuery(
 
   return {
     statId: stat.statId,
+    aggregationType: stat.aggregationType,
+    numeratorField: stat.numeratorField,
+    denominatorField: stat.denominatorField,
     entityType: entityType,
     entityIds: entityIds.length ? entityIds : undefined,
     season: entities.season,
