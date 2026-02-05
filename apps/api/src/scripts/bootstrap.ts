@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { config } from "../config";
 import { getPostgres } from "../db/postgres";
-import { clickhouseQuery } from "../db/clickhouse";
+import { clickhouseExec } from "../db/clickhouse";
 
 async function runPostgresSchema() {
   if (!config.postgresUrl) {
@@ -29,7 +29,7 @@ async function runClickHouseSchema() {
     .filter(Boolean);
 
   for (const stmt of statements) {
-    await clickhouseQuery(`${stmt};`);
+    await clickhouseExec(`${stmt};`);
   }
   console.log("[bootstrap] applied ClickHouse schema");
 }

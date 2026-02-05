@@ -55,3 +55,21 @@ export async function clickhouseInsert(table: string, rows: unknown[]) {
     throw new Error(`ClickHouse insert error ${response.status}: ${text}`);
   }
 }
+
+export async function clickhouseExec(sql: string) {
+  const url = new URL(config.clickhouse.url);
+  url.searchParams.set("user", config.clickhouse.user);
+  if (config.clickhouse.password) {
+    url.searchParams.set("password", config.clickhouse.password);
+  }
+  url.searchParams.set("query", sql);
+
+  const response = await fetch(url, {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`ClickHouse exec error ${response.status}: ${text}`);
+  }
+}
