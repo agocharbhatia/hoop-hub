@@ -6,6 +6,7 @@ import pbpRoutes from "./routes/pbp";
 import clipRoutes from "./routes/clips";
 import catalogRoutes from "./routes/catalog";
 import healthRoutes from "./routes/health";
+import ingestRoutes from "./routes/ingest";
 
 const app = new Hono();
 
@@ -14,7 +15,7 @@ app.use("*", async (c, next) => {
   c.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   c.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (c.req.method === "OPTIONS") {
-    return c.text("", 204);
+    return c.body(null, 204 as any);
   }
   await next();
 });
@@ -27,6 +28,7 @@ app.route("/api/stats", statsRoutes);
 app.route("/api/pbp", pbpRoutes);
 app.route("/api/clips", clipRoutes);
 app.route("/api/catalog", catalogRoutes);
+app.route("/api/ingest", ingestRoutes);
 
 Bun.serve({
   fetch: app.fetch,

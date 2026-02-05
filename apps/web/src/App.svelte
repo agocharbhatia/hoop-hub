@@ -1,6 +1,6 @@
 <script lang="ts">
   import { afterUpdate, tick } from "svelte";
-  import { runQuery, type NLQResponse } from "./lib/api";
+  import { fetchQuerySupport, runQuery, type NLQResponse, type QuerySupport } from "./lib/api";
   import MessageTable, { type TableColumn } from "./lib/components/MessageTable.svelte";
 
   const examples = [
@@ -31,6 +31,23 @@
   let loading = false;
   let messages: Message[] = [];
   let openClips = new Set<string>();
+  let supportHint: QuerySupport | null = null;
+  let supportHintError = "";
+  let supportLoading = false;
+  let supportTimer: ReturnType<typeof setTimeout> | null = null;
+  let supportToken = 0;
+
+  function supportLabel(support: QuerySupport["support"] | undefined) {
+    if (support === "supported") return "Supported";
+    if (support === "partial") return "Partial";
+    return "Not Yet Supported";
+  }
+
+  function supportTone(support: QuerySupport["support"] | undefined) {
+    if (support === "supported") return "ok";
+    if (support === "partial") return "warn";
+    return "bad";
+  }
 
   function formatValue(value: string | number | undefined) {
     if (typeof value === "number") {
@@ -155,6 +172,35 @@
     }
     lastMessageCount = messages.length;
   });
+
+  $: {
+    const trimmed = query.trim();
+    if (supportTimer) clearTimeout(supportTimer);
+    if (trimmed.length < 2) {
+      supportHint = null;
+      supportHintError = "";
+      supportLoading = false;
+    } else {
+      supportLoading = true;
+      const token = ++supportToken;
+      supportTimer = setTimeout(async () => {
+        try {
+          const hint = await fetchQuerySupport(trimmed);
+          if (token !== supportToken) return;
+          supportHint = hint;
+          supportHintError = "";
+        } catch (error) {
+          if (token !== supportToken) return;
+          supportHint = null;
+          supportHintError = error instanceof Error ? error.message : "Could not determine support";
+        } finally {
+          if (token === supportToken) {
+            supportLoading = false;
+          }
+        }
+      }, 300);
+    }
+  }
 </script>
 
 <svelte:head>
@@ -293,6 +339,20 @@
           {/if}
         </button>
       </div>
+      {#if query.trim().length >= 2}
+        <div class="support-hint">
+          {#if supportLoading}
+            <span class="support-pill neutral">Checking</span>
+            <span class="support-text">Checking if this request is currently supported…</span>
+          {:else if supportHint}
+            <span class={`support-pill ${supportTone(supportHint.support)}`}>{supportLabel(supportHint.support)}</span>
+            <span class="support-text">{supportHint.reason}</span>
+          {:else if supportHintError}
+            <span class="support-pill neutral">Unknown</span>
+            <span class="support-text">{supportHintError}</span>
+          {/if}
+        </div>
+      {/if}
       <div class="chips" class:collapsed={messages.length > 0}>
         {#each examples as example}
           <button class="chip" type="button" on:click={() => (query = example)}>

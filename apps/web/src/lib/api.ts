@@ -14,6 +14,19 @@ export type NLQResponse = {
   debug?: Record<string, unknown>;
 };
 
+export type QuerySupport = {
+  support: "supported" | "partial" | "not_supported";
+  reason: string;
+  statId?: string;
+  module?: string;
+  counts?: {
+    ingested: number;
+    blocked: number;
+    failed: number;
+    retry: number;
+  };
+};
+
 export async function runQuery(query: string): Promise<NLQResponse> {
   const response = await fetch(`${apiBase}/api/nlq`, {
     method: "POST",
@@ -24,6 +37,21 @@ export async function runQuery(query: string): Promise<NLQResponse> {
   if (!response.ok) {
     const message = await response.text();
     throw new Error(message || "Failed to run query");
+  }
+
+  return response.json();
+}
+
+export async function fetchQuerySupport(query: string): Promise<QuerySupport> {
+  const response = await fetch(`${apiBase}/api/ingest/query-support`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Failed to fetch query support");
   }
 
   return response.json();

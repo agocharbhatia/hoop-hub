@@ -36,6 +36,17 @@ export function parseStatsUrl(url: string) {
   return { endpoint, params };
 }
 
+function formatSidecarError(status: number, detail: unknown, fallback: string, endpoint: string) {
+  if (detail && typeof detail === "object") {
+    const record = detail as Record<string, unknown>;
+    const type = String(record.error_type ?? "nba_error");
+    const message = String(record.message ?? fallback);
+    const retryable = record.retryable === true ? "retryable" : "non_retryable";
+    return `NBA sidecar error ${status} for ${endpoint}: ${type}:${retryable}:${message}`;
+  }
+  return `NBA sidecar error ${status} for ${endpoint}: ${fallback}`;
+}
+
 export async function nbaFetch(url: string, options: FetchOptions = {}) {
   const retries = options.retries ?? config.ingest.maxRetries;
   let attempt = 0;
@@ -43,6 +54,7 @@ export async function nbaFetch(url: string, options: FetchOptions = {}) {
   const sidecarUrl = config.ingest.sidecarUrl?.trim();
   const proxyUrl = config.ingest.proxyUrl?.trim();
   const useSidecar = sidecarUrl && url.startsWith(NBA_STATS_BASE);
+
   while (attempt <= retries) {
     try {
       if (useSidecar) {
@@ -58,46 +70,54 @@ export async function nbaFetch(url: string, options: FetchOptions = {}) {
           }),
         });
 
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(`NBA sidecar error ${response.status} for ${endpoint}: ${text}`);
+        const text = await response.text();
+        let parsed: any = null;
+        try {
+          parsed = text ? JSON.parse(text) : null;
+        } catch {
+          parsed = null;
         }
 
-        const payload = await response.json();
+        if (!response.ok) {
+          const detail = parsed?.detail;
+          throw new Error(formatSidecarError(response.status, detail, text, endpoint));
+        }
+
+        const payload = parsed?.payload ?? parsed;
         return new Response(JSON.stringify(payload), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
-      } else {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), config.ingest.fetchTimeoutMs);
-
-        const response = await fetch(url, {
-          method: options.method ?? "GET",
-          headers: {
-            ...nbaHeaders(),
-            ...(options.headers ?? {}),
-          },
-          body: options.body,
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-
-        if (response.status === 429 || response.status >= 500) {
-          const retryAfter = response.headers.get("retry-after");
-          const delay = retryAfter ? Number(retryAfter) * 1000 : config.ingest.retryBaseMs * (attempt + 1);
-          await sleep(delay);
-          attempt++;
-          continue;
-        }
-
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(`NBA fetch error ${response.status} for ${url}: ${text}`);
-        }
-
-        return response;
       }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), config.ingest.fetchTimeoutMs);
+
+      const response = await fetch(url, {
+        method: options.method ?? "GET",
+        headers: {
+          ...nbaHeaders(),
+          ...(options.headers ?? {}),
+        },
+        body: options.body,
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (response.status === 429 || response.status >= 500) {
+        const retryAfter = response.headers.get("retry-after");
+        const delay = retryAfter ? Number(retryAfter) * 1000 : config.ingest.retryBaseMs * (attempt + 1);
+        await sleep(delay);
+        attempt++;
+        continue;
+      }
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`NBA fetch error ${response.status} for ${url}: ${body}`);
+      }
+
+      return response;
     } catch (error) {
       lastError = error as Error;
       const delay = config.ingest.retryBaseMs * (attempt + 1);

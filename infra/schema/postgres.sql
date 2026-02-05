@@ -93,3 +93,46 @@ create table if not exists ingest_state (
   value text,
   updated_at timestamptz default now()
 );
+
+create table if not exists ingest_endpoint_manifest (
+  module text primary key,
+  endpoint text not null,
+  enabled boolean not null default true,
+  phase text not null default 'phase1',
+  mode text not null default 'season',
+  priority integer not null default 100,
+  retry_profile text not null default 'default',
+  notes text,
+  updated_at timestamptz default now()
+);
+
+create table if not exists ingest_coverage (
+  module text not null,
+  season text not null,
+  season_type text not null,
+  variant_id text not null,
+  status text not null,
+  row_count integer not null default 0,
+  last_success_at timestamptz,
+  last_error text,
+  blocked_until timestamptz,
+  updated_at timestamptz default now(),
+  primary key (module, season, season_type, variant_id)
+);
+
+create table if not exists ingest_run_log (
+  id bigserial primary key,
+  task_id uuid,
+  module text,
+  params_hash text,
+  status text not null,
+  error_type text,
+  error_message text,
+  duration_ms integer,
+  response_bytes integer,
+  created_at timestamptz default now()
+);
+
+create index if not exists ingest_run_log_created_idx on ingest_run_log (created_at desc);
+create index if not exists ingest_run_log_module_idx on ingest_run_log (module, created_at desc);
+create index if not exists ingest_coverage_status_idx on ingest_coverage (status, updated_at desc);

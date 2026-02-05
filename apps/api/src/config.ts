@@ -36,6 +36,7 @@ export const config = {
     url: env.CLICKHOUSE_URL ?? "http://localhost:8123",
     user: env.CLICKHOUSE_USER ?? "default",
     password: env.CLICKHOUSE_PASSWORD ?? "",
+    insertBatchRows: Number(env.CLICKHOUSE_INSERT_BATCH_ROWS ?? 2000),
   },
   postgresUrl: env.POSTGRES_URL ?? "",
   redisUrl: env.REDIS_URL ?? "",
@@ -52,7 +53,7 @@ export const config = {
     maxClipSeconds: Number(env.MAX_CLIP_SECONDS ?? 600),
   },
   ingest: {
-    seasonStart: Number(env.INGEST_SEASON_START ?? 1946),
+    seasonStart: Number(env.INGEST_SEASON_START ?? 2013),
     backfillBatch: Number(env.INGEST_BACKFILL_BATCH ?? 2),
     rateLimitMs: Number(env.INGEST_RATE_LIMIT_MS ?? 450),
     maxRetries: Number(env.INGEST_MAX_RETRIES ?? 5),

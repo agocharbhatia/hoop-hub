@@ -14,6 +14,10 @@ export type StatsFactRow = {
   denominator: number | null;
   dims_map: Record<string, string>;
   source_endpoint: string;
+  source_module: string;
+  dataset_name: string;
+  metric_key: string;
+  is_rank_metric: number;
   ingested_at: string;
 };
 
@@ -27,6 +31,16 @@ type ResultSet = {
   headers: string[];
   rowSet: unknown[][];
 };
+
+const IDENTIFIER_HEADERS = new Set([
+  "PLAYER_ID",
+  "TEAM_ID",
+  "GAME_ID",
+  "CFID",
+  "GROUP_SET",
+  "GROUP_ID",
+  "GROUP_NAME",
+]);
 
 function pickResultSets(payload: any): ResultSet[] {
   if (payload?.resultSets && Array.isArray(payload.resultSets)) {
@@ -45,22 +59,20 @@ function inferEntity(rowObj: Record<string, unknown>) {
   return { entity_type: "league", entity_id: "league" };
 }
 
-function toStatId(endpoint: string, header: string) {
-  return `${endpoint}:${header}`;
-}
-
 function humanizeHeader(header: string) {
   return header.replace(/_/g, " ").replace(/\bPCT\b/i, "%").trim();
 }
 
 function inferAggregation(header: string) {
   if (/PCT|PERCENT|%/i.test(header)) return "avg";
+  if (/RATING|RATE|PER|POSS|PACE|EFF/i.test(header)) return "avg";
   return "sum";
 }
 
 function inferUnit(header: string) {
   if (/PCT|PERCENT|%/i.test(header)) return "percent";
   if (/MIN/i.test(header)) return "minutes";
+  if (/RATING|PACE|EFF/i.test(header)) return "rating";
   return "count";
 }
 
@@ -74,28 +86,48 @@ function exampleForHeader(header: string) {
   return Array.from(new Set(examples));
 }
 
+function isIdentifierHeader(header: string) {
+  if (IDENTIFIER_HEADERS.has(header)) return true;
+  if (header.endsWith("_ID")) return true;
+  if (/^ID$/i.test(header)) return true;
+  return false;
+}
+
+function isRankHeader(header: string) {
+  return /_RANK$/i.test(header);
+}
+
+function toStatId(moduleName: string, header: string) {
+  return `${moduleName}:${header}`;
+}
+
 export function parseStatsResponse(
+  moduleName: string,
   endpoint: string,
   season: string,
   seasonType: string,
   params: Record<string, string | number>,
-  payload: any
+  payload: any,
+  options: { gameId?: string; variantId?: string } = {}
 ): StatsParseResult {
   const resultSets = pickResultSets(payload);
   const rows: StatsFactRow[] = [];
   const catalogMap = new Map<string, StatCatalogEntry>();
 
-  const dimsMap: Record<string, string> = {
+  const dimsMapBase: Record<string, string> = {
     season,
     season_type: seasonType,
+    variant_id: options.variantId ?? "default",
   };
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null) continue;
-    dimsMap[key.toLowerCase()] = String(value);
+    dimsMapBase[key.toLowerCase()] = String(value);
   }
 
   for (const set of resultSets) {
     const headers = set.headers ?? [];
+    const datasetName = set.name ?? "result_set";
+
     for (const rawRow of set.rowSet ?? []) {
       const rowObj: Record<string, unknown> = {};
       headers.forEach((header, idx) => {
@@ -103,29 +135,42 @@ export function parseStatsResponse(
       });
 
       const entity = inferEntity(rowObj);
+      const rowGameId = String(options.gameId ?? rowObj.GAME_ID ?? "");
       for (const header of headers) {
+        // Keep rank columns out of fact ingestion to avoid inflating storage/query volume.
+        if (isIdentifierHeader(header) || isRankHeader(header)) continue;
+
         const value = numericOrNull(rowObj[header]);
         if (value === null) continue;
 
-        const statId = toStatId(endpoint, header);
+        const statId = toStatId(moduleName, header);
         rows.push({
           stat_id: statId,
           entity_type: entity.entity_type,
           entity_id: entity.entity_id,
           season,
           season_type: seasonType,
-          game_id: String(rowObj.GAME_ID ?? ""),
-          date: toClickhouseDate(rowObj.GAME_DATE ? String(rowObj.GAME_DATE) : ""),
+          game_id: rowGameId,
+          date: toClickhouseDate(rowObj.GAME_DATE ? String(rowObj.GAME_DATE) : rowObj.GAME_DATE_EST ? String(rowObj.GAME_DATE_EST) : ""),
           value,
           numerator: null,
           denominator: null,
           dims_map: {
-            ...dimsMap,
-            player_name: rowObj.PLAYER_NAME ? String(rowObj.PLAYER_NAME) : "",
+            ...dimsMapBase,
+            dataset_name: datasetName,
+            player_name: rowObj.PLAYER_NAME ? String(rowObj.PLAYER_NAME) : rowObj.PLAYER ? String(rowObj.PLAYER) : "",
             team_id: rowObj.TEAM_ID ? String(rowObj.TEAM_ID) : "",
-            team_abbreviation: rowObj.TEAM_ABBREVIATION ? String(rowObj.TEAM_ABBREVIATION) : "",
+            team_abbreviation: rowObj.TEAM_ABBREVIATION
+              ? String(rowObj.TEAM_ABBREVIATION)
+              : rowObj.TEAM_ABBREVIATION_SHORT
+                ? String(rowObj.TEAM_ABBREVIATION_SHORT)
+                : "",
           },
           source_endpoint: endpoint,
+          source_module: moduleName,
+          dataset_name: datasetName,
+          metric_key: header,
+          is_rank_metric: 0,
           ingested_at: toClickhouseDateTime(),
         });
 
@@ -133,12 +178,12 @@ export function parseStatsResponse(
           catalogMap.set(statId, {
             statId,
             statName: humanizeHeader(header),
-            description: `${humanizeHeader(header)} from ${endpoint}`,
+            description: `${humanizeHeader(header)} from ${moduleName}`,
             unit: inferUnit(header),
             entityType: entity.entity_type,
-            dimensions: ["season", "season_type"],
+            dimensions: ["season", "season_type", "variant_id", "dataset_name"],
             aggregationType: inferAggregation(header),
-            allowedFilters: ["season", "season_type"],
+            allowedFilters: ["season", "season_type", "team_id", "shot_zone", "dataset_name", "variant_id"],
             examples: exampleForHeader(header),
           });
         }

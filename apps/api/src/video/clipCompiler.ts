@@ -9,6 +9,11 @@ export type CompilationResult = {
   clipCount: number;
 };
 
+async function readSpawnText(stream: number | ReadableStream<Uint8Array<ArrayBuffer>> | undefined) {
+  if (!stream || typeof stream === "number") return "";
+  return await new Response(stream).text();
+}
+
 export async function compileClips(urls: string[], jobId: string): Promise<CompilationResult> {
   if (urls.length === 0) return { clipCount: 0 };
   if (urls.length > config.limits.maxClipCount) {
@@ -60,7 +65,7 @@ export async function compileClips(urls: string[], jobId: string): Promise<Compi
           );
         }
         const code = await proc.exited;
-        if (code !== 0) throw new Error(await new Response(proc.stderr).text());
+        if (code !== 0) throw new Error(await readSpawnText(proc.stderr));
         return;
       }
 
@@ -101,7 +106,7 @@ export async function compileClips(urls: string[], jobId: string): Promise<Compi
           );
         }
         const code = await proc.exited;
-        if (code !== 0) throw new Error(await new Response(proc.stderr).text());
+        if (code !== 0) throw new Error(await readSpawnText(proc.stderr));
         normalized.push(normPath);
       }
 
@@ -122,7 +127,7 @@ export async function compileClips(urls: string[], jobId: string): Promise<Compi
         );
       }
       const code = await proc.exited;
-      if (code !== 0) throw new Error(await new Response(proc.stderr).text());
+      if (code !== 0) throw new Error(await readSpawnText(proc.stderr));
     };
 
     try {

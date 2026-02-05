@@ -1,7 +1,6 @@
 # NBA API Sidecar (Python)
 
-This service wraps the `nba_api` package and exposes a simple HTTP endpoint for stats.nba.com calls.
-It is designed to run locally and be called by the Bun ingestion worker.
+This service wraps the `nba_api` package and exposes HTTP endpoints for Bun ingestion.
 
 ## Setup
 ```bash
@@ -23,24 +22,70 @@ curl http://127.0.0.1:8008/health
 ```
 
 ## Configure Bun ingestion to use the sidecar
-In `apps/api/.env` (local dev):
-```
+In `apps/api/.env`:
+```env
 INGEST_SIDECAR_URL=http://127.0.0.1:8008
 ```
 
-Then run the worker locally:
+Then run the worker:
 ```bash
 cd apps/api
 bun run worker:ingest
 ```
 
-## Optional env vars
-- `NBA_API_PROXY` — proxy URL if you need to route stats.nba.com through a proxy.
-- `NBA_API_TIMEOUT_MS` — timeout per request (default 30000).
+## API
 
-## Passing a proxy from Bun
-If you set `INGEST_PROXY_URL` in `apps/api/.env`, the Bun worker will forward it to the sidecar.
+### `GET /endpoints`
+Returns discovered `nba_api.stats.endpoints` modules with:
+- module name
+- endpoint name
+- required constructor args
+- constructor arg list
+- default parameter keys
+
+### `POST /stats`
+Request body:
+```json
+{
+  "module": "leaguedashplayerstats",
+  "overrides": {
+    "Season": "2024-25",
+    "SeasonType": "Regular Season",
+    "PerMode": "PerGame",
+    "MeasureType": "Base"
+  },
+  "timeout_ms": 20000
+}
+```
+
+Legacy compatibility: `endpoint` + `params` is still accepted.
+
+Success response:
+```json
+{
+  "module": "leaguedashplayerstats",
+  "endpoint": "leaguedashplayerstats",
+  "response_bytes": 123456,
+  "payload": { "resultSets": [] }
+}
+```
+
+Error response (`detail`):
+```json
+{
+  "error_type": "invalid_json|timeout|network|param_validation|nba_error",
+  "http_status": 502,
+  "message": "...",
+  "module": "...",
+  "endpoint": "...",
+  "retryable": true
+}
+```
+
+## Optional env vars
+- `NBA_API_PROXY` - proxy URL for NBA requests.
+- `NBA_API_TIMEOUT_MS` - request timeout in milliseconds.
 
 ## Notes
-- The sidecar calls `stats.nba.com` using `nba_api.stats.library.http.NBAStatsHTTP`, which applies NBA-appropriate headers and request parameters.
-- This does not bypass IP blocks; if your network is blocked, use a proxy and set `NBA_API_PROXY`.
+- Sidecar is class-driven: it uses endpoint class defaults from `nba_api` and then applies overrides.
+- This fixes failures caused by incomplete ad-hoc parameter sets.

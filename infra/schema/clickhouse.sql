@@ -11,10 +11,19 @@ create table if not exists stats_fact (
   denominator Float64,
   dims_map Map(String, String),
   source_endpoint String,
+  source_module String,
+  dataset_name String,
+  metric_key String,
+  is_rank_metric UInt8,
   ingested_at DateTime
 ) engine = MergeTree
 partition by season
 order by (stat_id, entity_id, season, season_type);
+
+alter table stats_fact add column if not exists source_module String default '';
+alter table stats_fact add column if not exists dataset_name String default '';
+alter table stats_fact add column if not exists metric_key String default '';
+alter table stats_fact add column if not exists is_rank_metric UInt8 default 0;
 
 create table if not exists pbp_event (
   season String,

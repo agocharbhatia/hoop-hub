@@ -141,12 +141,12 @@ export async function handleNLQ(query: string): Promise<NLQResponse> {
         entity_id: row.entity_id,
         entity_name: row.entity_name || entityNames[row.entity_id] || row.entity_id,
         stat_id: row.stat_id,
-        stat: row.stat_id.includes(":") ? row.stat_id.split(":").pop() : row.stat_id,
+        stat: String(row.stat_id.includes(":") ? row.stat_id.split(":").pop() ?? "" : row.stat_id),
         value: row.value,
       })),
     };
 
-    if (!answer && statsResult.rows.length > 0 && isDirectAnswerQuery(normalizedQuery)) {
+    if (!answer && statsResult && statsResult.rows.length > 0 && isDirectAnswerQuery(normalizedQuery)) {
       const top = statsResult.rows[0];
       const subject = String(top.entity_name ?? top.entity_id ?? "Unknown");
       const value = formatMetricValue(top.value, statEntry?.statId, statEntry?.unit);
@@ -157,7 +157,7 @@ export async function handleNLQ(query: string): Promise<NLQResponse> {
       showTable = false;
     }
 
-    if (!answer && statsResult.rows.length === 0 && statEntry?.sourceEndpoint === "leaguedashplayershotlocations") {
+    if (!answer && statsResult && statsResult.rows.length === 0 && statEntry?.sourceEndpoint === "leaguedashplayershotlocations") {
       answer = "Mid-range shot-location stats are currently unavailable because the source endpoint is failing ingestion.";
       showTable = false;
     }

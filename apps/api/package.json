@@ -11,6 +11,7 @@
     "ingest:status": "bun src/scripts/ingest-status.ts",
     "ingest:status:tunnel": "ENV_FILE=.env.tunnel bun src/scripts/ingest-status.ts",
     "ingest:unstick": "bun src/scripts/ingest-unstick.ts",
+    "ingest:requeue-memory": "bun src/scripts/ingest-requeue-memory.ts",
     "worker:ingest": "bun src/workers/ingest.ts",
     "worker:ingest:tunnel": "ENV_FILE=.env.tunnel bun src/workers/ingest.ts",
     "worker:clips": "bun src/workers/clipCompilerWorker.ts",
