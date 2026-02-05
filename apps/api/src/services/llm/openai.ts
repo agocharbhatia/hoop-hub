@@ -40,6 +40,25 @@ export const openAiNlqPlanSchema = z.object({
       limit: z.number().int().min(1).max(500).default(50),
     })
     .default({ want_table: true, want_clips: false, compile: false, limit: 50 }),
+  presentation: z
+    .object({
+      goal: z
+        .enum([
+          "direct_answer",
+          "ranking",
+          "comparison",
+          "trend",
+          "distribution",
+          "shot_profile",
+          "clips",
+        ])
+        .optional(),
+      preferred_views: z
+        .array(z.enum(["kpi", "table", "line", "bar", "scatter", "shot_xy", "shot_zone", "clips"]))
+        .default([]),
+      max_blocks: z.number().int().min(1).max(4).optional(),
+    })
+    .default({ preferred_views: [] }),
 });
 
 export type OpenAiNlqPlan = z.infer<typeof openAiNlqPlanSchema>;
@@ -49,7 +68,7 @@ function jsonSchemaForNlqPlan() {
   return {
     type: "object",
     additionalProperties: false,
-    required: ["intent", "stat_search_term", "entities", "time", "filters", "output"],
+    required: ["intent", "stat_search_term", "entities", "time", "filters", "output", "presentation"],
     properties: {
       intent: {
         type: "string",
@@ -109,6 +128,33 @@ function jsonSchemaForNlqPlan() {
           limit: { type: "integer", minimum: 1, maximum: 500 },
         },
       },
+      presentation: {
+        type: "object",
+        additionalProperties: false,
+        required: ["preferred_views"],
+        properties: {
+          goal: {
+            type: "string",
+            enum: [
+              "direct_answer",
+              "ranking",
+              "comparison",
+              "trend",
+              "distribution",
+              "shot_profile",
+              "clips",
+            ],
+          },
+          preferred_views: {
+            type: "array",
+            items: {
+              type: "string",
+              enum: ["kpi", "table", "line", "bar", "scatter", "shot_xy", "shot_zone", "clips"],
+            },
+          },
+          max_blocks: { type: "integer", minimum: 1, maximum: 4 },
+        },
+      },
     },
   };
 }
@@ -136,6 +182,9 @@ export async function planNlqWithOpenAI(query: string): Promise<OpenAiNlqPlan> {
     "- coverage_type examples: ['drop','switch'].",
     "- If the user asks to 'show' or 'every/all clips', set output.want_clips=true.",
     "- intent is 'hybrid' when both stats and clips are requested.",
+    "- presentation.goal should summarize the best visualization objective.",
+    "- presentation.preferred_views should rank display styles from most useful to least useful.",
+    "- presentation.max_blocks should be 1..4 only when fewer blocks improve clarity; otherwise omit it.",
   ].join("\n");
 
   const body = {

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { afterUpdate, tick } from "svelte";
   import { fetchQuerySupport, runQuery, type NLQResponse, type QuerySupport } from "./lib/api";
-  import MessageTable, { type TableColumn } from "./lib/components/MessageTable.svelte";
+  import MessageTable from "./lib/components/MessageTable.svelte";
+  import RenderBlocks from "./lib/components/presentation/RenderBlocks.svelte";
 
   const examples = [
     "What is Scottie Barnes' mid-range FG% this season?",
@@ -65,7 +66,7 @@
     const hasStat = stats.columns.includes("stat") || stats.columns.includes("stat_id");
 
     if (hasEntity && hasValue) {
-      const columns: TableColumn[] = [
+      const columns: Array<{ key: string; label?: string; align?: "left" | "right" | "center" }> = [
         { key: "rank", label: "#" },
         { key: "entity", label: response.intent === "comparison" ? "Entity" : "Player" },
       ];
@@ -246,65 +247,72 @@
             {:else if message.error}
               <div class="error">{message.error}</div>
             {:else if message.response}
-              {#if message.response.answer}
-                <div class="answer">{message.response.answer}</div>
-              {/if}
+              {#if message.response.presentation?.blocks?.length}
+                <RenderBlocks blocks={message.response.presentation.blocks} />
+              {:else}
+                {#if message.response.answer}
+                  <div class="answer">{message.response.answer}</div>
+                {/if}
 
-              {#if !message.response.answer && (!message.response.stats || message.response.stats.rows.length === 0) && !message.response.clips}
-                <div class="note">{message.response.explanation}</div>
-              {/if}
+                {#if !message.response.answer && (!message.response.stats || message.response.stats.rows.length === 0) && !message.response.clips}
+                  <div class="note">{message.response.explanation}</div>
+                {/if}
 
-              {#if message.response.stats && message.response.showTable !== false}
-                <div class="card">
-                  <h3>Stats</h3>
-                  <MessageTable
-                    columns={tableColumns(message.response)}
-                    rows={tableRows(message.response)}
-                    emptyText="No stats returned for this query."
-                    dense
-                  />
-                </div>
-              {/if}
+                {#if message.response.stats && message.response.showTable !== false}
+                  <div class="card">
+                    <h3>Stats</h3>
+                    <MessageTable
+                      columns={tableColumns(message.response)}
+                      rows={tableRows(message.response)}
+                      emptyText="No stats returned for this query."
+                      dense
+                      sortable
+                      stickyHeader
+                      maxHeight={420}
+                    />
+                  </div>
+                {/if}
 
-              {#if message.response.clips}
-                <div class="card">
-                  <h3>Clips</h3>
-                  <p class="muted">
-                    Coverage: {message.response.clips.coverage.available} /
-                    {message.response.clips.coverage.requested}
-                  </p>
-                  {#if message.response.clips.compiledUrl}
-                    <video controls class="video" src={message.response.clips.compiledUrl}>
-                      <track kind="captions" />
-                    </video>
-                  {/if}
-                  <div class="clip-list">
-                    {#each message.response.clips.items as clip}
-                      <div class="clip-item">
-                        <div class="clip-meta">
-                          <div>
-                            <strong>Game:</strong> {clip.gameId} <strong>Event:</strong> {clip.eventId}
-                          </div>
-                          {#if clip.videoAvailable && clip.url}
-                            <div class="clip-actions">
-                              <button class="link" type="button" on:click={() => toggleClip(`${clip.gameId}:${clip.eventId}`)}>
-                                {openClips.has(`${clip.gameId}:${clip.eventId}`) ? "Hide" : "Play"}
-                              </button>
-                              <a href={clip.url} target="_blank" rel="noreferrer">Open</a>
+                {#if message.response.clips}
+                  <div class="card">
+                    <h3>Clips</h3>
+                    <p class="muted">
+                      Coverage: {message.response.clips.coverage.available} /
+                      {message.response.clips.coverage.requested}
+                    </p>
+                    {#if message.response.clips.compiledUrl}
+                      <video controls class="video" src={message.response.clips.compiledUrl}>
+                        <track kind="captions" />
+                      </video>
+                    {/if}
+                    <div class="clip-list">
+                      {#each message.response.clips.items as clip}
+                        <div class="clip-item">
+                          <div class="clip-meta">
+                            <div>
+                              <strong>Game:</strong> {clip.gameId} <strong>Event:</strong> {clip.eventId}
                             </div>
-                          {:else}
-                            <span class="muted">Clip unavailable</span>
+                            {#if clip.videoAvailable && clip.url}
+                              <div class="clip-actions">
+                                <button class="link" type="button" on:click={() => toggleClip(`${clip.gameId}:${clip.eventId}`)}>
+                                  {openClips.has(`${clip.gameId}:${clip.eventId}`) ? "Hide" : "Play"}
+                                </button>
+                                <a href={clip.url} target="_blank" rel="noreferrer">Open</a>
+                              </div>
+                            {:else}
+                              <span class="muted">Clip unavailable</span>
+                            {/if}
+                          </div>
+                          {#if clip.videoAvailable && clip.url && openClips.has(`${clip.gameId}:${clip.eventId}`)}
+                            <video class="video inline" controls preload="metadata" src={clip.url}>
+                              <track kind="captions" />
+                            </video>
                           {/if}
                         </div>
-                        {#if clip.videoAvailable && clip.url && openClips.has(`${clip.gameId}:${clip.eventId}`)}
-                          <video class="video inline" controls preload="metadata" src={clip.url}>
-                            <track kind="captions" />
-                          </video>
-                        {/if}
-                      </div>
-                    {/each}
+                      {/each}
+                    </div>
                   </div>
-                </div>
+                {/if}
               {/if}
             {/if}
           </div>
