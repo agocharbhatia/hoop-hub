@@ -54,6 +54,8 @@ API (`apps/api/.env`):
 - `S3_CLIP_BUCKET=hoophub-clips`
 - `S3_ENDPOINT=` (optional, for S3-compatible stores like Cloudflare R2)
 - `CLIP_URL_TTL_SECONDS=86400`
+- `INGEST_SIDECAR_URL=` (optional, e.g. http://127.0.0.1:8008 to use the Python sidecar)
+- `INGEST_PROXY_URL=` (optional, proxy URL forwarded to the sidecar)
 
 Web (`apps/web/.env`):
 - `VITE_API_BASE=http://localhost:8787`
@@ -96,6 +98,23 @@ Run the ingestion worker on your ClickHouse droplet (best performance) or locall
 ```bash
 cd apps/api
 bun run worker:ingest
+```
+
+## Ingestion via Python sidecar (local)
+If `stats.nba.com` is blocked from your server IP, run ingestion locally with the Python sidecar
+(`apps/ingest-python`) and point the Bun worker at it.
+
+```bash
+# Terminal 1: start the sidecar
+cd apps/ingest-python
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app:app --host 127.0.0.1 --port 8008
+
+# Terminal 2: run ingestion locally (pointing at sidecar)
+cd apps/api
+INGEST_SIDECAR_URL=http://127.0.0.1:8008 bun run worker:ingest
 ```
 
 ## Tests

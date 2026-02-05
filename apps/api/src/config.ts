@@ -41,5 +41,7 @@ export const config = {
     fetchTimeoutMs: Number(env.INGEST_FETCH_TIMEOUT_MS ?? 15000),
     idleLogMs: Number(env.INGEST_IDLE_LOG_MS ?? 30000),
     archiveRaw: env.INGEST_ARCHIVE_RAW?.toLowerCase() !== "false",
+    sidecarUrl: env.INGEST_SIDECAR_URL ?? "",
+    proxyUrl: env.INGEST_PROXY_URL ?? "",
   },
 };

@@ -25,40 +25,79 @@ type FetchOptions = {
   retries?: number;
 };
 
+export function parseStatsUrl(url: string) {
+  const parsed = new URL(url);
+  const parts = parsed.pathname.split("/").filter(Boolean);
+  const endpoint = parts[parts.length - 1] ?? "";
+  const params: Record<string, string> = {};
+  parsed.searchParams.forEach((value, key) => {
+    params[key] = value;
+  });
+  return { endpoint, params };
+}
+
 export async function nbaFetch(url: string, options: FetchOptions = {}) {
   const retries = options.retries ?? config.ingest.maxRetries;
   let attempt = 0;
   let lastError: Error | null = null;
+  const sidecarUrl = config.ingest.sidecarUrl?.trim();
+  const proxyUrl = config.ingest.proxyUrl?.trim();
+  const useSidecar = sidecarUrl && url.startsWith(NBA_STATS_BASE);
   while (attempt <= retries) {
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), config.ingest.fetchTimeoutMs);
+      if (useSidecar) {
+        const { endpoint, params } = parseStatsUrl(url);
+        const response = await fetch(`${sidecarUrl.replace(/\/$/, "")}/stats`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            endpoint,
+            params,
+            timeout_ms: config.ingest.fetchTimeoutMs,
+            proxy: proxyUrl || undefined,
+          }),
+        });
 
-      const response = await fetch(url, {
-        method: options.method ?? "GET",
-        headers: {
-          ...nbaHeaders(),
-          ...(options.headers ?? {}),
-        },
-        body: options.body,
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`NBA sidecar error ${response.status} for ${endpoint}: ${text}`);
+        }
 
-      if (response.status === 429 || response.status >= 500) {
-        const retryAfter = response.headers.get("retry-after");
-        const delay = retryAfter ? Number(retryAfter) * 1000 : config.ingest.retryBaseMs * (attempt + 1);
-        await sleep(delay);
-        attempt++;
-        continue;
+        const payload = await response.json();
+        return new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      } else {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), config.ingest.fetchTimeoutMs);
+
+        const response = await fetch(url, {
+          method: options.method ?? "GET",
+          headers: {
+            ...nbaHeaders(),
+            ...(options.headers ?? {}),
+          },
+          body: options.body,
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (response.status === 429 || response.status >= 500) {
+          const retryAfter = response.headers.get("retry-after");
+          const delay = retryAfter ? Number(retryAfter) * 1000 : config.ingest.retryBaseMs * (attempt + 1);
+          await sleep(delay);
+          attempt++;
+          continue;
+        }
+
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`NBA fetch error ${response.status} for ${url}: ${text}`);
+        }
+
+        return response;
       }
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`NBA fetch error ${response.status} for ${url}: ${text}`);
-      }
-
-      return response;
     } catch (error) {
       lastError = error as Error;
       const delay = config.ingest.retryBaseMs * (attempt + 1);
