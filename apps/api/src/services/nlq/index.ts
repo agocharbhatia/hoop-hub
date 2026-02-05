@@ -5,7 +5,7 @@ import { resolveStat } from "../catalog";
 import { deriveStatPlan } from "./derived";
 import { buildPbpQuery, buildStatQuery } from "../queryPlanner";
 import { executeStatQuery } from "../statsService";
-import { executePbpQuery } from "../pbpService";
+import { executePbpQuery, executeShotVizQuery } from "../pbpService";
 import { resolveClipRefs } from "../../video/urlResolver";
 import { compileClips } from "../../video/clipCompiler";
 import { config } from "../../config";
@@ -13,6 +13,7 @@ import { cacheGet, cacheSet } from "../../utils/cache";
 import { sha256Hex } from "../../utils/hash";
 import { planNlqWithOpenAI } from "../llm/openai";
 import { getPostgres } from "../../db/postgres";
+import { buildPresentationBlocks } from "./presentation";
 
 function metricLabel(statId?: string, statName?: string) {
   const key = (statId?.split(":").pop() ?? statName ?? "").toUpperCase();
@@ -46,6 +47,23 @@ function isSingleGameExtremaQuery(normalizedQuery: string) {
 function isDirectAnswerQuery(normalizedQuery: string) {
   if (/\b(table|list|rankings?|top\s+\d+|show me)\b/i.test(normalizedQuery)) return false;
   return /\bwho\b.*\b(most|highest|lowest|least|best|worst|leader|leads|top)\b/i.test(normalizedQuery);
+}
+
+function isShotVisualizationQuery(
+  normalizedQuery: string,
+  options: {
+    shotZones: string[];
+    shotTypes: string[];
+    sourceEndpoint?: string;
+    llmGoal?: string;
+  }
+) {
+  if (options.sourceEndpoint === "leaguedashplayershotlocations") return true;
+  if (options.shotZones.length > 0 || options.shotTypes.length > 0) return true;
+  if (options.llmGoal === "shot_profile") return true;
+  return /\b(shot|shoot|mid-range|midrange|rim|paint|three|3pt|pull-up|catch-and-shoot|catch and shoot)\b/i.test(
+    normalizedQuery
+  );
 }
 
 async function resolveEntityNames(
@@ -118,6 +136,12 @@ export async function handleNLQ(query: string): Promise<NLQResponse> {
 
   const statQuery = buildStatQuery(statEntry, entities);
   const pbpQuery = buildPbpQuery(entities);
+  const isShotQuery = isShotVisualizationQuery(normalizedQuery, {
+    shotZones: entities.shotZones,
+    shotTypes: entities.shotTypes,
+    sourceEndpoint: statEntry?.sourceEndpoint,
+    llmGoal: llmPlan?.presentation?.goal,
+  });
 
   let statsResult: NLQResponse["stats"] | undefined;
   let answer: string | undefined;
@@ -181,6 +205,11 @@ export async function handleNLQ(query: string): Promise<NLQResponse> {
     };
   }
 
+  let shotVizRows: Awaited<ReturnType<typeof executeShotVizQuery>> = [];
+  if (isShotQuery) {
+    shotVizRows = await executeShotVizQuery(pbpQuery, { maxPoints: 3000 });
+  }
+
   const explanationParts: string[] = [];
   if (answer) {
     explanationParts.push(answer);
@@ -196,12 +225,35 @@ export async function handleNLQ(query: string): Promise<NLQResponse> {
   if (entities.season) explanationParts.push(`Season ${entities.season}`);
   if (entities.seasonType) explanationParts.push(`Type ${entities.seasonType}`);
   if (derivedPlan) explanationParts.push(`Derived formula: ${derivedPlan.formula}`);
+  const explanation = explanationParts.join(" | ");
+
+  let presentationBlocks: ReturnType<typeof buildPresentationBlocks>;
+  try {
+    presentationBlocks = buildPresentationBlocks({
+      intent,
+      query,
+      explanation,
+      answer,
+      stats: statsResult,
+      clips: clipsResult,
+      shotRows: shotVizRows,
+      isShotQuery,
+      hint: llmPlan?.presentation,
+    });
+  } catch {
+    presentationBlocks = [{ type: "text", id: "fallback-text", text: explanation, tone: "note" }];
+  }
 
   return {
     intent,
-    explanation: explanationParts.join(" | "),
+    explanation,
     answer,
     showTable,
+    presentation: {
+      version: 2,
+      layout: "stack",
+      blocks: presentationBlocks,
+    },
     stats: statsResult,
     clips: clipsResult,
     debug: {
@@ -211,6 +263,7 @@ export async function handleNLQ(query: string): Promise<NLQResponse> {
       statQuery,
       pbpQuery,
       llmPlan,
+      shotVizRows: shotVizRows.length,
     },
   };
 }
