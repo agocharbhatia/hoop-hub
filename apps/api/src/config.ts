@@ -38,6 +38,8 @@ export const config = {
     rateLimitMs: Number(env.INGEST_RATE_LIMIT_MS ?? 450),
     maxRetries: Number(env.INGEST_MAX_RETRIES ?? 5),
     retryBaseMs: Number(env.INGEST_RETRY_BASE_MS ?? 600),
+    fetchTimeoutMs: Number(env.INGEST_FETCH_TIMEOUT_MS ?? 15000),
+    idleLogMs: Number(env.INGEST_IDLE_LOG_MS ?? 30000),
     archiveRaw: env.INGEST_ARCHIVE_RAW?.toLowerCase() !== "false",
   },
 };

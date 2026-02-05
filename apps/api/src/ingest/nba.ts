@@ -31,6 +31,9 @@ export async function nbaFetch(url: string, options: FetchOptions = {}) {
   let lastError: Error | null = null;
   while (attempt <= retries) {
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), config.ingest.fetchTimeoutMs);
+
       const response = await fetch(url, {
         method: options.method ?? "GET",
         headers: {
@@ -38,7 +41,9 @@ export async function nbaFetch(url: string, options: FetchOptions = {}) {
           ...(options.headers ?? {}),
         },
         body: options.body,
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
 
       if (response.status === 429 || response.status >= 500) {
         const retryAfter = response.headers.get("retry-after");
@@ -50,7 +55,7 @@ export async function nbaFetch(url: string, options: FetchOptions = {}) {
 
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(`NBA fetch error ${response.status}: ${text}`);
+        throw new Error(`NBA fetch error ${response.status} for ${url}: ${text}`);
       }
 
       return response;
@@ -62,7 +67,7 @@ export async function nbaFetch(url: string, options: FetchOptions = {}) {
     }
   }
 
-  throw lastError ?? new Error("NBA fetch failed");
+  throw lastError ?? new Error(`NBA fetch failed for ${url}`);
 }
 
 export function buildStatsUrl(endpoint: string, params: Record<string, string | number | undefined>) {

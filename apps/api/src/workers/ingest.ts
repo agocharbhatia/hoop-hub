@@ -118,6 +118,7 @@ async function runOnce() {
 
   const startedAt = Date.now();
   try {
+    log("task.claimed", { id: task.id, type: task.type, attempts: task.attempts });
     switch (task.type) {
       case "refresh_dimensions":
         await handleRefreshDimensions();
@@ -165,8 +166,14 @@ async function run() {
   log("ingest.start", { clickhouse: config.clickhouse.url });
   await seedBaseTasks();
 
+  let lastIdleLog = Date.now();
   while (true) {
+    const before = Date.now();
     await runOnce();
+    if (Date.now() - before < 2000 && Date.now() - lastIdleLog > config.ingest.idleLogMs) {
+      log("task.idle", {});
+      lastIdleLog = Date.now();
+    }
   }
 }
 
