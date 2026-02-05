@@ -30,6 +30,9 @@
 - Added targeted memory-failure recovery:
   - `POST /api/ingest/requeue-memory-failures` (dry-run/apply, module filter, limit, failed-vs-retry control)
   - `bun run ingest:requeue-memory` CLI script with the same controls.
+- Added droplet-ready process management assets:
+  - systemd units for sidecar/API/worker under `infra/systemd/`
+  - install helper script `apps/api/scripts/install-systemd.sh`.
 - Added a server-driven `presentation` response contract (`version: 2`, `layout: stack`, typed block union) while preserving legacy NLQ fields for backward compatibility.
 - Implemented deterministic NLQ presentation policy engine with guarded LLM hints (`presentation.goal`, `preferred_views`, `max_blocks`) and schema validation/fallback behavior.
 - Added shot-visualization data path: parsed/clamped half-court `x`/`y` points from `pbp_event.dims_map`, plus shot-zone aggregation (`attempts`, `makes`, `fg_pct`).

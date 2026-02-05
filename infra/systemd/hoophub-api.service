@@ -1,0 +1,20 @@
+[Unit]
+Description=HoopHub API (Bun)
+After=network-online.target hoophub-sidecar.service
+Wants=network-online.target
+Requires=hoophub-sidecar.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/hoop-hub/apps/api
+EnvironmentFile=/opt/hoop-hub/apps/api/.env
+ExecStart=/root/.bun/bin/bun src/server.ts
+Restart=always
+RestartSec=3
+TimeoutStartSec=30
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,19 @@
+[Unit]
+Description=HoopHub NBA API Sidecar (FastAPI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/hoop-hub/apps/ingest-python
+EnvironmentFile=-/opt/hoop-hub/apps/ingest-python/.env
+ExecStart=/opt/hoop-hub/apps/ingest-python/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8008
+Restart=always
+RestartSec=3
+TimeoutStartSec=30
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
+
