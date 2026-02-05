@@ -368,6 +368,18 @@ body {
   color: var(--text);
 }
 
+.note {
+  color: var(--muted);
+  font-size: 0.98rem;
+}
+
+.answer {
+  color: var(--text);
+  font-size: 1.03rem;
+  line-height: 1.5;
+  padding: 10px 0;
+}
+
 .composer {
   width: min(1040px, 100%);
   background: rgba(34, 48, 58, 0.9);

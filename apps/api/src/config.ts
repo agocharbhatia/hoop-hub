@@ -1,4 +1,23 @@
-import "dotenv/config";
+import fs from "node:fs";
+import path from "node:path";
+import dotenv from "dotenv";
+
+const cwd = process.cwd();
+const baseEnvPath = path.join(cwd, ".env");
+if (fs.existsSync(baseEnvPath)) {
+  dotenv.config({ path: baseEnvPath });
+}
+
+const envFile = process.env.ENV_FILE?.trim();
+if (envFile) {
+  const resolved = path.isAbsolute(envFile) ? envFile : path.join(cwd, envFile);
+  if (fs.existsSync(resolved)) {
+    dotenv.config({ path: resolved, override: true });
+  } else {
+    // Keep running with base env; this warning makes misconfigured profile selection obvious.
+    console.warn(`[config] ENV_FILE not found: ${resolved}`);
+  }
+}
 
 const env = process.env;
 
@@ -43,5 +62,7 @@ export const config = {
     archiveRaw: env.INGEST_ARCHIVE_RAW?.toLowerCase() !== "false",
     sidecarUrl: env.INGEST_SIDECAR_URL ?? "",
     proxyUrl: env.INGEST_PROXY_URL ?? "",
+    maxTaskAttempts: Number(env.INGEST_MAX_TASK_ATTEMPTS ?? 8),
+    maxRetryDelayMs: Number(env.INGEST_MAX_RETRY_DELAY_MS ?? 600000),
   },
 };

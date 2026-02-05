@@ -152,9 +152,27 @@ async function runOnce() {
         await completeTask(task.id, "skipped", `Unknown task type: ${task.type}`);
     }
   } catch (error) {
-    const delay = config.ingest.retryBaseMs * Math.max(task.attempts, 1);
-    await completeTask(task.id, "retry", String(error), new Date(Date.now() + delay));
-    log("task.error", { type: task.type, error: String(error) });
+    const errorText = String(error);
+    const isInvalidJson =
+      errorText.includes("InvalidResponse: Response is not in a valid JSON format") ||
+      errorText.includes("NBA sidecar error 502");
+    const endpoint = String(task.payload?.endpoint ?? "");
+    const isKnownFragileEndpoint = task.type === "season_stats_endpoint" && endpoint === "leaguedashplayershotlocations";
+
+    if (isKnownFragileEndpoint && isInvalidJson) {
+      await completeTask(task.id, "failed", errorText);
+      log("task.failed_non_retryable", { type: task.type, endpoint, error: errorText });
+    } else if (task.attempts >= config.ingest.maxTaskAttempts) {
+      await completeTask(task.id, "failed", errorText);
+      log("task.failed_max_attempts", { type: task.type, attempts: task.attempts, error: errorText });
+    } else {
+      const delay = Math.min(
+        config.ingest.retryBaseMs * Math.max(task.attempts, 1),
+        config.ingest.maxRetryDelayMs
+      );
+      await completeTask(task.id, "retry", errorText, new Date(Date.now() + delay));
+      log("task.error", { type: task.type, error: errorText });
+    }
   } finally {
     const durationMs = Date.now() - startedAt;
     log("task.complete", { type: task.type, durationMs });

@@ -32,6 +32,21 @@ export function toIsoDate(dateStr: string) {
   return dateStr;
 }
 
+export function toClickhouseDate(dateStr?: string | null) {
+  const normalized = toIsoDate(String(dateStr ?? ""));
+  if (!normalized || !/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null;
+  return normalized;
+}
+
+export function toClickhouseDateTime(input?: string | Date | null) {
+  const date = input ? new Date(input) : new Date();
+  const safe = Number.isNaN(date.getTime()) ? new Date() : date;
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${safe.getUTCFullYear()}-${pad(safe.getUTCMonth() + 1)}-${pad(safe.getUTCDate())} ${pad(
+    safe.getUTCHours()
+  )}:${pad(safe.getUTCMinutes())}:${pad(safe.getUTCSeconds())}`;
+}
+
 export function parseScoreMargin(raw?: string | number | null) {
   if (raw === null || raw === undefined) return 0;
   if (typeof raw === "number") return raw;

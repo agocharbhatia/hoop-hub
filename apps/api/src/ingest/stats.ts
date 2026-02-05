@@ -1,5 +1,5 @@
 import type { StatCatalogEntry } from "../services/catalog";
-import { numericOrNull } from "./utils";
+import { numericOrNull, toClickhouseDate, toClickhouseDateTime } from "./utils";
 
 export type StatsFactRow = {
   stat_id: string;
@@ -8,7 +8,7 @@ export type StatsFactRow = {
   season: string;
   season_type: string;
   game_id: string;
-  date: string;
+  date: string | null;
   value: number;
   numerator: number | null;
   denominator: number | null;
@@ -115,7 +115,7 @@ export function parseStatsResponse(
           season,
           season_type: seasonType,
           game_id: String(rowObj.GAME_ID ?? ""),
-          date: String(rowObj.GAME_DATE ?? ""),
+          date: toClickhouseDate(rowObj.GAME_DATE ? String(rowObj.GAME_DATE) : ""),
           value,
           numerator: null,
           denominator: null,
@@ -126,7 +126,7 @@ export function parseStatsResponse(
             team_abbreviation: rowObj.TEAM_ABBREVIATION ? String(rowObj.TEAM_ABBREVIATION) : "",
           },
           source_endpoint: endpoint,
-          ingested_at: new Date().toISOString(),
+          ingested_at: toClickhouseDateTime(),
         });
 
         if (!catalogMap.has(statId)) {

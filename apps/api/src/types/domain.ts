@@ -8,7 +8,7 @@ export type StatQuery = {
   entityType: EntityType;
   entityIds?: string[];
   season?: string;
-  seasonType?: "regular" | "playoffs" | "playin";
+  seasonType?: string;
   filters?: Record<string, string | number | boolean | string[] | number[]>;
   groupBy?: string[];
   orderBy?: { field: string; direction: "asc" | "desc" }[];
@@ -17,7 +17,7 @@ export type StatQuery = {
 
 export type PbpQuery = {
   season?: string;
-  seasonType?: "regular" | "playoffs" | "playin";
+  seasonType?: string;
   gameIds?: string[];
   teamIds?: string[];
   playerIds?: string[];
@@ -53,6 +53,8 @@ export type NLQRequest = {
 export type NLQResponse = {
   intent: QueryIntent;
   explanation: string;
+  answer?: string;
+  showTable?: boolean;
   stats?: {
     columns: string[];
     rows: Array<Record<string, string | number>>;

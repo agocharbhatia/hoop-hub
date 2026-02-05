@@ -54,6 +54,12 @@ API (`apps/api/.env`):
 - `S3_CLIP_BUCKET=hoophub-clips`
 - `S3_ENDPOINT=` (optional, for S3-compatible stores like Cloudflare R2)
 - `CLIP_URL_TTL_SECONDS=86400`
+
+Tunnel profile override (`apps/api/.env.tunnel`):
+- copy from `apps/api/.env.tunnel.example`
+- set only overrides, for example:
+  - `CLICKHOUSE_URL=http://127.0.0.1:18123`
+  - `INGEST_SIDECAR_URL=http://127.0.0.1:8008`
 - `INGEST_SIDECAR_URL=` (optional, e.g. http://127.0.0.1:8008 to use the Python sidecar)
 - `INGEST_PROXY_URL=` (optional, proxy URL forwarded to the sidecar)
 
@@ -100,6 +106,24 @@ cd apps/api
 bun run worker:ingest
 ```
 
+Local tunnel mode (no repeated exports):
+```bash
+cd apps/api
+bun run ingest:status:tunnel
+bun run worker:ingest:tunnel
+```
+
+If an endpoint gets stuck retrying, unstick it:
+```bash
+cd apps/api
+bun run ingest:unstick
+```
+
+Optional flags:
+- `--dry-run` preview affected tasks without changing anything.
+- `--endpoint <name>` target a different `season_stats_endpoint`.
+- `--all` mark all pending/retry/running tasks as failed.
+
 ## Ingestion via Python sidecar (local)
 If `stats.nba.com` is blocked from your server IP, run ingestion locally with the Python sidecar
 (`apps/ingest-python`) and point the Bun worker at it.
@@ -138,6 +162,8 @@ Env vars for ingestion:
 - `INGEST_FETCH_TIMEOUT_MS=15000`
 - `INGEST_IDLE_LOG_MS=30000`
 - `INGEST_ARCHIVE_RAW=true`
+- `INGEST_MAX_TASK_ATTEMPTS=8`
+- `INGEST_MAX_RETRY_DELAY_MS=600000`
 
 ## Legal
 This project is not affiliated with the NBA. Video clips are fetched from NBA.com and compiled on‑demand without permanent hosting.

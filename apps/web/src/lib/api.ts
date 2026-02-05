@@ -3,6 +3,8 @@ const apiBase = import.meta.env.VITE_API_BASE ?? "http://localhost:8787";
 export type NLQResponse = {
   intent: string;
   explanation: string;
+  answer?: string;
+  showTable?: boolean;
   stats?: { columns: string[]; rows: Record<string, string | number>[] };
   clips?: {
     items: { gameId: string; eventId: string; url?: string; videoAvailable: boolean }[];

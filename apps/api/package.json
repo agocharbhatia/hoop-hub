@@ -9,7 +9,10 @@
     "bootstrap": "bun src/scripts/bootstrap.ts",
     "preflight": "bun src/scripts/preflight.ts",
     "ingest:status": "bun src/scripts/ingest-status.ts",
+    "ingest:status:tunnel": "ENV_FILE=.env.tunnel bun src/scripts/ingest-status.ts",
+    "ingest:unstick": "bun src/scripts/ingest-unstick.ts",
     "worker:ingest": "bun src/workers/ingest.ts",
+    "worker:ingest:tunnel": "ENV_FILE=.env.tunnel bun src/workers/ingest.ts",
     "worker:clips": "bun src/workers/clipCompilerWorker.ts",
     "test": "bun test"
   },

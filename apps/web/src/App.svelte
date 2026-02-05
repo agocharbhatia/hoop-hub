@@ -1,6 +1,7 @@
 <script lang="ts">
   import { afterUpdate, tick } from "svelte";
   import { runQuery, type NLQResponse } from "./lib/api";
+  import MessageTable, { type TableColumn } from "./lib/components/MessageTable.svelte";
 
   const examples = [
     "What is Scottie Barnes' mid-range FG% this season?",
@@ -30,6 +31,57 @@
   let loading = false;
   let messages: Message[] = [];
   let openClips = new Set<string>();
+
+  function formatValue(value: string | number | undefined) {
+    if (typeof value === "number") {
+      return Number.isInteger(value) ? String(value) : value.toFixed(1);
+    }
+    return value ?? "-";
+  }
+
+  function buildStatsTable(response: NLQResponse) {
+    const stats = response.stats;
+    if (!stats) return null;
+
+    const hasEntity = stats.columns.includes("entity_name") || stats.columns.includes("entity_id");
+    const hasValue = stats.columns.includes("value");
+    const hasStat = stats.columns.includes("stat") || stats.columns.includes("stat_id");
+
+    if (hasEntity && hasValue) {
+      const columns: TableColumn[] = [
+        { key: "rank", label: "#" },
+        { key: "entity", label: response.intent === "comparison" ? "Entity" : "Player" },
+      ];
+      if (hasStat) columns.push({ key: "stat", label: "Stat" });
+      columns.push({
+        key: "value",
+        label: "Value",
+        align: "right",
+      });
+
+      const rows = stats.rows.map((row, index) => ({
+        rank: index + 1,
+        entity: String(row.entity_name ?? row.entity_id ?? "-"),
+        stat: String((row.stat ?? row.stat_id ?? "").toString().replace(/^.*:/, "")),
+        value: formatValue(row.value as string | number | undefined),
+      }));
+
+      return { columns, rows };
+    }
+
+    return {
+      columns: stats.columns,
+      rows: stats.rows,
+    };
+  }
+
+  function tableColumns(response: NLQResponse) {
+    return buildStatsTable(response)?.columns ?? [];
+  }
+
+  function tableRows(response: NLQResponse) {
+    return buildStatsTable(response)?.rows ?? [];
+  }
 
   async function submit() {
     if (!query.trim()) return;
@@ -148,28 +200,23 @@
             {:else if message.error}
               <div class="error">{message.error}</div>
             {:else if message.response}
-              <div class="summary">
-                <p><strong>Intent:</strong> {message.response.intent}</p>
-                <p><strong>Explanation:</strong> {message.response.explanation}</p>
-              </div>
+              {#if message.response.answer}
+                <div class="answer">{message.response.answer}</div>
+              {/if}
 
-              {#if message.response.stats}
+              {#if !message.response.answer && (!message.response.stats || message.response.stats.rows.length === 0) && !message.response.clips}
+                <div class="note">{message.response.explanation}</div>
+              {/if}
+
+              {#if message.response.stats && message.response.showTable !== false}
                 <div class="card">
                   <h3>Stats</h3>
-                  <div class="table">
-                    <div class="table-header">
-                      {#each message.response.stats.columns as col}
-                        <div>{col}</div>
-                      {/each}
-                    </div>
-                    {#each message.response.stats.rows as row}
-                      <div class="table-row">
-                        {#each message.response.stats.columns as col}
-                          <div>{row[col]}</div>
-                        {/each}
-                      </div>
-                    {/each}
-                  </div>
+                  <MessageTable
+                    columns={tableColumns(message.response)}
+                    rows={tableRows(message.response)}
+                    emptyText="No stats returned for this query."
+                    dense
+                  />
                 </div>
               {/if}
 

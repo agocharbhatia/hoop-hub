@@ -5,7 +5,7 @@ create table if not exists stats_fact (
   season String,
   season_type String,
   game_id String,
-  date Date,
+  date Nullable(Date),
   value Float64,
   numerator Float64,
   denominator Float64,

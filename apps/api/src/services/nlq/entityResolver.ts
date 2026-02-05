@@ -1,19 +1,13 @@
-const players = [
-  { id: "player_scottie_barnes", name: "scottie barnes" },
-  { id: "player_pascal_siakam", name: "pascal siakam" },
-  { id: "player_stephen_curry", name: "stephen curry" },
-  { id: "player_jimmy_butler", name: "jimmy butler" },
-];
+import { clickhouseQuery } from "../../db/clickhouse";
 
-const teams = [
-  { id: "team_tor", name: "toronto" },
-  { id: "team_gsw", name: "golden state" },
-  { id: "team_mia", name: "miami" },
-];
+export type ResolvedEntityRef = {
+  id: string;
+  name: string;
+};
 
 export type ResolvedEntities = {
-  players: typeof players;
-  teams: typeof teams;
+  players: ResolvedEntityRef[];
+  teams: ResolvedEntityRef[];
   season?: string;
   seasonType?: "regular" | "playoffs" | "playin";
   shotZones: string[];
@@ -23,26 +17,72 @@ export type ResolvedEntities = {
   clutch?: boolean;
 };
 
-function matchList<T extends { name: string }>(query: string, list: T[]): T[] {
-  return list.filter((item) => query.includes(item.name));
+function seasonLabelFromYear(startYear: number) {
+  const nextYear = (startYear + 1) % 100;
+  return `${startYear}-${String(nextYear).padStart(2, "0")}`;
 }
 
-export function resolveEntitiesFromNames(input: {
+export function currentSeasonLabel(today = new Date()) {
+  const year = today.getUTCFullYear();
+  const month = today.getUTCMonth() + 1;
+  return seasonLabelFromYear(month >= 10 ? year : year - 1);
+}
+
+export function normalizeSeasonLabel(input?: string | null): string | undefined {
+  if (!input) return undefined;
+  const trimmed = input.trim();
+  if (/^\d{4}-\d{2}$/.test(trimmed)) return trimmed;
+  if (/^\d{4}$/.test(trimmed)) return seasonLabelFromYear(Number(trimmed));
+  return undefined;
+}
+
+function sanitizeLike(text: string) {
+  return text.toLowerCase().replace(/'/g, "''").trim();
+}
+
+async function resolvePlayersByNames(names: string[]): Promise<ResolvedEntityRef[]> {
+  const resolved: ResolvedEntityRef[] = [];
+  for (const name of names) {
+    const safe = sanitizeLike(name);
+    if (!safe) continue;
+    const sql = `
+      SELECT
+        entity_id,
+        anyIf(dims_map['player_name'], dims_map['player_name'] != '') AS player_name,
+        count() AS hits
+      FROM stats_fact
+      WHERE entity_type = 'player'
+        AND lowerUTF8(dims_map['player_name']) LIKE '%${safe}%'
+      GROUP BY entity_id
+      ORDER BY hits DESC
+      LIMIT 1
+    `;
+    const result = await clickhouseQuery<{ entity_id: string; player_name: string; hits: number }>(sql);
+    const row = result.data[0];
+    if (!row?.entity_id) continue;
+    resolved.push({ id: row.entity_id, name: row.player_name || name });
+  }
+
+  const unique = new Map<string, ResolvedEntityRef>();
+  for (const item of resolved) unique.set(item.id, item);
+  return Array.from(unique.values());
+}
+
+export async function resolveEntitiesFromNames(input: {
   players?: string[];
   teams?: string[];
-}): Pick<ResolvedEntities, "players" | "teams"> {
-  const playerNames = (input.players ?? []).map((p) => p.toLowerCase());
-  const teamNames = (input.teams ?? []).map((t) => t.toLowerCase());
+}): Promise<Pick<ResolvedEntities, "players" | "teams">> {
+  const playerNames = (input.players ?? []).map((p) => p.toLowerCase().trim()).filter(Boolean);
+  const players = await resolvePlayersByNames(playerNames);
   return {
-    players: players.filter((p) => playerNames.some((name) => name.includes(p.name) || p.name.includes(name))),
-    teams: teams.filter((t) => teamNames.some((name) => name.includes(t.name) || t.name.includes(name))),
+    players,
+    // Team name->ID mapping is pending reliable source coverage.
+    teams: [],
   };
 }
 
 export function extractEntities(query: string): ResolvedEntities {
   const normalized = query.toLowerCase();
-  const playersMatched = matchList(normalized, players);
-  const teamsMatched = matchList(normalized, teams);
 
   const shotZones: string[] = [];
   if (normalized.includes("mid-range") || normalized.includes("midrange")) {
@@ -74,14 +114,14 @@ export function extractEntities(query: string): ResolvedEntities {
   if (normalized.includes("playoff")) seasonType = "playoffs";
   if (normalized.includes("play-in")) seasonType = "playin";
 
-  const seasonMatch = normalized.match(/20\d{2}/g);
-  const season = seasonMatch ? seasonMatch[0] : undefined;
+  const seasonMatch = normalized.match(/20\d{2}(?:-\d{2})?/g);
+  const season = seasonMatch ? normalizeSeasonLabel(seasonMatch[0]) : undefined;
 
   const clutch = normalized.includes("clutch") ? true : undefined;
 
   return {
-    players: playersMatched,
-    teams: teamsMatched,
+    players: [],
+    teams: [],
     season,
     seasonType,
     shotZones,

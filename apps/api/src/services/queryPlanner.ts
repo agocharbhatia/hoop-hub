@@ -2,6 +2,14 @@ import type { PbpQuery, StatQuery } from "../types/domain";
 import type { StatCatalogEntry } from "./catalog";
 import type { ResolvedEntities } from "./nlq/entityResolver";
 
+function toDbSeasonType(seasonType?: "regular" | "playoffs" | "playin") {
+  if (!seasonType) return undefined;
+  if (seasonType === "regular") return "Regular Season";
+  if (seasonType === "playoffs") return "Playoffs";
+  if (seasonType === "playin") return "Play-In";
+  return undefined;
+}
+
 export function buildStatQuery(
   stat: StatCatalogEntry | null,
   entities: ResolvedEntities
@@ -21,7 +29,7 @@ export function buildStatQuery(
     entityType: entityType,
     entityIds: entityIds.length ? entityIds : undefined,
     season: entities.season,
-    seasonType: entities.seasonType,
+    seasonType: toDbSeasonType(entities.seasonType),
     filters: {
       shot_zone: entities.shotZones,
     },
@@ -32,7 +40,7 @@ export function buildStatQuery(
 export function buildPbpQuery(entities: ResolvedEntities): PbpQuery {
   return {
     season: entities.season,
-    seasonType: entities.seasonType,
+    seasonType: toDbSeasonType(entities.seasonType),
     playerIds: entities.players.map((player) => player.id),
     teamIds: entities.teams.map((team) => team.id),
     shotZone: entities.shotZones,

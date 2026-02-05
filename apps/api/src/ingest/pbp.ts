@@ -1,4 +1,4 @@
-import { extractUuid, guessShotZone, isClutch, parseScoreMargin } from "./utils";
+import { extractUuid, guessShotZone, isClutch, parseScoreMargin, toClickhouseDateTime } from "./utils";
 
 export type PbpRow = {
   season: string;
@@ -92,7 +92,7 @@ export function parsePbpResponse(
       event_num: eventNum,
       period,
       clock,
-      timestamp: new Date().toISOString(),
+      timestamp: toClickhouseDateTime(),
       team_id: teamId,
       player_ids: playerIds,
       defender_id: "",
@@ -112,7 +112,7 @@ export function parsePbpResponse(
         x: action.x ? String(action.x) : "",
         y: action.y ? String(action.y) : "",
       },
-      ingested_at: new Date().toISOString(),
+      ingested_at: toClickhouseDateTime(),
     });
   }
 

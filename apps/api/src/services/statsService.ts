@@ -38,8 +38,12 @@ export async function executeStatQuery(query: StatQuery) {
   where.push(`stat_id = '${query.statId}'`);
 
   const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const entityNameExpr =
+    query.entityType === "team"
+      ? "anyIf(dims_map['team_abbreviation'], dims_map['team_abbreviation'] != '') AS entity_name"
+      : "anyIf(dims_map['player_name'], dims_map['player_name'] != '') AS entity_name";
   const sql = `
-    SELECT entity_id, stat_id, ${selectExpr}
+    SELECT entity_id, stat_id, ${entityNameExpr}, ${selectExpr}
     FROM stats_fact
     ${whereClause}
     GROUP BY entity_id, stat_id
@@ -47,5 +51,5 @@ export async function executeStatQuery(query: StatQuery) {
     LIMIT ${query.limit ?? 50}
   `;
 
-  return clickhouseQuery<{ entity_id: string; stat_id: string; value: number }>(sql);
+  return clickhouseQuery<{ entity_id: string; stat_id: string; entity_name?: string; value: number }>(sql);
 }

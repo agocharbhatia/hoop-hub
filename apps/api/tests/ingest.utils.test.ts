@@ -1,5 +1,12 @@
 import { test, expect } from "bun:test";
-import { seasonLabelFromYear, guessShotZone, parseScoreMargin, extractUuid } from "../src/ingest/utils";
+import {
+  seasonLabelFromYear,
+  guessShotZone,
+  parseScoreMargin,
+  extractUuid,
+  toClickhouseDate,
+  toClickhouseDateTime,
+} from "../src/ingest/utils";
 import { parseStatsUrl } from "../src/ingest/nba";
 
 test("seasonLabelFromYear formats correctly", () => {
@@ -32,4 +39,14 @@ test("parseStatsUrl extracts endpoint + params", () => {
   expect(params.Season).toBe("2024-25");
   expect(params.SeasonType).toBe("Regular Season");
   expect(params.PerMode).toBe("PerGame");
+});
+
+test("toClickhouseDate returns null for invalid input", () => {
+  expect(toClickhouseDate("")).toBe(null);
+  expect(toClickhouseDate("20240101")).toBe("2024-01-01");
+});
+
+test("toClickhouseDateTime formats without ms", () => {
+  const formatted = toClickhouseDateTime("2026-02-05T10:35:04.872Z");
+  expect(formatted).toBe("2026-02-05 10:35:04");
 });
