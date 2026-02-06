@@ -52,13 +52,14 @@ export const openAiNlqPlanSchema = z.object({
           "shot_profile",
           "clips",
         ])
-        .optional(),
+        .nullable()
+        .default(null),
       preferred_views: z
         .array(z.enum(["kpi", "table", "line", "bar", "scatter", "shot_xy", "shot_zone", "clips"]))
         .default([]),
-      max_blocks: z.number().int().min(1).max(4).optional(),
+      max_blocks: z.number().int().min(1).max(4).nullable().default(null),
     })
-    .default({ preferred_views: [] }),
+    .default({ goal: null, preferred_views: [], max_blocks: null }),
 });
 
 export type OpenAiNlqPlan = z.infer<typeof openAiNlqPlanSchema>;
@@ -131,10 +132,10 @@ function jsonSchemaForNlqPlan() {
       presentation: {
         type: "object",
         additionalProperties: false,
-        required: ["preferred_views"],
+        required: ["goal", "preferred_views", "max_blocks"],
         properties: {
           goal: {
-            type: "string",
+            type: ["string", "null"],
             enum: [
               "direct_answer",
               "ranking",
@@ -143,6 +144,7 @@ function jsonSchemaForNlqPlan() {
               "distribution",
               "shot_profile",
               "clips",
+              null,
             ],
           },
           preferred_views: {
@@ -152,7 +154,7 @@ function jsonSchemaForNlqPlan() {
               enum: ["kpi", "table", "line", "bar", "scatter", "shot_xy", "shot_zone", "clips"],
             },
           },
-          max_blocks: { type: "integer", minimum: 1, maximum: 4 },
+          max_blocks: { type: ["integer", "null"], minimum: 1, maximum: 4 },
         },
       },
     },
@@ -184,7 +186,7 @@ export async function planNlqWithOpenAI(query: string): Promise<OpenAiNlqPlan> {
     "- intent is 'hybrid' when both stats and clips are requested.",
     "- presentation.goal should summarize the best visualization objective.",
     "- presentation.preferred_views should rank display styles from most useful to least useful.",
-    "- presentation.max_blocks should be 1..4 only when fewer blocks improve clarity; otherwise omit it.",
+    "- presentation.max_blocks should be 1..4 when fewer blocks improve clarity; otherwise set it to null.",
   ].join("\n");
 
   const body = {

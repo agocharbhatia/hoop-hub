@@ -98,6 +98,7 @@ body {
   align-items: center;
   gap: 28px;
   position: relative;
+  margin: 0 auto;
 }
 
 .chat.docked {
