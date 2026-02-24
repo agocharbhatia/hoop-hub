@@ -1,8 +1,16 @@
 <script lang="ts">
 	import brandNet from '$lib/assets/brand-net.svg';
+	import type { ChatQueryRequest, ChatQueryResponse, ErrorResponse, QueryTraceResponse } from '$lib/contracts/chat';
 	import { NeoBadge, NeoButton, NeoCard, NeoInput, NeoPanel } from '$lib';
 
+	const sessionId = 'local-session';
 	let query = $state('Who averaged the most assists in 2023-24?');
+	let response = $state<ChatQueryResponse | null>(null);
+	let trace = $state<QueryTraceResponse | null>(null);
+	let queryError = $state<string | null>(null);
+	let traceError = $state<string | null>(null);
+	let isQueryLoading = $state(false);
+	let isTraceLoading = $state(false);
 
 	const recentQuestions = [
 		'Show me Jokic rebounds in his last 10 games',
@@ -10,16 +18,93 @@
 		'Which teams have the best defensive rating this season?'
 	];
 
-	const citations = ['NBA stats endpoint: leagueleaders', 'NBA stats endpoint: playergamelog'];
-
-	const answerPreview =
+	const emptyAnswerPreview =
 		'Ask an NBA stats question to get a grounded response with citations, structured comparisons, and query trace details.';
 
-	const followups = [
+	const emptyFollowups = [
 		'Break that down by month',
 		'Compare top 5 players',
 		'Show the same for last season'
 	];
+
+	const shownCitations = $derived(response?.status === 'ok' ? response.citations : []);
+	const shownFollowups = $derived(
+		response?.followups && response.followups.length > 0 ? response.followups : emptyFollowups
+	);
+
+	function resetErrors() {
+		queryError = null;
+		traceError = null;
+	}
+
+	async function submitQuery(event?: SubmitEvent) {
+		event?.preventDefault();
+		if (isQueryLoading) return;
+
+		if (!query.trim()) {
+			queryError = 'Enter a stats question before searching.';
+			return;
+		}
+
+		resetErrors();
+		isQueryLoading = true;
+		trace = null;
+
+		const payload: ChatQueryRequest = {
+			sessionId,
+			message: query,
+			clientTs: new Date().toISOString()
+		};
+
+		try {
+			const result = await fetch('/api/chat/query', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(payload)
+			});
+			const data = (await result.json()) as ChatQueryResponse | ErrorResponse;
+			if (!result.ok) {
+				queryError = 'error' in data ? data.error : 'Unable to process this query.';
+				response = null;
+				return;
+			}
+
+			response = data as ChatQueryResponse;
+		} catch {
+			queryError = 'Request failed. Please try again.';
+			response = null;
+		} finally {
+			isQueryLoading = false;
+		}
+	}
+
+	async function loadTrace() {
+		if (!response?.traceId || isTraceLoading) return;
+
+		traceError = null;
+		isTraceLoading = true;
+
+		try {
+			const result = await fetch(`/api/query-trace/${response.traceId}`);
+			const data = (await result.json()) as QueryTraceResponse | ErrorResponse;
+			if (!result.ok) {
+				traceError = 'error' in data ? data.error : 'Unable to load trace.';
+				trace = null;
+				return;
+			}
+
+			trace = data as QueryTraceResponse;
+		} catch {
+			traceError = 'Trace request failed. Please retry.';
+			trace = null;
+		} finally {
+			isTraceLoading = false;
+		}
+	}
+
+	function applyFollowup(value: string) {
+		query = value;
+	}
 </script>
 
 <svelte:head>
@@ -41,21 +126,35 @@
 		<section class="neo-stack">
 			<span class="neo-sticker">Ask</span>
 			<NeoCard tone="muted" kicker="Search" title="NBA Stats Query">
-				<div class="neo-stack">
+				<form class="neo-stack neo-form" onsubmit={submitQuery}>
 					<NeoInput id="query" label="Ask a Stats Question" bind:value={query} />
 					<p class="neo-copy-muted">Responses include citations and a trace you can inspect with Show Steps.</p>
+					{#if queryError}
+						<p class="neo-inline-error">{queryError}</p>
+					{/if}
 					<div class="neo-button-row">
-						<NeoButton variant="accent">Search</NeoButton>
-						<NeoButton variant="surface">Show Steps</NeoButton>
+						<NeoButton variant="accent" type="submit" disabled={isQueryLoading}>
+							{isQueryLoading ? 'Searching...' : 'Search'}
+						</NeoButton>
+						<NeoButton
+							variant="surface"
+							type="button"
+							disabled={!response || isTraceLoading}
+							onclick={loadTrace}
+						>
+							{isTraceLoading ? 'Loading Trace...' : 'Show Steps'}
+						</NeoButton>
 					</div>
-				</div>
+				</form>
 			</NeoCard>
 
 			<NeoPanel variant="tinted">
 				<h1 class="neo-section-title">Recent Questions</h1>
 				<ul class="neo-list">
 					{#each recentQuestions as item}
-						<li>{item}</li>
+						<li>
+							<button type="button" class="neo-list-button" onclick={() => (query = item)}>{item}</button>
+						</li>
 					{/each}
 				</ul>
 			</NeoPanel>
@@ -64,26 +163,70 @@
 		<section class="neo-stack">
 			<span class="neo-sticker" style="transform: rotate(2deg);">Results</span>
 			<NeoCard tone="surface" kicker="Answer" title="Response">
-				<p class="neo-copy-muted">{answerPreview}</p>
+				<p class="neo-copy-muted">
+					{#if isQueryLoading}
+						Running query...
+					{:else if response}
+						{response.answer}
+					{:else}
+						{emptyAnswerPreview}
+					{/if}
+				</p>
 			</NeoCard>
 
 			<NeoCard tone="surface" kicker="Grounding" title="Citations">
-				<ul class="neo-list">
-					{#each citations as item}
-						<li>{item}</li>
-					{/each}
-				</ul>
+				{#if shownCitations.length > 0}
+					<ul class="neo-list">
+						{#each shownCitations as item}
+							<li>{item.source}{item.detail ? ` - ${item.detail}` : ''}</li>
+						{/each}
+					</ul>
+				{:else if response?.status === 'unsupported'}
+					<p class="neo-copy-muted">No citations are returned for unsupported queries in this slice.</p>
+				{:else}
+					<p class="neo-copy-muted">Run a query to view grounded sources.</p>
+				{/if}
 			</NeoCard>
 
 			<NeoCard tone="surface" kicker="Suggestions" title="Follow-ups">
-				<div class="neo-chip-row">
-					{#each followups as item}
-						<NeoBadge tone="muted">{item}</NeoBadge>
+				<div class="neo-chip-row" role="list">
+					{#each shownFollowups as item}
+						<button type="button" class="neo-followup-chip" onclick={() => applyFollowup(item)}>{item}</button>
 					{/each}
 				</div>
 			</NeoCard>
 
-			<NeoButton variant="secondary" fullWidth={true}>Open Full Trace</NeoButton>
+			{#if traceError}
+				<NeoCard tone="surface" kicker="Trace" title="Show Steps">
+					<p class="neo-inline-error">{traceError}</p>
+				</NeoCard>
+			{/if}
+
+			{#if trace}
+				<NeoCard tone="surface" kicker="Trace" title="Show Steps">
+					<div class="neo-trace-meta">
+						<span><strong>Question:</strong> {trace.normalizedQuestion}</span>
+						<span><strong>Latency:</strong> {trace.latencyMs.total} ms</span>
+					</div>
+
+					<p class="neo-trace-section-title">Plan</p>
+					<ul class="neo-list">
+						{#each trace.planSummary as step}
+							<li>{step}</li>
+						{/each}
+					</ul>
+				</NeoCard>
+			{/if}
+
+			<NeoButton
+				variant="secondary"
+				fullWidth={true}
+				type="button"
+				disabled={!response || isTraceLoading}
+				onclick={loadTrace}
+			>
+				{isTraceLoading ? 'Loading Trace...' : 'Open Full Trace'}
+			</NeoButton>
 		</section>
 	</div>
 </main>

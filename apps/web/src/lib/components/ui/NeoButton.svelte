@@ -9,6 +9,7 @@
 		type?: ButtonType;
 		fullWidth?: boolean;
 		disabled?: boolean;
+		onclick?: (() => void) | undefined;
 		children?: Snippet;
 	};
 
@@ -17,11 +18,17 @@
 		type = 'button',
 		fullWidth = false,
 		disabled = false,
+		onclick,
 		children
 	}: Props = $props();
 </script>
 
-<button class={`neo-button neo-button--${variant} ${fullWidth ? 'neo-button--full' : ''}`} {type} {disabled}>
+<button
+	class={`neo-button neo-button--${variant} ${fullWidth ? 'neo-button--full' : ''}`}
+	{type}
+	{disabled}
+	{onclick}
+>
 	{#if children}
 		{@render children()}
 	{/if}

@@ -159,6 +159,89 @@ a {
 	gap: 0.6rem;
 }
 
+.neo-form {
+	margin: 0;
+}
+
+.neo-inline-error {
+	margin: 0;
+	color: var(--neo-accent);
+	font-size: 0.82rem;
+	font-weight: 900;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+
+.neo-list-button {
+	display: inline-block;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+	text-decoration: underline;
+	text-decoration-thickness: 2px;
+	text-underline-offset: 2px;
+}
+
+.neo-list-button:hover {
+	color: var(--neo-secondary);
+}
+
+.neo-list-button:focus-visible {
+	outline: 2px solid var(--neo-secondary);
+	outline-offset: 2px;
+}
+
+.neo-followup-chip {
+	padding: 0.2rem 0.6rem;
+	border: var(--neo-border-width) solid var(--neo-ink-dark);
+	border-radius: var(--neo-radius-pill);
+	background: var(--neo-muted);
+	color: var(--neo-ink-dark);
+	box-shadow: 4px 4px 0 0 var(--neo-ink-dark);
+	font: inherit;
+	font-size: 0.7rem;
+	font-weight: 900;
+	text-transform: uppercase;
+	letter-spacing: 0.13em;
+	cursor: pointer;
+	transition:
+		transform var(--neo-speed-fast) var(--neo-ease-snappy),
+		box-shadow var(--neo-speed-fast) var(--neo-ease-snappy);
+}
+
+.neo-followup-chip:hover {
+	transform: translate(-1px, -1px);
+}
+
+.neo-followup-chip:active {
+	transform: translate(2px, 2px);
+	box-shadow: none;
+}
+
+.neo-followup-chip:focus-visible {
+	outline: 2px solid var(--neo-secondary);
+	outline-offset: 2px;
+}
+
+.neo-trace-meta {
+	display: grid;
+	gap: 0.35rem;
+	margin-bottom: 0.85rem;
+	font-size: 0.82rem;
+}
+
+.neo-trace-section-title {
+	margin: 0 0 0.4rem;
+	font-size: 0.82rem;
+	font-weight: 900;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+}
+
 .neo-button {
 	display: inline-flex;
 	align-items: center;
