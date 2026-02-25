@@ -68,6 +68,16 @@ bun run test
 bun run build
 ```
 
+## CI
+
+- GitHub Actions workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+- Runs on push to `main` and pull requests.
+- Executes in `apps/web`:
+  - `bun ci`
+  - `bun run check`
+  - `bun run test`
+  - `bun run build`
+
 ## Key Project Docs
 
 - Architecture/implementation plan: [`agent/PLAN.md`](agent/PLAN.md)

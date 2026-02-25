@@ -84,6 +84,29 @@
 
 ---
 
+# Task: Add GitHub Actions CI Workflow
+
+## Goal
+- [x] Add GitHub Actions automation for core app verification.
+
+## Acceptance Criteria
+- [x] Workflow runs on `push` to `main` and `pull_request`.
+- [x] Workflow validates `apps/web` with install + check + test + build.
+- [x] README documents CI workflow behavior.
+
+## Results
+- Added [ci.yml](/Users/agocharbhatia/Desktop/code/hoop-hub/.github/workflows/ci.yml):
+  - `actions/checkout@v4`
+  - `actions/setup-node@v4` using `.nvmrc`
+  - `oven-sh/setup-bun@v2`
+  - `bun ci`, `bun run check`, `bun run test`, `bun run build` in `apps/web`
+- Updated [README.md](/Users/agocharbhatia/Desktop/code/hoop-hub/README.md) with CI section and commands.
+
+## Verification
+- Local parity check: `bun run check`, `bun run test`, `bun run build` in `apps/web`.
+
+---
+
 # Task: M1 QueryPlan + Planner Foundation
 
 ## Goal
