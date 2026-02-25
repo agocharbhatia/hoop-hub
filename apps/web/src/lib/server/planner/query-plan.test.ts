@@ -44,6 +44,31 @@ describe('buildQueryPlan', () => {
 		assert.equal(plan.confidence < 0.5, true);
 		assert.deepEqual(validateQueryPlan(plan), { ok: true });
 	});
+
+	test('builds team_ranking for defensive rating team question', () => {
+		const plan = buildQueryPlan(normalizeQuestion('Which teams have the best defensive rating this season?'));
+
+		assert.equal(plan.intent, 'team_ranking');
+		assert.equal(plan.metrics.some((metric) => metric.id === 'drtg'), true);
+		assert.deepEqual(validateQueryPlan(plan), { ok: true });
+	});
+
+	test('applies default metric for compare query without explicit metric', () => {
+		const plan = buildQueryPlan(normalizeQuestion('Compare Stephen Curry vs Damian Lillard this season'));
+
+		assert.equal(plan.intent, 'player_compare');
+		assert.equal(plan.metrics.some((metric) => metric.id === 'pts'), true);
+		assert.equal(plan.confidence <= 0.6, true);
+		assert.deepEqual(validateQueryPlan(plan), { ok: true });
+	});
+
+	test('downgrades to unsupported when unresolved metric cues are present', () => {
+		const plan = buildQueryPlan(normalizeQuestion('Show Stephen Curry trend for steals this season'));
+
+		assert.equal(plan.intent, 'unsupported');
+		assert.equal(plan.reasons.some((reason) => reason.includes('Unsupported metric cues detected')), true);
+		assert.deepEqual(validateQueryPlan(plan), { ok: true });
+	});
 });
 
 describe('validateQueryPlan', () => {
@@ -68,6 +93,102 @@ describe('validateQueryPlan', () => {
 		assert.equal(result.ok, false);
 		if (!result.ok) {
 			assert.match(result.error, /Season filter/);
+		}
+	});
+
+	test('rejects unsupported plans with high confidence', () => {
+		const invalidPlan: QueryPlan = {
+			intent: 'unsupported',
+			entities: {
+				players: [],
+				teams: [],
+				seasons: []
+			},
+			metrics: [],
+			filters: {
+				season: null,
+				window: null
+			},
+			confidence: 0.8,
+			reasons: ['test']
+		};
+
+		const result = validateQueryPlan(invalidPlan);
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.match(result.error, /Unsupported QueryPlan confidence/);
+		}
+	});
+
+	test('rejects supported intents with no metrics', () => {
+		const invalidPlan: QueryPlan = {
+			intent: 'league_leaders',
+			entities: {
+				players: [],
+				teams: [],
+				seasons: []
+			},
+			metrics: [],
+			filters: {
+				season: null,
+				window: null
+			},
+			confidence: 0.7,
+			reasons: ['test']
+		};
+
+		const result = validateQueryPlan(invalidPlan);
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.match(result.error, /require at least one metric/);
+		}
+	});
+
+	test('rejects player_compare plans with fewer than two players', () => {
+		const invalidPlan: QueryPlan = {
+			intent: 'player_compare',
+			entities: {
+				players: ['stephen curry'],
+				teams: [],
+				seasons: []
+			},
+			metrics: [{ id: 'pts', confidence: 0.8 }],
+			filters: {
+				season: null,
+				window: null
+			},
+			confidence: 0.8,
+			reasons: ['test']
+		};
+
+		const result = validateQueryPlan(invalidPlan);
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.match(result.error, /at least two players/);
+		}
+	});
+
+	test('rejects non-positive window filter values', () => {
+		const invalidPlan: QueryPlan = {
+			intent: 'player_trend',
+			entities: {
+				players: ['nikola jokic'],
+				teams: [],
+				seasons: []
+			},
+			metrics: [{ id: 'reb', confidence: 0.8 }],
+			filters: {
+				season: null,
+				window: { type: 'last_n_games', n: 0 }
+			},
+			confidence: 0.8,
+			reasons: ['test']
+		};
+
+		const result = validateQueryPlan(invalidPlan);
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.match(result.error, /positive integer/);
 		}
 	});
 });

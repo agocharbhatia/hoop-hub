@@ -3,6 +3,15 @@ import assert from 'node:assert/strict';
 import { normalizeMetricQuery, resolveMetrics, validateMetricsForIntent } from './resolve-metrics';
 
 describe('resolveMetrics', () => {
+	test('normalizes punctuation before alias matching', () => {
+		const normalized = normalizeMetricQuery('Who leads in assists?!');
+		const result = resolveMetrics(normalized);
+		assert.deepEqual(
+			result.metrics.map((m) => m.id),
+			['ast']
+		);
+	});
+
 	test('maps aliases to canonical metric IDs', () => {
 		const normalized = normalizeMetricQuery('Who leads the league in dimes in 2023-24?');
 		const result = resolveMetrics(normalized);
@@ -40,6 +49,14 @@ describe('validateMetricsForIntent', () => {
 		assert.equal(result.ok, false);
 		if (!result.ok) {
 			assert.match(result.error, /not allowed/);
+		}
+	});
+
+	test('rejects unknown metric ids', () => {
+		const result = validateMetricsForIntent('league_leaders', [{ id: 'usg', confidence: 0.9 }]);
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.match(result.error, /Unknown metric id/);
 		}
 	});
 });

@@ -77,6 +77,46 @@ describe('runMockQuery + getTraceById', () => {
 		assert.equal((trace?.latencyMs.total ?? 0) > 0, true);
 	});
 
+	test('handles player trend intent with windowed filters', () => {
+		const response = runMockQuery({
+			sessionId: 'session-1',
+			message: 'Show Nikola Jokic rebounds over his last 10 games'
+		});
+		const trace = getTraceById(response.traceId);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(trace?.queryPlan.intent, 'player_trend');
+		assert.equal(trace?.queryPlan.filters.window?.type, 'last_n_games');
+		assert.equal(trace?.queryPlan.filters.window?.n, 10);
+		assert.equal((trace?.executedSources.length ?? 0) > 0, true);
+	});
+
+	test('handles team ranking intent for defensive rating queries', () => {
+		const response = runMockQuery({
+			sessionId: 'session-1',
+			message: 'Which teams have the best defensive rating this season?'
+		});
+		const trace = getTraceById(response.traceId);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(trace?.queryPlan.intent, 'team_ranking');
+		assert.equal(trace?.queryPlan.metrics.some((metric) => metric.id === 'drtg'), true);
+		assert.equal((trace?.executedSources.length ?? 0) > 0, true);
+	});
+
+	test('handles player compare intent with default metric fallback', () => {
+		const response = runMockQuery({
+			sessionId: 'session-1',
+			message: 'Compare Stephen Curry vs Damian Lillard this season'
+		});
+		const trace = getTraceById(response.traceId);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(trace?.queryPlan.intent, 'player_compare');
+		assert.equal(trace?.queryPlan.metrics.some((metric) => metric.id === 'pts'), true);
+		assert.equal((trace?.queryPlan.confidence ?? 0) <= 0.6, true);
+	});
+
 	test('throws invariant error when planner generates invalid supported plan', () => {
 		assert.throws(
 			() =>
