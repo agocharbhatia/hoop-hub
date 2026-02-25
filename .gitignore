@@ -1,2 +1,27 @@
-tasks/
 .codex/
+
+# macOS
+.DS_Store
+
+# Dependencies / package managers
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+coverage/
+apps/web/.svelte-kit/
+apps/web/.vite/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment
+.env
+.env.*
+!.env.example
