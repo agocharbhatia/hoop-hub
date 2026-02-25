@@ -105,6 +105,31 @@
 	function applyFollowup(value: string) {
 		query = value;
 	}
+
+	function formatTraceList(values: string[]): string {
+		return values.length > 0 ? values.join(', ') : 'None';
+	}
+
+	function formatTraceMetrics(traceData: QueryTraceResponse): string {
+		if (traceData.queryPlan.metrics.length === 0) {
+			return 'None';
+		}
+		return traceData.queryPlan.metrics
+			.map((metric) => `${metric.id} (${Math.round(metric.confidence * 100)}%)`)
+			.join(', ');
+	}
+
+	function formatTraceWindow(traceData: QueryTraceResponse): string {
+		const windowFilter = traceData.queryPlan.filters.window;
+		if (!windowFilter) {
+			return 'None';
+		}
+		return `${windowFilter.type} (${windowFilter.n})`;
+	}
+
+	function formatTraceConfidence(confidence: number): string {
+		return `${Math.round(confidence * 100)}%`;
+	}
 </script>
 
 <svelte:head>
@@ -206,15 +231,52 @@
 				<NeoCard tone="surface" kicker="Trace" title="Show Steps">
 					<div class="neo-trace-meta">
 						<span><strong>Question:</strong> {trace.normalizedQuestion}</span>
-						<span><strong>Latency:</strong> {trace.latencyMs.total} ms</span>
+						<span><strong>Intent:</strong> {trace.queryPlan.intent}</span>
+						<span><strong>Confidence:</strong> {formatTraceConfidence(trace.queryPlan.confidence)}</span>
 					</div>
 
-					<p class="neo-trace-section-title">Plan</p>
+					<p class="neo-trace-section-title">Entities</p>
 					<ul class="neo-list">
-						{#each trace.planSummary as step}
-							<li>{step}</li>
-						{/each}
+						<li><strong>Players:</strong> {formatTraceList(trace.queryPlan.entities.players)}</li>
+						<li><strong>Teams:</strong> {formatTraceList(trace.queryPlan.entities.teams)}</li>
+						<li><strong>Seasons:</strong> {formatTraceList(trace.queryPlan.entities.seasons)}</li>
 					</ul>
+
+					<p class="neo-trace-section-title">Metrics & Filters</p>
+					<ul class="neo-list">
+						<li><strong>Metrics:</strong> {formatTraceMetrics(trace)}</li>
+						<li><strong>Season Filter:</strong> {trace.queryPlan.filters.season ?? 'None'}</li>
+						<li><strong>Window Filter:</strong> {formatTraceWindow(trace)}</li>
+					</ul>
+
+					<p class="neo-trace-section-title">Latency</p>
+					<ul class="neo-list">
+						<li><strong>Planning:</strong> {trace.latencyMs.planning} ms</li>
+						<li><strong>Retrieval:</strong> {trace.latencyMs.retrieval} ms</li>
+						<li><strong>Compute:</strong> {trace.latencyMs.compute} ms</li>
+						<li><strong>Render:</strong> {trace.latencyMs.render} ms</li>
+						<li><strong>Total:</strong> {trace.latencyMs.total} ms</li>
+					</ul>
+
+					<p class="neo-trace-section-title">Cache</p>
+					<p class="neo-copy-muted">Hits: {trace.cache.hits} | Misses: {trace.cache.misses}</p>
+
+					<p class="neo-trace-section-title">Computations</p>
+					{#if trace.computations.length > 0}
+						<ul class="neo-list">
+							{#each trace.computations as computation}
+								<li>
+									{computation.formula}
+									{#if computation.sqlFragment}
+										- {computation.sqlFragment}
+									{/if}
+									({computation.sourceFields.join(', ')})
+								</li>
+							{/each}
+						</ul>
+					{:else}
+						<p class="neo-copy-muted">No derived computations were required for this query.</p>
+					{/if}
 				</NeoCard>
 			{/if}
 

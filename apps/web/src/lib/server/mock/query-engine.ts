@@ -1,71 +1,70 @@
 import type { ChatQueryRequest, ChatQueryResponse, Citation, QueryTraceResponse } from '$lib/contracts/chat';
+import type { QueryIntent, QueryPlan } from '$lib/contracts/query-plan';
+import {
+	buildQueryPlan,
+	normalizeQuestion as normalizePlannedQuestion,
+	validateQueryPlan
+} from '$lib/server/planner/query-plan';
 
-type MockTemplate = {
-	match: (normalizedQuestion: string) => boolean;
-	answer: string;
-	citations: Citation[];
-	followups: string[];
-	planSummary: string[];
-	latencyMs: number;
-};
+type SupportedIntent = Exclude<QueryIntent, 'unsupported'>;
+type SupportedQueryPlan = QueryPlan & { intent: SupportedIntent };
+type LatencyParts = Omit<QueryTraceResponse['latencyMs'], 'total'>;
 
 const traceStore = new Map<string, QueryTraceResponse>();
 
-const MOCK_TEMPLATES: MockTemplate[] = [
-	{
-		match: (q) => q.includes('assists') && q.includes('2023-24'),
-		answer:
-			'Tyrese Haliburton led 2023-24 in assists per game in this mock dataset. Ask for split context (month, home/away, or last N games) to drill down.',
-		citations: [
-			{ source: 'NBA stats endpoint: leagueleaders', detail: 'Season 2023-24, stat category AST' },
-			{ source: 'NBA stats endpoint: playerprofilev2', detail: 'Player context and pace adjustment' }
-		],
-		followups: ['Break that down by month', 'Show top 5 assist leaders', 'Compare with 2022-23 leaders'],
-		planSummary: [
-			'Normalize question and infer stat category AST.',
-			'Resolve season scope 2023-24.',
-			'Query league leaders and rank by assists per game.',
-			'Return top result with provenance.'
-		],
-		latencyMs: 1480
-	},
-	{
-		match: (q) => q.includes('jokic') && q.includes('rebound'),
-		answer:
-			'Nikola Jokic rebounds trend is available. In this mock slice, request accepted with a last-10-game comparison ready for expansion.',
-		citations: [
-			{ source: 'NBA stats endpoint: playergamelog', detail: 'Nikola Jokic game logs, last 10 games' },
-			{ source: 'NBA stats endpoint: boxscoretraditionalv2', detail: 'Rebound validation sample' }
-		],
-		followups: ['Compare with Sabonis', 'Split by offensive vs defensive rebounds', 'Show game-by-game values'],
-		planSummary: [
-			'Resolve player identity: Nikola Jokic.',
-			'Apply last-10-games filter.',
-			'Aggregate rebound metrics and summarize trend.'
-		],
-		latencyMs: 1630
-	},
-	{
-		match: (q) => q.includes('curry') && q.includes('lillard') && q.includes('compare'),
-		answer:
-			'Comparison request recognized for Stephen Curry vs Damian Lillard. Mock flow returns grounded comparison scaffolding with citations and trace.',
-		citations: [
-			{ source: 'NBA stats endpoint: playercareerstats', detail: 'Career and seasonal baselines' },
-			{ source: 'NBA stats endpoint: leaguedashplayerstats', detail: 'Per-season advanced splits' }
-		],
-		followups: ['Compare TS% and usage', 'Limit to playoff games', 'Show season-by-season table'],
-		planSummary: [
-			'Resolve multi-player entities.',
-			'Build aligned season window.',
-			'Compute side-by-side comparison fields.',
-			'Return comparison summary and follow-ups.'
-		],
-		latencyMs: 1750
+const INTENT_CITATIONS: Record<SupportedIntent, Citation[]> = {
+	league_leaders: [
+		{ source: 'NBA stats endpoint: leagueleaders', detail: 'Ranked season leaders by requested metric' },
+		{ source: 'NBA stats endpoint: playerprofilev2', detail: 'Player context for top-ranked result' }
+	],
+	player_trend: [
+		{ source: 'NBA stats endpoint: playergamelog', detail: 'Game-level splits for selected player window' },
+		{ source: 'NBA stats endpoint: boxscoretraditionalv2', detail: 'Validation sample for windowed aggregation' }
+	],
+	player_compare: [
+		{ source: 'NBA stats endpoint: playercareerstats', detail: 'Aligned seasonal baseline comparison' },
+		{ source: 'NBA stats endpoint: leaguedashplayerstats', detail: 'Rate/advanced split context' }
+	],
+	team_ranking: [
+		{ source: 'NBA stats endpoint: leaguedashteamstats', detail: 'Team-level advanced table by season window' },
+		{ source: 'NBA stats endpoint: teamdashboardbygeneralsplits', detail: 'Team split context validation' }
+	]
+};
+
+const INTENT_FOLLOWUPS: Record<SupportedIntent, string[]> = {
+	league_leaders: ['Show top 5 leaders', 'Limit to last 10 games', 'Compare with previous season leaders'],
+	player_trend: ['Compare against season average', 'Show game-by-game values', 'Add offensive vs defensive split'],
+	player_compare: ['Add TS% and usage', 'Limit to playoffs', 'Show season-by-season table'],
+	team_ranking: ['Show top 10 teams', 'Filter to one conference', 'Compare with last season']
+};
+
+const INTENT_LATENCIES: Record<SupportedIntent, LatencyParts> = {
+	league_leaders: { planning: 120, retrieval: 510, compute: 160, render: 80 },
+	player_trend: { planning: 130, retrieval: 560, compute: 180, render: 90 },
+	player_compare: { planning: 140, retrieval: 620, compute: 210, render: 100 },
+	team_ranking: { planning: 125, retrieval: 590, compute: 200, render: 95 }
+};
+
+const UNSUPPORTED_LATENCY: LatencyParts = {
+	planning: 115,
+	retrieval: 0,
+	compute: 0,
+	render: 65
+};
+
+export class QueryEngineInvariantError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'QueryEngineInvariantError';
 	}
-];
+}
+
+export function isQueryEngineInvariantError(error: unknown): error is QueryEngineInvariantError {
+	return error instanceof QueryEngineInvariantError;
+}
 
 export function normalizeQuestion(message: string): string {
-	return message.trim().replace(/\s+/g, ' ').toLowerCase();
+	return normalizePlannedQuestion(message);
 }
 
 export function validateChatQueryRequest(input: unknown): { ok: true; value: ChatQueryRequest } | { ok: false; error: string } {
@@ -97,18 +96,85 @@ export function validateChatQueryRequest(input: unknown): { ok: true; value: Cha
 	};
 }
 
-function createUnsupportedResponse(normalizedQuestion: string, traceId: string): ChatQueryResponse {
+function buildLatency(parts: LatencyParts): QueryTraceResponse['latencyMs'] {
+	const total = parts.planning + parts.retrieval + parts.compute + parts.render;
+	return {
+		...parts,
+		total
+	};
+}
+
+function formatMetrics(plan: QueryPlan): string {
+	if (plan.metrics.length === 0) {
+		return 'requested metric set';
+	}
+	return plan.metrics.map((metric) => metric.id.toUpperCase()).join(', ');
+}
+
+function formatSeason(plan: QueryPlan): string {
+	if (plan.filters.season) {
+		return `for ${plan.filters.season}`;
+	}
+	return 'for the current season';
+}
+
+function formatWindow(plan: QueryPlan): string {
+	if (plan.filters.window) {
+		return `over the last ${plan.filters.window.n} games`;
+	}
+	return 'over the recent sample';
+}
+
+function buildSupportedAnswer(plan: SupportedQueryPlan): string {
+	const metricsLabel = formatMetrics(plan);
+
+	if (plan.intent === 'league_leaders') {
+		return `League leaders query recognized for ${metricsLabel} ${formatSeason(plan)}. Returning a grounded ranking in this mock slice.`;
+	}
+
+	if (plan.intent === 'player_trend') {
+		const player = plan.entities.players[0] ?? 'the selected player';
+		return `${player} trend query recognized for ${metricsLabel} ${formatWindow(plan)} ${formatSeason(plan)}. Returning a grounded trend summary.`;
+	}
+
+	if (plan.intent === 'player_compare') {
+		const playerOne = plan.entities.players[0] ?? 'player one';
+		const playerTwo = plan.entities.players[1] ?? 'player two';
+		return `Comparison query recognized for ${playerOne} vs ${playerTwo} on ${metricsLabel} ${formatSeason(plan)}. Returning a grounded side-by-side summary.`;
+	}
+
+	const teamsLabel = plan.entities.teams.length > 0 ? plan.entities.teams.join(', ') : 'league teams';
+	return `Team ranking query recognized for ${teamsLabel} on ${metricsLabel} ${formatSeason(plan)}. Returning a grounded team ranking summary.`;
+}
+
+function saveTrace(
+	traceId: string,
+	normalizedQuestion: string,
+	queryPlan: QueryPlan,
+	executedSources: Citation[],
+	latency: QueryTraceResponse['latencyMs']
+) {
 	traceStore.set(traceId, {
 		traceId,
 		normalizedQuestion,
-		planSummary: [
-			'Normalize question and attempt intent extraction.',
-			'No grounded mock template found for this request.',
-			'Return explicit unsupported response with guidance.'
-		],
-		executedSources: [],
-		latencyMs: { total: 910 }
+		queryPlan,
+		executedSources,
+		computations: [],
+		latencyMs: latency,
+		cache: { hits: 0, misses: 0 }
 	});
+}
+
+function isSupportedPlan(plan: QueryPlan): plan is SupportedQueryPlan {
+	return plan.intent !== 'unsupported' && plan.confidence >= 0.5;
+}
+
+function createUnsupportedResponse(
+	normalizedQuestion: string,
+	traceId: string,
+	queryPlan: QueryPlan
+): ChatQueryResponse {
+	saveTrace(traceId, normalizedQuestion, queryPlan, [], buildLatency(UNSUPPORTED_LATENCY));
 
 	return {
 		status: 'unsupported',
@@ -120,30 +186,41 @@ function createUnsupportedResponse(normalizedQuestion: string, traceId: string):
 	};
 }
 
-export function runMockQuery(request: ChatQueryRequest): ChatQueryResponse {
-	const normalizedQuestion = normalizeQuestion(request.message);
-	const traceId = crypto.randomUUID();
+function createSupportedResponse(
+	normalizedQuestion: string,
+	traceId: string,
+	queryPlan: SupportedQueryPlan
+): ChatQueryResponse {
+	const citations = INTENT_CITATIONS[queryPlan.intent];
+	const followups = INTENT_FOLLOWUPS[queryPlan.intent];
+	const latency = buildLatency(INTENT_LATENCIES[queryPlan.intent]);
 
-	const template = MOCK_TEMPLATES.find((item) => item.match(normalizedQuestion));
-	if (!template) {
-		return createUnsupportedResponse(normalizedQuestion, traceId);
-	}
-
-	traceStore.set(traceId, {
-		traceId,
-		normalizedQuestion,
-		planSummary: template.planSummary,
-		executedSources: template.citations,
-		latencyMs: { total: template.latencyMs }
-	});
+	saveTrace(traceId, normalizedQuestion, queryPlan, citations, latency);
 
 	return {
 		status: 'ok',
-		answer: template.answer,
-		citations: template.citations,
+		answer: buildSupportedAnswer(queryPlan),
+		citations,
 		traceId,
-		followups: template.followups
+		followups
 	};
+}
+
+export function runMockQuery(request: ChatQueryRequest): ChatQueryResponse {
+	const normalizedQuestion = normalizeQuestion(request.message);
+	const traceId = crypto.randomUUID();
+	const queryPlan = buildQueryPlan(normalizedQuestion);
+	const validation = validateQueryPlan(queryPlan);
+
+	if (!validation.ok) {
+		throw new QueryEngineInvariantError(validation.error);
+	}
+
+	if (!isSupportedPlan(queryPlan)) {
+		return createUnsupportedResponse(normalizedQuestion, traceId, queryPlan);
+	}
+
+	return createSupportedResponse(normalizedQuestion, traceId, queryPlan);
 }
 
 export function getTraceById(traceId: string): QueryTraceResponse | null {

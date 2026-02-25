@@ -1,3 +1,5 @@
+import type { QueryPlan } from './query-plan';
+
 export type Citation = {
 	source: string;
 	detail?: string;
@@ -22,10 +24,23 @@ export type ChatQueryResponse = {
 export type QueryTraceResponse = {
 	traceId: string;
 	normalizedQuestion: string;
-	planSummary: string[];
+	queryPlan: QueryPlan;
 	executedSources: Citation[];
+	computations: {
+		formula: string;
+		sqlFragment?: string;
+		sourceFields: string[];
+	}[];
 	latencyMs: {
+		planning: number;
+		retrieval: number;
+		compute: number;
+		render: number;
 		total: number;
+	};
+	cache: {
+		hits: number;
+		misses: number;
 	};
 };
 

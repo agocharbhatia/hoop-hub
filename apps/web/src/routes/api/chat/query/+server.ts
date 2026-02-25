@@ -1,6 +1,10 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { runMockQuery, validateChatQueryRequest } from '$lib/server/mock/query-engine';
+import {
+	isQueryEngineInvariantError,
+	runMockQuery,
+	validateChatQueryRequest
+} from '$lib/server/mock/query-engine';
 
 export const POST: RequestHandler = async ({ request }) => {
 	let body: unknown;
@@ -15,6 +19,14 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json({ error: parsed.error }, { status: 400 });
 	}
 
-	const result = runMockQuery(parsed.value);
-	return json(result, { status: 200 });
+	try {
+		const result = runMockQuery(parsed.value);
+		return json(result, { status: 200 });
+	} catch (error) {
+		if (isQueryEngineInvariantError(error)) {
+			return json({ error: 'Internal query planning error.' }, { status: 500 });
+		}
+		console.error('Unexpected query handler error:', error);
+		return json({ error: 'Internal server error.' }, { status: 500 });
+	}
 };
