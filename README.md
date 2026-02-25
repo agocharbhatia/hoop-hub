@@ -1,13 +1,13 @@
 # Hoop Hub
 
-AI-powered NBA natural language search engine (local-first POC).
+AI-powered NBA natural language search engine.
 
 Users ask basketball questions in plain English, and Hoop Hub returns grounded stat answers with citations, optional visual artifacts, and step-by-step query provenance.
 
 ## Current State
 
 - Bun + SvelteKit app scaffolded and running locally.
-- Chat-first UI shell with custom neo-brutalist component system.
+- Chat-first UI shell.
 - Health endpoint: `GET /api/health`.
 - Typed contracts for chat and query planning.
 - Milestone 1 planner foundation:
@@ -77,10 +77,3 @@ bun run build
   - `bun run check`
   - `bun run test`
   - `bun run build`
-
-## Key Project Docs
-
-- Architecture/implementation plan: [`agent/PLAN.md`](agent/PLAN.md)
-- UI planning reference: [`agent/FRONTEND_UI_PLAN.md`](agent/FRONTEND_UI_PLAN.md)
-- Ongoing task log: [`tasks/todo.md`](tasks/todo.md)
-- Lessons log: [`tasks/lessons.md`](tasks/lessons.md)
