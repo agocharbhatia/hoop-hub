@@ -35,6 +35,9 @@ jobs:
       - name: Type check
         run: bun run check
 
+      - name: Endpoint catalog contract check
+        run: bun run check:endpoint-catalog-contracts
+
       - name: Unit tests
         run: bun run test
 

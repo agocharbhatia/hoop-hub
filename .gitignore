@@ -13,6 +13,7 @@ build/
 coverage/
 apps/web/.svelte-kit/
 apps/web/.vite/
+apps/web/.data/
 
 # Logs
 *.log

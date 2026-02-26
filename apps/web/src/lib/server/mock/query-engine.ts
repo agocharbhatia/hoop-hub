@@ -1,5 +1,14 @@
-import type { ChatQueryRequest, ChatQueryResponse, Citation, QueryTraceResponse } from '$lib/contracts/chat';
+import type {
+	ChatQueryRequest,
+	ChatQueryResponse,
+	Citation,
+	DataFreshnessMode,
+	QueryTraceResponse,
+	TraceSourceCall
+} from '$lib/contracts/chat';
 import type { QueryIntent, QueryPlan } from '$lib/contracts/query-plan';
+import { getEndpointCatalogEntry } from '$lib/server/data/catalog';
+import { getDataStore } from '$lib/server/data/store';
 import {
 	buildQueryPlan,
 	normalizeQuestion as normalizePlannedQuestion,
@@ -29,6 +38,13 @@ const INTENT_CITATIONS: Record<SupportedIntent, Citation[]> = {
 		{ source: 'NBA stats endpoint: leaguedashteamstats', detail: 'Team-level advanced table by season window' },
 		{ source: 'NBA stats endpoint: teamdashboardbygeneralsplits', detail: 'Team split context validation' }
 	]
+};
+
+const INTENT_SOURCE_ENDPOINTS: Record<SupportedIntent, string[]> = {
+	league_leaders: ['leagueleaders', 'playerprofilev2'],
+	player_trend: ['playergamelog', 'boxscoretraditionalv2'],
+	player_compare: ['playercareerstats', 'leaguedashplayerstats'],
+	team_ranking: ['leaguedashteamstats', 'teamdashboardbygeneralsplits']
 };
 
 const INTENT_FOLLOWUPS: Record<SupportedIntent, string[]> = {
@@ -104,6 +120,44 @@ function buildLatency(parts: LatencyParts): QueryTraceResponse['latencyMs'] {
 	};
 }
 
+function buildSourceCalls(intent: SupportedIntent, retrievalLatencyMs: number): TraceSourceCall[] {
+	const endpoints = INTENT_SOURCE_ENDPOINTS[intent];
+	const perCallLatency = Math.max(1, Math.round(retrievalLatencyMs / endpoints.length));
+
+	return endpoints.map((endpointId) => {
+		const catalog = getEndpointCatalogEntry(endpointId);
+		return {
+			endpointId,
+			cacheStatus: 'hit',
+			latencyMs: perCallLatency,
+			stale: false,
+			isProvisional: false,
+			parserVersion: catalog?.parserVersion ?? 'v1',
+			sourceStatus: 'ok'
+		};
+	});
+}
+
+function saveTraceSourceCalls(traceId: string, dataFreshnessMode: DataFreshnessMode, sourceCalls: TraceSourceCall[]): void {
+	try {
+		getDataStore().replaceTraceSourceCalls(traceId, dataFreshnessMode, sourceCalls);
+	} catch (error) {
+		console.error('Trace source-call persistence failed:', error);
+	}
+}
+
+function loadTraceSourceCalls(traceId: string): {
+	dataFreshnessMode: DataFreshnessMode;
+	sourceCalls: TraceSourceCall[];
+} | null {
+	try {
+		return getDataStore().getTraceSourceCalls(traceId);
+	} catch (error) {
+		console.error('Trace source-call load failed:', error);
+		return null;
+	}
+}
+
 function formatMetrics(plan: QueryPlan): string {
 	if (plan.metrics.length === 0) {
 		return 'requested metric set';
@@ -151,6 +205,8 @@ function saveTrace(
 	traceId: string,
 	normalizedQuestion: string,
 	queryPlan: QueryPlan,
+	dataFreshnessMode: DataFreshnessMode,
+	sourceCalls: TraceSourceCall[],
 	executedSources: Citation[],
 	latency: QueryTraceResponse['latencyMs']
 ) {
@@ -158,11 +214,14 @@ function saveTrace(
 		traceId,
 		normalizedQuestion,
 		queryPlan,
+		dataFreshnessMode,
+		sourceCalls,
 		executedSources,
 		computations: [],
 		latencyMs: latency,
 		cache: { hits: 0, misses: 0 }
 	});
+	saveTraceSourceCalls(traceId, dataFreshnessMode, sourceCalls);
 }
 
 function isSupportedPlan(plan: QueryPlan): plan is SupportedQueryPlan {
@@ -174,7 +233,7 @@ function createUnsupportedResponse(
 	traceId: string,
 	queryPlan: QueryPlan
 ): ChatQueryResponse {
-	saveTrace(traceId, normalizedQuestion, queryPlan, [], buildLatency(UNSUPPORTED_LATENCY));
+	saveTrace(traceId, normalizedQuestion, queryPlan, 'nightly', [], [], buildLatency(UNSUPPORTED_LATENCY));
 
 	return {
 		status: 'unsupported',
@@ -194,8 +253,9 @@ function createSupportedResponse(
 	const citations = INTENT_CITATIONS[queryPlan.intent];
 	const followups = INTENT_FOLLOWUPS[queryPlan.intent];
 	const latency = buildLatency(INTENT_LATENCIES[queryPlan.intent]);
+	const sourceCalls = buildSourceCalls(queryPlan.intent, latency.retrieval);
 
-	saveTrace(traceId, normalizedQuestion, queryPlan, citations, latency);
+	saveTrace(traceId, normalizedQuestion, queryPlan, 'nightly', sourceCalls, citations, latency);
 
 	return {
 		status: 'ok',
@@ -224,5 +284,23 @@ export function runMockQuery(request: ChatQueryRequest): ChatQueryResponse {
 }
 
 export function getTraceById(traceId: string): QueryTraceResponse | null {
-	return traceStore.get(traceId) ?? null;
+	const trace = traceStore.get(traceId);
+	if (!trace) {
+		return null;
+	}
+
+	const persistedSourceCalls = loadTraceSourceCalls(traceId);
+	if (!persistedSourceCalls) {
+		return trace;
+	}
+
+	if (persistedSourceCalls.sourceCalls.length === 0) {
+		return trace;
+	}
+
+	return {
+		...trace,
+		dataFreshnessMode: persistedSourceCalls.dataFreshnessMode,
+		sourceCalls: persistedSourceCalls.sourceCalls
+	};
 }

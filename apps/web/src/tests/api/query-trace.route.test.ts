@@ -43,6 +43,8 @@ describe('GET /api/query-trace/:traceId', () => {
 			traceId: string;
 			normalizedQuestion: string;
 			queryPlan: { intent: string };
+			dataFreshnessMode: string;
+			sourceCalls: { endpointId: string; cacheStatus: string }[];
 			executedSources: unknown[];
 			computations: unknown[];
 			latencyMs: { planning: number; retrieval: number; compute: number; render: number; total: number };
@@ -53,6 +55,9 @@ describe('GET /api/query-trace/:traceId', () => {
 		assert.equal(payload.traceId, chat.traceId);
 		assert.equal(payload.normalizedQuestion.length > 0, true);
 		assert.equal(payload.queryPlan.intent, 'league_leaders');
+		assert.equal(payload.dataFreshnessMode, 'nightly');
+		assert.equal(payload.sourceCalls.length > 0, true);
+		assert.equal(payload.sourceCalls.some((source) => source.endpointId === 'leagueleaders'), true);
 		assert.equal(payload.executedSources.length > 0, true);
 		assert.deepEqual(payload.computations, []);
 		assert.equal(
@@ -71,12 +76,16 @@ describe('GET /api/query-trace/:traceId', () => {
 		const response = await GET(createTraceEvent(chat.traceId));
 		const payload = (await parseJson(response)) as {
 			queryPlan: { intent: string };
+			dataFreshnessMode: string;
+			sourceCalls: unknown[];
 			executedSources: unknown[];
 			computations: unknown[];
 		};
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.queryPlan.intent, 'unsupported');
+		assert.equal(payload.dataFreshnessMode, 'nightly');
+		assert.deepEqual(payload.sourceCalls, []);
 		assert.deepEqual(payload.executedSources, []);
 		assert.deepEqual(payload.computations, []);
 	});

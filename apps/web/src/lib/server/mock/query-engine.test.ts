@@ -48,6 +48,9 @@ describe('runMockQuery + getTraceById', () => {
 		assert.notEqual(trace, null);
 		assert.equal((trace?.queryPlan.intent ?? '') !== 'unsupported', true);
 		assert.equal((trace?.executedSources.length ?? 0) > 0, true);
+		assert.equal(trace?.dataFreshnessMode, 'nightly');
+		assert.equal((trace?.sourceCalls.length ?? 0) > 0, true);
+		assert.equal(trace?.sourceCalls.every((source) => source.cacheStatus === 'hit'), true);
 		assert.equal((trace?.computations.length ?? 0) === 0, true);
 		assert.equal((trace?.latencyMs.total ?? 0) > 0, true);
 		assert.equal(
@@ -73,6 +76,8 @@ describe('runMockQuery + getTraceById', () => {
 		assert.notEqual(trace, null);
 		assert.equal(trace?.queryPlan.intent, 'unsupported');
 		assert.deepEqual(trace?.executedSources, []);
+		assert.equal(trace?.dataFreshnessMode, 'nightly');
+		assert.deepEqual(trace?.sourceCalls, []);
 		assert.deepEqual(trace?.cache, { hits: 0, misses: 0 });
 		assert.equal((trace?.latencyMs.total ?? 0) > 0, true);
 	});
@@ -89,6 +94,7 @@ describe('runMockQuery + getTraceById', () => {
 		assert.equal(trace?.queryPlan.filters.window?.type, 'last_n_games');
 		assert.equal(trace?.queryPlan.filters.window?.n, 10);
 		assert.equal((trace?.executedSources.length ?? 0) > 0, true);
+		assert.equal(trace?.sourceCalls.some((source) => source.endpointId === 'playergamelog'), true);
 	});
 
 	test('handles team ranking intent for defensive rating queries', () => {
@@ -102,6 +108,7 @@ describe('runMockQuery + getTraceById', () => {
 		assert.equal(trace?.queryPlan.intent, 'team_ranking');
 		assert.equal(trace?.queryPlan.metrics.some((metric) => metric.id === 'drtg'), true);
 		assert.equal((trace?.executedSources.length ?? 0) > 0, true);
+		assert.equal(trace?.sourceCalls.some((source) => source.endpointId === 'leaguedashteamstats'), true);
 	});
 
 	test('handles player compare intent with default metric fallback', () => {

@@ -5,6 +5,22 @@ export type Citation = {
 	detail?: string;
 };
 
+export type DataFreshnessMode = 'nightly' | 'provisional_live';
+
+export type TraceSourceCacheStatus = 'hit' | 'miss' | 'stale_hit';
+
+export type TraceSourceStatus = 'ok' | 'timeout' | 'rate_limited' | 'error';
+
+export type TraceSourceCall = {
+	endpointId: string;
+	cacheStatus: TraceSourceCacheStatus;
+	latencyMs: number;
+	stale: boolean;
+	isProvisional: boolean;
+	parserVersion: string;
+	sourceStatus: TraceSourceStatus;
+};
+
 export type ChatQueryStatus = 'ok' | 'unsupported';
 
 export type ChatQueryRequest = {
@@ -25,6 +41,8 @@ export type QueryTraceResponse = {
 	traceId: string;
 	normalizedQuestion: string;
 	queryPlan: QueryPlan;
+	dataFreshnessMode: DataFreshnessMode;
+	sourceCalls: TraceSourceCall[];
 	executedSources: Citation[];
 	computations: {
 		formula: string;

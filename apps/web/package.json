@@ -1,20 +1,6 @@
 {
 	"name": "web",
-	"private": true,
 	"version": "0.0.1",
-	"type": "module",
-	"engines": {
-		"node": ">=22.12.0"
-	},
-	"scripts": {
-		"dev": "vite dev",
-		"build": "vite build",
-		"preview": "vite preview",
-		"prepare": "svelte-kit sync || echo ''",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"test": "bun test ./src"
-	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.0",
 		"@sveltejs/kit": "^2.50.2",
@@ -24,5 +10,20 @@
 		"svelte-check": "^4.3.6",
 		"typescript": "^5.9.3",
 		"vite": "^7.3.1"
-	}
+	},
+	"engines": {
+		"node": ">=22.12.0"
+	},
+	"private": true,
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:endpoint-catalog-contracts": "bun ./scripts/check-endpoint-catalog-contracts.ts",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"test": "HOOP_HUB_DB_PATH=:memory: bun test ./src"
+	},
+	"type": "module"
 }

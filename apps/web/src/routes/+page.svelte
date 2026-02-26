@@ -261,6 +261,23 @@
 					<p class="neo-trace-section-title">Cache</p>
 					<p class="neo-copy-muted">Hits: {trace.cache.hits} | Misses: {trace.cache.misses}</p>
 
+					<p class="neo-trace-section-title">Source Calls</p>
+					<p class="neo-copy-muted"><strong>Freshness Mode:</strong> {trace.dataFreshnessMode}</p>
+					{#if trace.sourceCalls.length > 0}
+						<ul class="neo-list">
+							{#each trace.sourceCalls as sourceCall}
+								<li>
+									<strong>{sourceCall.endpointId}</strong>
+									: {sourceCall.cacheStatus}, {sourceCall.latencyMs} ms, parser {sourceCall.parserVersion}
+									{sourceCall.stale ? ', stale' : ''}
+									{sourceCall.isProvisional ? ', provisional' : ''}
+								</li>
+							{/each}
+						</ul>
+					{:else}
+						<p class="neo-copy-muted">No source calls were executed for this trace.</p>
+					{/if}
+
 					<p class="neo-trace-section-title">Computations</p>
 					{#if trace.computations.length > 0}
 						<ul class="neo-list">
