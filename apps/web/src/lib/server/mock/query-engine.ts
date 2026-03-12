@@ -7,7 +7,8 @@ import type {
 	TraceSourceCall
 } from '$lib/contracts/chat';
 import type { QueryIntent, QueryPlan } from '$lib/contracts/query-plan';
-import { getEndpointCatalogEntry } from '$lib/server/data/catalog';
+import { fetchStatsEndpointWithCache, type EndpointFetchRequest, type EndpointFetchResult } from '$lib/server/data/adapters';
+import { getEndpointCatalogEntry } from '$lib/server/data';
 import { getDataStore } from '$lib/server/data/store';
 import {
 	buildQueryPlan,
@@ -21,30 +22,11 @@ type LatencyParts = Omit<QueryTraceResponse['latencyMs'], 'total'>;
 
 const traceStore = new Map<string, QueryTraceResponse>();
 
-const INTENT_CITATIONS: Record<SupportedIntent, Citation[]> = {
-	league_leaders: [
-		{ source: 'NBA stats endpoint: leagueleaders', detail: 'Ranked season leaders by requested metric' },
-		{ source: 'NBA stats endpoint: playerprofilev2', detail: 'Player context for top-ranked result' }
-	],
-	player_trend: [
-		{ source: 'NBA stats endpoint: playergamelog', detail: 'Game-level splits for selected player window' },
-		{ source: 'NBA stats endpoint: boxscoretraditionalv2', detail: 'Validation sample for windowed aggregation' }
-	],
-	player_compare: [
-		{ source: 'NBA stats endpoint: playercareerstats', detail: 'Aligned seasonal baseline comparison' },
-		{ source: 'NBA stats endpoint: leaguedashplayerstats', detail: 'Rate/advanced split context' }
-	],
-	team_ranking: [
-		{ source: 'NBA stats endpoint: leaguedashteamstats', detail: 'Team-level advanced table by season window' },
-		{ source: 'NBA stats endpoint: teamdashboardbygeneralsplits', detail: 'Team split context validation' }
-	]
-};
-
 const INTENT_SOURCE_ENDPOINTS: Record<SupportedIntent, string[]> = {
-	league_leaders: ['leagueleaders', 'playerprofilev2'],
-	player_trend: ['playergamelog', 'boxscoretraditionalv2'],
-	player_compare: ['playercareerstats', 'leaguedashplayerstats'],
-	team_ranking: ['leaguedashteamstats', 'teamdashboardbygeneralsplits']
+	league_leaders: ['leagueleaders'],
+	player_trend: ['playergamelog'],
+	player_compare: ['playercareerstats'],
+	team_ranking: ['leaguedashteamstats']
 };
 
 const INTENT_FOLLOWUPS: Record<SupportedIntent, string[]> = {
@@ -55,10 +37,10 @@ const INTENT_FOLLOWUPS: Record<SupportedIntent, string[]> = {
 };
 
 const INTENT_LATENCIES: Record<SupportedIntent, LatencyParts> = {
-	league_leaders: { planning: 120, retrieval: 510, compute: 160, render: 80 },
-	player_trend: { planning: 130, retrieval: 560, compute: 180, render: 90 },
-	player_compare: { planning: 140, retrieval: 620, compute: 210, render: 100 },
-	team_ranking: { planning: 125, retrieval: 590, compute: 200, render: 95 }
+	league_leaders: { planning: 120, retrieval: 0, compute: 160, render: 80 },
+	player_trend: { planning: 130, retrieval: 0, compute: 180, render: 90 },
+	player_compare: { planning: 140, retrieval: 0, compute: 210, render: 100 },
+	team_ranking: { planning: 125, retrieval: 0, compute: 200, render: 95 }
 };
 
 const UNSUPPORTED_LATENCY: LatencyParts = {
@@ -66,6 +48,31 @@ const UNSUPPORTED_LATENCY: LatencyParts = {
 	retrieval: 0,
 	compute: 0,
 	render: 65
+};
+
+const METRIC_STAT_CATEGORY: Record<string, string> = {
+	ast: 'AST',
+	pts: 'PTS',
+	reb: 'REB'
+};
+
+const PLAYER_ID_BY_NAME: Record<string, string> = {
+	'nikola jokic': '203999',
+	'stephen curry': '201939',
+	'damian lillard': '203081',
+	'lebron james': '2544',
+	'kevin durant': '201142',
+	'tyrese haliburton': '1630169',
+	'domantas sabonis': '1627734'
+};
+
+type RetrievalOutcome = {
+	sourceCalls: TraceSourceCall[];
+	citations: Citation[];
+	cache: QueryTraceResponse['cache'];
+	dataFreshnessMode: DataFreshnessMode;
+	retrievalLatencyMs: number;
+	resultsByEndpoint: Map<string, EndpointFetchResult[]>;
 };
 
 export class QueryEngineInvariantError extends Error {
@@ -120,22 +127,307 @@ function buildLatency(parts: LatencyParts): QueryTraceResponse['latencyMs'] {
 	};
 }
 
-function buildSourceCalls(intent: SupportedIntent, retrievalLatencyMs: number): TraceSourceCall[] {
-	const endpoints = INTENT_SOURCE_ENDPOINTS[intent];
-	const perCallLatency = Math.max(1, Math.round(retrievalLatencyMs / endpoints.length));
+function resolveCurrentSeason(now: Date = new Date()): string {
+	const year = now.getUTCFullYear();
+	const month = now.getUTCMonth() + 1;
+	const startYear = month >= 10 ? year : year - 1;
+	const endYear = (startYear + 1).toString().slice(-2);
+	return `${startYear}-${endYear}`;
+}
 
-	return endpoints.map((endpointId) => {
+function resolveSeason(plan: QueryPlan): string {
+	return plan.filters.season ?? resolveCurrentSeason();
+}
+
+function resolveStatCategory(metricId: string | undefined): string {
+	if (!metricId) {
+		return 'PTS';
+	}
+	return METRIC_STAT_CATEGORY[metricId] ?? 'PTS';
+}
+
+function buildEndpointRequestsForPlan(plan: SupportedQueryPlan): EndpointFetchRequest[] {
+	const season = resolveSeason(plan);
+
+	if (plan.intent === 'league_leaders') {
+		return [
+			{
+				endpointId: 'leagueleaders',
+				params: {
+					LeagueID: '00',
+					PerMode: 'PerGame',
+					Scope: 'S',
+					Season: season,
+					SeasonType: 'Regular Season',
+					StatCategory: resolveStatCategory(plan.metrics[0]?.id),
+					ActiveFlag: ''
+				}
+			}
+		];
+	}
+
+	if (plan.intent === 'player_trend') {
+		const playerName = plan.entities.players[0];
+		const playerId = playerName ? PLAYER_ID_BY_NAME[playerName] : undefined;
+		if (!playerId) {
+			return [];
+		}
+
+		return [
+			{
+				endpointId: 'playergamelog',
+				params: {
+					PlayerID: playerId,
+					Season: season,
+					SeasonType: 'Regular Season',
+					LeagueID: '',
+					DateFrom: '',
+					DateTo: ''
+				}
+			}
+		];
+	}
+
+	if (plan.intent === 'player_compare') {
+		const playerIds = plan.entities.players
+			.slice(0, 2)
+			.map((name) => PLAYER_ID_BY_NAME[name])
+			.filter((playerId): playerId is string => typeof playerId === 'string');
+
+		return playerIds.map((playerId) => ({
+			endpointId: 'playercareerstats',
+			params: {
+				PerMode: 'PerGame',
+				PlayerID: playerId,
+				LeagueID: ''
+			}
+		}));
+	}
+
+	return [
+		{
+			endpointId: 'leaguedashteamstats',
+			params: {
+				Conference: '',
+				DateFrom: '',
+				DateTo: '',
+				Division: '',
+				GameScope: '',
+				GameSegment: '',
+				LastNGames: '0',
+				LeagueID: '',
+				Location: '',
+				MeasureType: 'Advanced',
+				Month: '0',
+				OpponentTeamID: '0',
+				Outcome: '',
+				PORound: '',
+				PaceAdjust: 'N',
+				PerMode: 'PerGame',
+				Period: '0',
+				PlayerExperience: '',
+				PlayerPosition: '',
+				PlusMinus: 'N',
+				Rank: 'N',
+				Season: season,
+				SeasonSegment: '',
+				SeasonType: 'Regular Season',
+				ShotClockRange: '',
+				StarterBench: '',
+				TeamID: '',
+				TwoWay: '',
+				VsConference: '',
+				VsDivision: ''
+			}
+		}
+	];
+}
+
+function sourceCallFromResult(result: EndpointFetchResult): TraceSourceCall {
+	return {
+		endpointId: result.endpointId,
+		cacheStatus: result.cacheStatus,
+		latencyMs: result.latencyMs,
+		stale: result.stale,
+		isProvisional: result.isProvisional,
+		parserVersion: result.parserVersion,
+		sourceStatus: result.sourceStatus
+	};
+}
+
+function buildCitationFromResult(result: EndpointFetchResult): Citation {
+	const detailParts = [`cache=${result.cacheStatus}`];
+	if (result.stale) {
+		detailParts.push('stale');
+	}
+	if (result.sourceStatus !== 'ok') {
+		detailParts.push(`source_status=${result.sourceStatus}`);
+	}
+	if (result.errorDetail) {
+		detailParts.push(result.errorDetail);
+	}
+
+	return {
+		source: `NBA stats endpoint: ${result.endpointId}`,
+		detail: detailParts.join('; ')
+	};
+}
+
+function buildFallbackSourceCalls(intent: SupportedIntent): TraceSourceCall[] {
+	return INTENT_SOURCE_ENDPOINTS[intent].map((endpointId) => {
 		const catalog = getEndpointCatalogEntry(endpointId);
 		return {
 			endpointId,
-			cacheStatus: 'hit',
-			latencyMs: perCallLatency,
+			cacheStatus: 'miss',
+			latencyMs: 0,
 			stale: false,
 			isProvisional: false,
 			parserVersion: catalog?.parserVersion ?? 'v1',
-			sourceStatus: 'ok'
+			sourceStatus: 'error'
 		};
 	});
+}
+
+async function executeRetrievalPlan(plan: SupportedQueryPlan): Promise<RetrievalOutcome> {
+	const endpointRequests = buildEndpointRequestsForPlan(plan);
+	const sourceCalls: TraceSourceCall[] = [];
+	const citations: Citation[] = [];
+	const resultsByEndpoint = new Map<string, EndpointFetchResult[]>();
+
+	if (endpointRequests.length === 0) {
+		const fallbackCalls = buildFallbackSourceCalls(plan.intent);
+		return {
+			sourceCalls: fallbackCalls,
+			citations: fallbackCalls.map((sourceCall) => ({
+				source: `NBA stats endpoint: ${sourceCall.endpointId}`,
+				detail: 'No resolvable entity IDs available for live fetch in this slice.'
+			})),
+			cache: {
+				hits: 0,
+				misses: fallbackCalls.length
+			},
+			dataFreshnessMode: 'nightly',
+			retrievalLatencyMs: 0,
+			resultsByEndpoint
+		};
+	}
+
+	let retrievalLatencyMs = 0;
+	for (const request of endpointRequests) {
+		let result: EndpointFetchResult;
+		try {
+			result = await fetchStatsEndpointWithCache(request);
+		} catch (error) {
+			const fallback = buildFallbackSourceCalls(plan.intent).find((sourceCall) => sourceCall.endpointId === request.endpointId);
+			result = {
+				endpointId: request.endpointId,
+				payload: null,
+				cacheStatus: fallback?.cacheStatus ?? 'miss',
+				sourceStatus: 'error',
+				latencyMs: 0,
+				stale: false,
+				isProvisional: false,
+				parserVersion: fallback?.parserVersion ?? 'v1',
+				errorDetail: String(error)
+			};
+		}
+
+		retrievalLatencyMs += result.latencyMs;
+		sourceCalls.push(sourceCallFromResult(result));
+		citations.push(buildCitationFromResult(result));
+
+		if (!resultsByEndpoint.has(result.endpointId)) {
+			resultsByEndpoint.set(result.endpointId, []);
+		}
+		resultsByEndpoint.get(result.endpointId)?.push(result);
+	}
+
+	const hits = sourceCalls.filter((sourceCall) => sourceCall.cacheStatus === 'hit' || sourceCall.cacheStatus === 'stale_hit').length;
+	const misses = sourceCalls.filter((sourceCall) => sourceCall.cacheStatus === 'miss').length;
+	const dataFreshnessMode: DataFreshnessMode = sourceCalls.some((sourceCall) => sourceCall.isProvisional)
+		? 'provisional_live'
+		: 'nightly';
+
+	return {
+		sourceCalls,
+		citations,
+		cache: { hits, misses },
+		dataFreshnessMode,
+		retrievalLatencyMs,
+		resultsByEndpoint
+	};
+}
+
+function extractResultSet(payload: unknown): { headers: string[]; rowSet: unknown[][] } | null {
+	if (!payload || typeof payload !== 'object') {
+		return null;
+	}
+
+	const candidate = payload as {
+		resultSet?: { headers?: unknown; rowSet?: unknown };
+		resultSets?: Array<{ headers?: unknown; rowSet?: unknown }>;
+	};
+
+	if (candidate.resultSet && Array.isArray(candidate.resultSet.headers) && Array.isArray(candidate.resultSet.rowSet)) {
+		return {
+			headers: candidate.resultSet.headers.map((value) => String(value)),
+			rowSet: candidate.resultSet.rowSet as unknown[][]
+		};
+	}
+
+	if (Array.isArray(candidate.resultSets)) {
+		const dataset = candidate.resultSets.find((resultSet) => Array.isArray(resultSet.headers) && Array.isArray(resultSet.rowSet));
+		if (dataset) {
+			const headers = Array.isArray(dataset.headers) ? dataset.headers : [];
+			const rowSet = Array.isArray(dataset.rowSet) ? (dataset.rowSet as unknown[][]) : [];
+			return {
+				headers: headers.map((value) => String(value)),
+				rowSet
+			};
+		}
+	}
+
+	return null;
+}
+
+function formatNumericValue(value: unknown): string {
+	if (typeof value === 'number') {
+		return Number.isInteger(value) ? `${value}` : value.toFixed(1);
+	}
+
+	if (typeof value === 'string') {
+		return value;
+	}
+
+	return 'N/A';
+}
+
+function buildLeagueLeadersAnswer(plan: SupportedQueryPlan, retrieval: RetrievalOutcome): string | null {
+	const firstSuccessful = retrieval.resultsByEndpoint
+		.get('leagueleaders')
+		?.find((result) => result.payload !== null && result.sourceStatus === 'ok');
+	if (!firstSuccessful || firstSuccessful.payload === null) {
+		return null;
+	}
+
+	const resultSet = extractResultSet(firstSuccessful.payload);
+	if (!resultSet || resultSet.rowSet.length === 0) {
+		return null;
+	}
+
+	const statCategory = resolveStatCategory(plan.metrics[0]?.id);
+	const playerIndex = resultSet.headers.indexOf('PLAYER');
+	const statIndex = resultSet.headers.indexOf(statCategory);
+	if (playerIndex < 0 || statIndex < 0) {
+		return null;
+	}
+
+	const leaderRow = resultSet.rowSet[0];
+	const leaderName = String(leaderRow[playerIndex] ?? 'Top player');
+	const leaderValue = formatNumericValue(leaderRow[statIndex]);
+	const seasonLabel = plan.filters.season ?? 'this season';
+
+	return `${leaderName} currently leads the league in ${statCategory} for ${seasonLabel} at ${leaderValue} per game.`;
 }
 
 function saveTraceSourceCalls(traceId: string, dataFreshnessMode: DataFreshnessMode, sourceCalls: TraceSourceCall[]): void {
@@ -179,11 +471,15 @@ function formatWindow(plan: QueryPlan): string {
 	return 'over the recent sample';
 }
 
-function buildSupportedAnswer(plan: SupportedQueryPlan): string {
+function buildSupportedAnswer(plan: SupportedQueryPlan, retrieval: RetrievalOutcome): string {
 	const metricsLabel = formatMetrics(plan);
 
 	if (plan.intent === 'league_leaders') {
-		return `League leaders query recognized for ${metricsLabel} ${formatSeason(plan)}. Returning a grounded ranking in this mock slice.`;
+		const liveAnswer = buildLeagueLeadersAnswer(plan, retrieval);
+		if (liveAnswer) {
+			return liveAnswer;
+		}
+		return `League leaders query recognized for ${metricsLabel} ${formatSeason(plan)}. Returning a grounded ranking in this slice.`;
 	}
 
 	if (plan.intent === 'player_trend') {
@@ -208,7 +504,8 @@ function saveTrace(
 	dataFreshnessMode: DataFreshnessMode,
 	sourceCalls: TraceSourceCall[],
 	executedSources: Citation[],
-	latency: QueryTraceResponse['latencyMs']
+	latency: QueryTraceResponse['latencyMs'],
+	cache: QueryTraceResponse['cache']
 ) {
 	traceStore.set(traceId, {
 		traceId,
@@ -219,7 +516,7 @@ function saveTrace(
 		executedSources,
 		computations: [],
 		latencyMs: latency,
-		cache: { hits: 0, misses: 0 }
+		cache
 	});
 	saveTraceSourceCalls(traceId, dataFreshnessMode, sourceCalls);
 }
@@ -233,7 +530,10 @@ function createUnsupportedResponse(
 	traceId: string,
 	queryPlan: QueryPlan
 ): ChatQueryResponse {
-	saveTrace(traceId, normalizedQuestion, queryPlan, 'nightly', [], [], buildLatency(UNSUPPORTED_LATENCY));
+	saveTrace(traceId, normalizedQuestion, queryPlan, 'nightly', [], [], buildLatency(UNSUPPORTED_LATENCY), {
+		hits: 0,
+		misses: 0
+	});
 
 	return {
 		status: 'unsupported',
@@ -245,28 +545,39 @@ function createUnsupportedResponse(
 	};
 }
 
-function createSupportedResponse(
+async function createSupportedResponse(
 	normalizedQuestion: string,
 	traceId: string,
 	queryPlan: SupportedQueryPlan
-): ChatQueryResponse {
-	const citations = INTENT_CITATIONS[queryPlan.intent];
+): Promise<ChatQueryResponse> {
+	const retrieval = await executeRetrievalPlan(queryPlan);
 	const followups = INTENT_FOLLOWUPS[queryPlan.intent];
-	const latency = buildLatency(INTENT_LATENCIES[queryPlan.intent]);
-	const sourceCalls = buildSourceCalls(queryPlan.intent, latency.retrieval);
+	const latency = buildLatency({
+		...INTENT_LATENCIES[queryPlan.intent],
+		retrieval: retrieval.retrievalLatencyMs
+	});
 
-	saveTrace(traceId, normalizedQuestion, queryPlan, 'nightly', sourceCalls, citations, latency);
+	saveTrace(
+		traceId,
+		normalizedQuestion,
+		queryPlan,
+		retrieval.dataFreshnessMode,
+		retrieval.sourceCalls,
+		retrieval.citations,
+		latency,
+		retrieval.cache
+	);
 
 	return {
 		status: 'ok',
-		answer: buildSupportedAnswer(queryPlan),
-		citations,
+		answer: buildSupportedAnswer(queryPlan, retrieval),
+		citations: retrieval.citations,
 		traceId,
 		followups
 	};
 }
 
-export function runMockQuery(request: ChatQueryRequest): ChatQueryResponse {
+export async function runMockQuery(request: ChatQueryRequest): Promise<ChatQueryResponse> {
 	const normalizedQuestion = normalizeQuestion(request.message);
 	const traceId = crypto.randomUUID();
 	const queryPlan = buildQueryPlan(normalizedQuestion);
@@ -280,7 +591,7 @@ export function runMockQuery(request: ChatQueryRequest): ChatQueryResponse {
 		return createUnsupportedResponse(normalizedQuestion, traceId, queryPlan);
 	}
 
-	return createSupportedResponse(normalizedQuestion, traceId, queryPlan);
+	return await createSupportedResponse(normalizedQuestion, traceId, queryPlan);
 }
 
 export function getTraceById(traceId: string): QueryTraceResponse | null {

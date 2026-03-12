@@ -33,7 +33,7 @@ describe('GET /api/query-trace/:traceId', () => {
 	});
 
 	test('returns migrated rich trace payload for supported query traces', async () => {
-		const chat = runMockQuery({
+		const chat = await runMockQuery({
 			sessionId: 'session-1',
 			message: 'Who averaged the most assists in 2023-24?'
 		});
@@ -64,11 +64,11 @@ describe('GET /api/query-trace/:traceId', () => {
 			payload.latencyMs.total,
 			payload.latencyMs.planning + payload.latencyMs.retrieval + payload.latencyMs.compute + payload.latencyMs.render
 		);
-		assert.deepEqual(payload.cache, { hits: 0, misses: 0 });
+		assert.equal(payload.cache.hits + payload.cache.misses > 0, true);
 	});
 
 	test('returns migrated rich trace payload for unsupported query traces', async () => {
-		const chat = runMockQuery({
+		const chat = await runMockQuery({
 			sessionId: 'session-1',
 			message: 'Who wins the championship this year?'
 		});

@@ -34,8 +34,8 @@ describe('validateChatQueryRequest', () => {
 });
 
 describe('runMockQuery + getTraceById', () => {
-	test('returns ok response with citations and rich trace for supported questions', () => {
-		const response = runMockQuery({
+	test('returns ok response with citations and rich trace for supported questions', async () => {
+		const response = await runMockQuery({
 			sessionId: 'session-1',
 			message: 'Who averaged the most assists in 2023-24?'
 		});
@@ -50,7 +50,7 @@ describe('runMockQuery + getTraceById', () => {
 		assert.equal((trace?.executedSources.length ?? 0) > 0, true);
 		assert.equal(trace?.dataFreshnessMode, 'nightly');
 		assert.equal((trace?.sourceCalls.length ?? 0) > 0, true);
-		assert.equal(trace?.sourceCalls.every((source) => source.cacheStatus === 'hit'), true);
+		assert.equal(trace?.sourceCalls.every((source) => source.endpointId.length > 0), true);
 		assert.equal((trace?.computations.length ?? 0) === 0, true);
 		assert.equal((trace?.latencyMs.total ?? 0) > 0, true);
 		assert.equal(
@@ -60,11 +60,11 @@ describe('runMockQuery + getTraceById', () => {
 				(trace?.latencyMs.compute ?? 0) +
 				(trace?.latencyMs.render ?? 0)
 		);
-		assert.deepEqual(trace?.cache, { hits: 0, misses: 0 });
+		assert.equal((trace?.cache.hits ?? 0) + (trace?.cache.misses ?? 0) > 0, true);
 	});
 
-	test('returns unsupported with 200-compatible payload shape and unsupported trace', () => {
-		const response = runMockQuery({
+	test('returns unsupported with 200-compatible payload shape and unsupported trace', async () => {
+		const response = await runMockQuery({
 			sessionId: 'session-1',
 			message: 'Who wins the championship this year?'
 		});
@@ -82,8 +82,8 @@ describe('runMockQuery + getTraceById', () => {
 		assert.equal((trace?.latencyMs.total ?? 0) > 0, true);
 	});
 
-	test('handles player trend intent with windowed filters', () => {
-		const response = runMockQuery({
+	test('handles player trend intent with windowed filters', async () => {
+		const response = await runMockQuery({
 			sessionId: 'session-1',
 			message: 'Show Nikola Jokic rebounds over his last 10 games'
 		});
@@ -97,8 +97,8 @@ describe('runMockQuery + getTraceById', () => {
 		assert.equal(trace?.sourceCalls.some((source) => source.endpointId === 'playergamelog'), true);
 	});
 
-	test('handles team ranking intent for defensive rating queries', () => {
-		const response = runMockQuery({
+	test('handles team ranking intent for defensive rating queries', async () => {
+		const response = await runMockQuery({
 			sessionId: 'session-1',
 			message: 'Which teams have the best defensive rating this season?'
 		});
@@ -111,8 +111,8 @@ describe('runMockQuery + getTraceById', () => {
 		assert.equal(trace?.sourceCalls.some((source) => source.endpointId === 'leaguedashteamstats'), true);
 	});
 
-	test('handles player compare intent with default metric fallback', () => {
-		const response = runMockQuery({
+	test('handles player compare intent with default metric fallback', async () => {
+		const response = await runMockQuery({
 			sessionId: 'session-1',
 			message: 'Compare Stephen Curry vs Damian Lillard this season'
 		});
@@ -124,8 +124,8 @@ describe('runMockQuery + getTraceById', () => {
 		assert.equal((trace?.queryPlan.confidence ?? 0) <= 0.6, true);
 	});
 
-	test('throws invariant error when planner generates invalid supported plan', () => {
-		assert.throws(
+	test('throws invariant error when planner generates invalid supported plan', async () => {
+		await assert.rejects(
 			() =>
 				runMockQuery({
 					sessionId: 'session-1',

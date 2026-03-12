@@ -19,5 +19,8 @@ bun run build
 
 ## Notes
 
-- Current query execution is backed by a deterministic mock engine while the real data adapter/cache slice is in progress.
+- Current query execution is retrieval-backed, but only partially grounded:
+  - `league_leaders` composes answers from retrieved NBA payloads
+  - `player_trend`, `player_compare`, and `team_ranking` still return templated summaries after retrieval
+- The current runtime is live-fetch-first with cache fallback; finalized nightly-first ingestion is not implemented yet.
 - Root project status and roadmap live in the repository [README](../../README.md).

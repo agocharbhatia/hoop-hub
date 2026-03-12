@@ -20,7 +20,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	try {
-		const result = runMockQuery(parsed.value);
+		const result = await runMockQuery(parsed.value);
 		return json(result, { status: 200 });
 	} catch (error) {
 		if (isQueryEngineInvariantError(error)) {

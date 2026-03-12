@@ -14,24 +14,39 @@ Users ask basketball questions in plain English, and Hoop Hub returns grounded s
   - deterministic query intent normalization
   - metric registry + metric resolution logic
   - planner invariants and validation tests
-- Vertical MVP flow with mock backend:
+- Slice 2 adapter/cache foundation:
+  - official NBA endpoint adapter with fetch-through SQLite cache
+  - TTL-aware cache keys and source-call trace persistence
+  - environment toggles for live-fetch on/off and timeout control
+- Vertical MVP flow with retrieval-backed prototype:
   - `POST /api/chat/query`
   - `GET /api/query-trace/:traceId`
   - unsupported/supported/error UI states
   - trace panel for "Show steps"
+- Current retrieval behavior:
+  - live-fetch-first against `stats.nba.com`, with cache hits and stale-cache fallback
+  - `league_leaders` has real payload-backed answer composition
+  - `player_trend`, `player_compare`, and `team_ranking` still use templated answer composition after retrieval
+- Data freshness behavior:
+  - traces can report `provisional_live` when a response came from a live fetch
+  - nightly-run schema/storage exists, but finalized nightly-first ingestion is not implemented yet
 - Local run orchestration via `scripts/run-all.sh`.
 
 ## What Is Actively Being Worked On
 
 - Finalizing UI reference and interaction system for the productionized chat + artifact experience.
-- Next implementation slice: replace mock retrieval with official NBA data adapters + cache layer (on-demand fetch + local persistence).
+- Reconciling the long-term data strategy:
+  - complete retrieval-backed answer composition for currently supported intents
+  - or shift to the intended nightly-first ingestion/finalization path before adding more compute features
 
 ## Roadmap / TODO
 
 - [x] Slice 0: Foundation (app scaffold, contracts wiring, health endpoint)
 - [x] Slice 1: Query planning foundation (query plan + metrics registry + tests)
 - [x] Vertical MVP mocked query flow (chat API + trace API + UI states)
-- [ ] Slice 2: Official NBA data adapters + SQLite cache TTL strategy
+- [x] Slice 2: Official NBA data adapters + SQLite cache TTL strategy
+- [ ] Finish retrieval-backed answer composition for supported intents
+- [ ] Implement nightly-first ingest/finalization and stored-data-first reads
 - [ ] Slice 3: Restricted computed-metric DSL + DuckDB execution
 - [ ] Slice 4: End-to-end grounded answers + citations + trace persistence hardening
 - [ ] Slice 5: Visualization artifact rendering (table/bar/line/scatter)

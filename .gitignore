@@ -1,4 +1,5 @@
 .codex/
+.cursor/
 
 # macOS
 .DS_Store

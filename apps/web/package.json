@@ -23,7 +23,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:endpoint-catalog-contracts": "bun ./scripts/check-endpoint-catalog-contracts.ts",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"test": "HOOP_HUB_DB_PATH=:memory: bun test ./src"
+		"test": "HOOP_HUB_DB_PATH=:memory: HOOP_HUB_ENABLE_LIVE_NBA=0 bun test ./src"
 	},
 	"type": "module"
 }
