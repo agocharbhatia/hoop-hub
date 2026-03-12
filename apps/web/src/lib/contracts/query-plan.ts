@@ -1,3 +1,6 @@
+/**
+ * Legacy planner enum retained for compatibility while the structured semantic query contract is rolled out.
+ */
 export type QueryIntent =
 	| 'league_leaders'
 	| 'player_trend'

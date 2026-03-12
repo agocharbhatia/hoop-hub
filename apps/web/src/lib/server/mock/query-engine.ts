@@ -90,6 +90,24 @@ export function normalizeQuestion(message: string): string {
 	return normalizePlannedQuestion(message);
 }
 
+function buildUnsupportedTracePlan(reasons: string[]): QueryPlan {
+	return {
+		intent: 'unsupported',
+		entities: {
+			players: [],
+			teams: [],
+			seasons: []
+		},
+		metrics: [],
+		filters: {
+			season: null,
+			window: null
+		},
+		confidence: 0.3,
+		reasons
+	};
+}
+
 export function validateChatQueryRequest(input: unknown): { ok: true; value: ChatQueryRequest } | { ok: false; error: string } {
 	if (!input || typeof input !== 'object') {
 		return { ok: false, error: 'Request body must be a JSON object.' };
@@ -542,6 +560,30 @@ function createUnsupportedResponse(
 		citations: [],
 		traceId,
 		followups: ['Compare two players by season', 'Ask for assist leaders by season', 'Ask for last N games rebounds']
+	};
+}
+
+export function recordUnsupportedLegacyTrace(
+	message: string,
+	reasons: string[]
+): {
+	traceId: string;
+	normalizedQuestion: string;
+	queryPlan: QueryPlan;
+} {
+	const normalizedQuestion = normalizeQuestion(message);
+	const traceId = crypto.randomUUID();
+	const queryPlan = buildUnsupportedTracePlan(reasons);
+
+	saveTrace(traceId, normalizedQuestion, queryPlan, 'nightly', [], [], buildLatency(UNSUPPORTED_LATENCY), {
+		hits: 0,
+		misses: 0
+	});
+
+	return {
+		traceId,
+		normalizedQuestion,
+		queryPlan
 	};
 }
 

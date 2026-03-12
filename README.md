@@ -9,7 +9,7 @@ Users ask basketball questions in plain English, and Hoop Hub returns grounded s
 - Bun + SvelteKit app scaffolded and running locally.
 - Chat-first UI shell.
 - Health endpoint: `GET /api/health`.
-- Typed contracts for chat and query planning.
+- Typed contracts for legacy chat/planning and structured stats queries.
 - Milestone 1 planner foundation:
   - deterministic query intent normalization
   - metric registry + metric resolution logic
@@ -19,7 +19,8 @@ Users ask basketball questions in plain English, and Hoop Hub returns grounded s
   - TTL-aware cache keys and source-call trace persistence
   - environment toggles for live-fetch on/off and timeout control
 - Vertical MVP flow with retrieval-backed prototype:
-  - `POST /api/chat/query`
+  - `POST /api/stats/query` as the structured primary lookup API
+  - `POST /api/chat/query` retained as a legacy compatibility route
   - `GET /api/query-trace/:traceId`
   - unsupported/supported/error UI states
   - trace panel for "Show steps"
