@@ -1,11 +1,13 @@
 <script lang="ts">
 	import brandNet from '$lib/assets/brand-net.svg';
-	import type { ChatQueryRequest, ChatQueryResponse, ErrorResponse, QueryTraceResponse } from '$lib/contracts/chat';
+	import type { ChatQueryRequest, ErrorResponse } from '$lib/contracts/chat';
+	import type { QueryTraceResponse } from '$lib/contracts/query-trace';
+	import type { StatsQueryResponse, StatsQueryRowValue } from '$lib/contracts/semantic-query';
 	import { NeoBadge, NeoButton, NeoCard, NeoInput, NeoPanel } from '$lib';
 
 	const sessionId = 'local-session';
 	let query = $state('Who averaged the most assists in 2023-24?');
-	let response = $state<ChatQueryResponse | null>(null);
+	let response = $state<StatsQueryResponse | null>(null);
 	let trace = $state<QueryTraceResponse | null>(null);
 	let queryError = $state<string | null>(null);
 	let traceError = $state<string | null>(null);
@@ -27,10 +29,8 @@
 		'Show the same for last season'
 	];
 
-	const shownCitations = $derived(response?.status === 'ok' ? response.citations : []);
-	const shownFollowups = $derived(
-		response?.followups && response.followups.length > 0 ? response.followups : emptyFollowups
-	);
+	const shownCitations = $derived(response?.citations ?? []);
+	const shownFollowups = $derived(emptyFollowups);
 
 	function resetErrors() {
 		queryError = null;
@@ -62,14 +62,14 @@
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify(payload)
 			});
-			const data = (await result.json()) as ChatQueryResponse | ErrorResponse;
+			const data = (await result.json()) as StatsQueryResponse | ErrorResponse;
 			if (!result.ok) {
 				queryError = 'error' in data ? data.error : 'Unable to process this query.';
 				response = null;
 				return;
 			}
 
-			response = data as ChatQueryResponse;
+			response = data as StatsQueryResponse;
 		} catch {
 			queryError = 'Request failed. Please try again.';
 			response = null;
@@ -111,24 +111,37 @@
 	}
 
 	function formatTraceMetrics(traceData: QueryTraceResponse): string {
-		if (traceData.queryPlan.metrics.length === 0) {
+		if (!traceData.resolvedQuery || traceData.resolvedQuery.metrics.length === 0) {
 			return 'None';
 		}
-		return traceData.queryPlan.metrics
-			.map((metric) => `${metric.id} (${Math.round(metric.confidence * 100)}%)`)
-			.join(', ');
+		return traceData.resolvedQuery.metrics.join(', ');
 	}
 
 	function formatTraceWindow(traceData: QueryTraceResponse): string {
-		const windowFilter = traceData.queryPlan.filters.window;
+		const windowFilter = traceData.resolvedQuery?.filters.window;
 		if (!windowFilter) {
 			return 'None';
 		}
 		return `${windowFilter.type} (${windowFilter.n})`;
 	}
 
-	function formatTraceConfidence(confidence: number): string {
-		return `${Math.round(confidence * 100)}%`;
+	function formatTraceSubjects(traceData: QueryTraceResponse): string {
+		if (!traceData.resolvedQuery) {
+			return 'None';
+		}
+
+		const names = traceData.resolvedQuery.subject.names ?? [];
+		const ids = traceData.resolvedQuery.subject.ids ?? [];
+		const values = [...names, ...ids.filter((id) => !names.includes(id))];
+		return values.length > 0 ? values.join(', ') : 'None';
+	}
+
+	function formatTraceStatus(status: string): string {
+		return status.replaceAll('_', ' ');
+	}
+
+	function formatCellValue(value: StatsQueryRowValue | undefined): string {
+		return value === null || value === undefined ? '—' : String(value);
 	}
 </script>
 
@@ -192,11 +205,47 @@
 					{#if isQueryLoading}
 						Running query...
 					{:else if response}
-						{response.answer}
+						{response.result?.summary ?? response.warnings[0]?.message ?? emptyAnswerPreview}
 					{:else}
 						{emptyAnswerPreview}
 					{/if}
 				</p>
+				{#if response?.warnings.length}
+					<ul class="neo-list neo-warning-list">
+						{#each response.warnings as warning}
+							<li>{warning.message}</li>
+						{/each}
+					</ul>
+				{/if}
+			</NeoCard>
+
+			<NeoCard tone="surface" kicker="Data" title="Structured Result">
+				{#if response?.result?.rows.length}
+					<div class="neo-table-wrap">
+						<table class="neo-table">
+							<thead>
+								<tr>
+									{#each response.result.columns as column}
+										<th>{column}</th>
+									{/each}
+								</tr>
+							</thead>
+							<tbody>
+								{#each response.result.rows as row}
+									<tr>
+										{#each response.result.columns as column}
+											<td>{formatCellValue(row[column])}</td>
+										{/each}
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{:else if response}
+					<p class="neo-copy-muted">No structured rows were returned for this response.</p>
+				{:else}
+					<p class="neo-copy-muted">Run a query to inspect the structured result payload.</p>
+				{/if}
 			</NeoCard>
 
 			<NeoCard tone="surface" kicker="Grounding" title="Citations">
@@ -206,8 +255,8 @@
 							<li>{item.source}{item.detail ? ` - ${item.detail}` : ''}</li>
 						{/each}
 					</ul>
-				{:else if response?.status === 'unsupported'}
-					<p class="neo-copy-muted">No citations are returned for unsupported queries in this slice.</p>
+				{:else if response}
+					<p class="neo-copy-muted">No citations were returned for this response.</p>
 				{:else}
 					<p class="neo-copy-muted">Run a query to view grounded sources.</p>
 				{/if}
@@ -231,23 +280,31 @@
 				<NeoCard tone="surface" kicker="Trace" title="Show Steps">
 					<div class="neo-trace-meta">
 						<span><strong>Question:</strong> {trace.normalizedQuestion}</span>
-						<span><strong>Intent:</strong> {trace.queryPlan.intent}</span>
-						<span><strong>Confidence:</strong> {formatTraceConfidence(trace.queryPlan.confidence)}</span>
+						<span><strong>Status:</strong> {formatTraceStatus(trace.status)}</span>
+						<span><strong>Operation:</strong> {trace.resolvedQuery?.operation ?? 'None'}</span>
+						<span><strong>Entity:</strong> {trace.resolvedQuery?.entity ?? 'None'}</span>
 					</div>
 
-					<p class="neo-trace-section-title">Entities</p>
+					<p class="neo-trace-section-title">Subjects</p>
 					<ul class="neo-list">
-						<li><strong>Players:</strong> {formatTraceList(trace.queryPlan.entities.players)}</li>
-						<li><strong>Teams:</strong> {formatTraceList(trace.queryPlan.entities.teams)}</li>
-						<li><strong>Seasons:</strong> {formatTraceList(trace.queryPlan.entities.seasons)}</li>
+						<li><strong>Subjects:</strong> {formatTraceSubjects(trace)}</li>
 					</ul>
 
 					<p class="neo-trace-section-title">Metrics & Filters</p>
 					<ul class="neo-list">
 						<li><strong>Metrics:</strong> {formatTraceMetrics(trace)}</li>
-						<li><strong>Season Filter:</strong> {trace.queryPlan.filters.season ?? 'None'}</li>
+						<li><strong>Season Filter:</strong> {trace.resolvedQuery?.filters.season ?? 'None'}</li>
 						<li><strong>Window Filter:</strong> {formatTraceWindow(trace)}</li>
 					</ul>
+
+					{#if trace.warnings.length > 0}
+						<p class="neo-trace-section-title">Warnings</p>
+						<ul class="neo-list">
+							{#each trace.warnings as warning}
+								<li>{warning.message}</li>
+							{/each}
+						</ul>
+					{/if}
 
 					<p class="neo-trace-section-title">Latency</p>
 					<ul class="neo-list">

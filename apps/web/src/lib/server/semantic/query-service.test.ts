@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
-import { describe, test } from 'node:test';
+import { after, afterEach, beforeEach, describe, test } from 'node:test';
+import { resetDataStoreForTests } from '$lib/server/data/store';
+import { installSemanticFixtureFetch } from '../../../tests/helpers/semantic-fixture-fetch';
 import { executeSemanticQuery, validateSemanticQueryRequest } from './query-service';
+
+const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
+const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;
 
 describe('validateSemanticQueryRequest', () => {
 	test('accepts a valid player ranking request', () => {
@@ -42,13 +47,33 @@ describe('validateSemanticQueryRequest', () => {
 });
 
 describe('executeSemanticQuery', () => {
+	let restoreFetch: (() => void) | null = null;
+
+	beforeEach(() => {
+		process.env.HOOP_HUB_DB_PATH = ':memory:';
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
+		resetDataStoreForTests();
+		restoreFetch = installSemanticFixtureFetch();
+	});
+
+	afterEach(() => {
+		restoreFetch?.();
+		restoreFetch = null;
+		resetDataStoreForTests();
+	});
+
+	after(() => {
+		process.env.HOOP_HUB_DB_PATH = ORIGINAL_DB_PATH;
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = ORIGINAL_LIVE_FETCH;
+	});
+
 	test('returns ok for supported player ranking queries', async () => {
 		const response = await executeSemanticQuery({
 			query: {
 				operation: 'rank',
 				entity: 'player',
 				subject: {},
-				metrics: ['ast'],
+				metrics: ['ast', 'pts'],
 				filters: {
 					season: '2023-24'
 				}
@@ -57,8 +82,73 @@ describe('executeSemanticQuery', () => {
 
 		assert.equal(response.status, 'ok');
 		assert.equal(response.result?.shape, 'ranking');
-		assert.equal(response.provenance.legacyIntent, 'league_leaders');
+		assert.equal(response.result?.rows.length, 20);
+		assert.equal(response.provenance.executor, 'semantic_executor');
 		assert.equal(response.traceId.length > 0, true);
+	});
+
+	test('supports multi-metric player trend rows with window limiting', async () => {
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'trend',
+				entity: 'player',
+				subject: {
+					names: ['Nikola Jokic']
+				},
+				metrics: ['pts', 'reb'],
+				filters: {
+					season: '2023-24',
+					window: {
+						type: 'last_n_games',
+						n: 4
+					}
+				},
+				limit: 2
+			}
+		});
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.shape, 'timeseries');
+		assert.equal(response.result?.rows.length, 4);
+		assert.equal(response.result?.rows[0]?.metric, 'pts');
+	});
+
+	test('supports multi-metric player comparison rows', async () => {
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'compare',
+				entity: 'player',
+				subject: {
+					names: ['Stephen Curry', 'Damian Lillard']
+				},
+				metrics: ['pts', 'ast'],
+				filters: {
+					season: '2023-24'
+				}
+			}
+		});
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.shape, 'comparison');
+		assert.equal(response.result?.rows.length, 4);
+	});
+
+	test('supports team ranking rows', async () => {
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'rank',
+				entity: 'team',
+				subject: {},
+				metrics: ['drtg'],
+				filters: {
+					season: '2023-24'
+				}
+			}
+		});
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.shape, 'ranking');
+		assert.equal(response.result?.rows.length, 5);
 	});
 
 	test('returns clarification_needed when compare requests do not include two players', async () => {
@@ -112,5 +202,26 @@ describe('executeSemanticQuery', () => {
 
 		assert.equal(response.status, 'coverage_gap');
 		assert.equal(response.warnings[0]?.code, 'unsupported_query_shape');
+	});
+
+	test('returns coverage_gap when orderBy is used outside ranking queries', async () => {
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'trend',
+				entity: 'player',
+				subject: {
+					names: ['Nikola Jokic']
+				},
+				metrics: ['pts'],
+				filters: {},
+				orderBy: {
+					metric: 'pts',
+					direction: 'asc'
+				}
+			}
+		});
+
+		assert.equal(response.status, 'coverage_gap');
+		assert.equal(response.warnings[0]?.code, 'unsupported_order_by');
 	});
 });

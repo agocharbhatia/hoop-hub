@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
-import { describe, test } from 'node:test';
+import { after, afterEach, beforeEach, describe, test } from 'node:test';
+import { resetDataStoreForTests } from '$lib/server/data/store';
+import { installSemanticFixtureFetch } from '../helpers/semantic-fixture-fetch';
 import { POST } from '../../routes/api/chat/query/+server';
+
+const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
+const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;
 
 function createPostEvent(body: BodyInit): Parameters<typeof POST>[0] {
 	return {
@@ -17,6 +22,26 @@ async function parseJson(response: Response): Promise<unknown> {
 }
 
 describe('POST /api/chat/query', () => {
+	let restoreFetch: (() => void) | null = null;
+
+	beforeEach(() => {
+		process.env.HOOP_HUB_DB_PATH = ':memory:';
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
+		resetDataStoreForTests();
+		restoreFetch = installSemanticFixtureFetch();
+	});
+
+	afterEach(() => {
+		restoreFetch?.();
+		restoreFetch = null;
+		resetDataStoreForTests();
+	});
+
+	after(() => {
+		process.env.HOOP_HUB_DB_PATH = ORIGINAL_DB_PATH;
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = ORIGINAL_LIVE_FETCH;
+	});
+
 	test('returns 400 for invalid json body', async () => {
 		const response = await POST(createPostEvent('{invalid-json'));
 		const payload = (await parseJson(response)) as { error: string };
@@ -40,7 +65,7 @@ describe('POST /api/chat/query', () => {
 		assert.match(payload.error, /message is required/i);
 	});
 
-	test('returns 200 ok with stable response shape for supported query', async () => {
+	test('returns structured rows for supported raw natural-language queries', async () => {
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
@@ -51,19 +76,22 @@ describe('POST /api/chat/query', () => {
 		);
 		const payload = (await parseJson(response)) as {
 			status: string;
-			answer: string;
+			result: { summary?: string; rows: unknown[] };
 			citations: unknown[];
+			provenance: { executor: string };
 			traceId: string;
 		};
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'ok');
-		assert.equal(payload.answer.length > 0, true);
+		assert.equal((payload.result.summary?.length ?? 0) > 0, true);
+		assert.equal(payload.result.rows.length > 0, true);
 		assert.equal(payload.citations.length > 0, true);
+		assert.equal(payload.provenance.executor, 'semantic_executor');
 		assert.equal(payload.traceId.length > 0, true);
 	});
 
-	test('returns 200 unsupported for ungrounded query', async () => {
+	test('returns typed coverage gaps for ungrounded queries', async () => {
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
@@ -74,19 +102,19 @@ describe('POST /api/chat/query', () => {
 		);
 		const payload = (await parseJson(response)) as {
 			status: string;
-			answer: string;
-			citations: unknown[];
+			result: unknown;
+			warnings: { code: string }[];
 			traceId: string;
 		};
 
 		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'unsupported');
-		assert.equal(payload.answer.length > 0, true);
-		assert.equal(payload.citations.length, 0);
+		assert.equal(payload.status, 'coverage_gap');
+		assert.equal(payload.result, null);
+		assert.equal(payload.warnings.length > 0, true);
 		assert.equal(payload.traceId.length > 0, true);
 	});
 
-	test('returns 500 on planner invariant failures', async () => {
+	test('returns coverage gaps instead of 500s for unsupported comparison metrics', async () => {
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
@@ -95,9 +123,10 @@ describe('POST /api/chat/query', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as { error: string };
+		const payload = (await parseJson(response)) as { status: string; warnings: { code: string }[] };
 
-		assert.equal(response.status, 500);
-		assert.equal(payload.error, 'Internal query planning error.');
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'coverage_gap');
+		assert.equal(payload.warnings[0]?.code, 'unsupported_metric');
 	});
 });

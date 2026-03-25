@@ -242,6 +242,37 @@ a {
 	letter-spacing: 0.08em;
 }
 
+.neo-warning-list {
+	margin-top: 0.75rem;
+}
+
+.neo-table-wrap {
+	overflow-x: auto;
+	border: var(--neo-border-width) solid var(--neo-border-color);
+	background: var(--neo-bg);
+}
+
+.neo-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.8rem;
+}
+
+.neo-table th,
+.neo-table td {
+	padding: 0.55rem 0.65rem;
+	border: 2px solid rgba(248, 247, 242, 0.15);
+	text-align: left;
+	white-space: nowrap;
+}
+
+.neo-table th {
+	background: var(--neo-secondary);
+	color: var(--neo-ink-dark);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+}
+
 .neo-button {
 	display: inline-flex;
 	align-items: center;

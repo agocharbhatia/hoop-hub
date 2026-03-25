@@ -1,0 +1,15 @@
+{
+	"resultSets": [
+		{
+			"name": "LeagueDashTeamStats",
+			"headers": ["TEAM_ID", "TEAM_NAME", "DEF_RATING"],
+			"rowSet": [
+				["1610612750", "Minnesota Timberwolves", 108.4],
+				["1610612738", "Boston Celtics", 110.2],
+				["1610612752", "New York Knicks", 111.1],
+				["1610612760", "Oklahoma City Thunder", 111.4],
+				["1610612743", "Denver Nuggets", 112.0]
+			]
+		}
+	]
+}

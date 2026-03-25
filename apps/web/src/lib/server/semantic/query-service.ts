@@ -1,35 +1,102 @@
-import type { DataFreshnessMode, TraceSourceCall } from '$lib/contracts/chat';
+import type {
+	ChatQueryRequest,
+	Citation,
+	DataFreshnessMode,
+	TraceSourceCall
+} from '$lib/contracts/chat';
+import type { QueryTraceResponse } from '$lib/contracts/query-trace';
 import type {
 	SemanticQuery,
+	SemanticQueryFilters,
 	SemanticQueryRequest,
-	StatsQueryErrorResponse,
 	StatsQueryResponse,
 	StatsQueryResult,
 	StatsQueryStatus,
 	StatsQueryWarning
 } from '$lib/contracts/semantic-query';
-import type { QueryIntent } from '$lib/contracts/query-plan';
-import { buildQueryPlan, normalizeQuestion as normalizeLegacyQuestion, validateQueryPlan } from '$lib/server/planner/query-plan';
-import { getMetricById } from '$lib/server/metrics/registry';
-import { validateMetricsForIntent } from '$lib/server/metrics/resolve-metrics';
+import { fetchStatsEndpointWithCache, type EndpointFetchRequest, type EndpointFetchResult } from '$lib/server/data/adapters';
+import { getEndpointCatalogEntry } from '$lib/server/data';
+import { normalizeMetricQuery, resolveMetrics, validateMetricsForIntent } from '$lib/server/metrics/resolve-metrics';
 import {
-	getTraceById,
-	isQueryEngineInvariantError,
-	recordUnsupportedLegacyTrace,
-	runMockQuery
-} from '$lib/server/mock/query-engine';
+	extractPlayerComparisonRows,
+	extractPlayerRankingRows,
+	extractPlayerTrendRows,
+	extractTeamRankingRows,
+	SemanticExtractionError
+} from './extractors';
+import { saveSemanticTrace } from './trace-store';
 
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
-type SupportedLegacyMapping = {
-	intent: Exclude<QueryIntent, 'unsupported'>;
-	legacyQuestion: string;
-	resultShape: StatsQueryResult['shape'];
+type WarningResult = {
+	type: 'clarification_needed' | 'coverage_gap';
+	warning: StatsQueryWarning;
+	resolvedQuery: SemanticQuery | null;
 };
 
-type AnalysisResult =
-	| { type: 'supported'; mapping: SupportedLegacyMapping }
-	| { type: 'clarification_needed' | 'coverage_gap'; warning: StatsQueryWarning; traceQuestion: string };
+type ResolvedPlayerSubject = {
+	id: string;
+	name: string;
+};
+
+type RankingPlan = {
+	type: 'player_ranking';
+	query: SemanticQuery;
+	season: string;
+	limit: number;
+};
+
+type TrendPlan = {
+	type: 'player_trend';
+	query: SemanticQuery;
+	subject: ResolvedPlayerSubject;
+	season: string;
+	sampleLimit: number | null;
+};
+
+type ComparisonPlan = {
+	type: 'player_comparison';
+	query: SemanticQuery;
+	subjects: ResolvedPlayerSubject[];
+	season: string;
+};
+
+type TeamRankingPlan = {
+	type: 'team_ranking';
+	query: SemanticQuery;
+	season: string;
+	limit: number;
+};
+
+type ExecutionPlan = RankingPlan | TrendPlan | ComparisonPlan | TeamRankingPlan;
+
+type RetrievalOutcome = {
+	sourceCalls: TraceSourceCall[];
+	citations: Citation[];
+	cache: QueryTraceResponse['cache'];
+	dataFreshnessMode: DataFreshnessMode;
+	retrievalLatencyMs: number;
+	responses: Array<{ request: EndpointFetchRequest; result: EndpointFetchResult }>;
+};
+
+const COMPARE_KEYWORDS = ['compare', 'vs', 'versus'];
+const LEADER_KEYWORDS = ['leader', 'leaders', 'most', 'highest', 'top'];
+const TREND_KEYWORDS = ['trend', 'trending'];
+const TEAM_RANKING_KEYWORDS = ['rank', 'ranking', 'best', 'worst'];
+const TEAM_TERMS = ['team', 'teams'];
+
+const PLAYER_DIRECTORY: ReadonlyArray<ResolvedPlayerSubject> = [
+	{ id: '203999', name: 'Nikola Jokic' },
+	{ id: '201939', name: 'Stephen Curry' },
+	{ id: '203081', name: 'Damian Lillard' },
+	{ id: '2544', name: 'LeBron James' },
+	{ id: '201142', name: 'Kevin Durant' },
+	{ id: '1630169', name: 'Tyrese Haliburton' },
+	{ id: '1627734', name: 'Domantas Sabonis' }
+];
+
+const PLAYER_ID_BY_NORMALIZED_NAME = new Map(PLAYER_DIRECTORY.map((player) => [normalizeMetricQuery(player.name), player.id]));
+const PLAYER_NAME_BY_ID = new Map(PLAYER_DIRECTORY.map((player) => [player.id, player.name]));
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -37,6 +104,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isNullableString(value: unknown): value is string | null | undefined {
 	return value === undefined || value === null || typeof value === 'string';
+}
+
+function isWarningResult(value: WarningResult | ExecutionPlan | SemanticQueryRequest): value is WarningResult {
+	return 'warning' in value;
 }
 
 function parseStringArray(value: unknown, fieldName: string): ValidationResult<string[]> {
@@ -48,9 +119,14 @@ function parseStringArray(value: unknown, fieldName: string): ValidationResult<s
 		return { ok: false, error: `${fieldName} must be an array of strings when provided.` };
 	}
 
-	const values = value.map((item) => (typeof item === 'string' ? item.trim() : ''));
-	if (values.some((item) => item.length === 0)) {
-		return { ok: false, error: `${fieldName} must contain only non-empty strings.` };
+	const values = Array.from(
+		new Set(value.map((item) => (typeof item === 'string' ? item.trim() : '')).filter((item) => item.length > 0))
+	);
+	if (Array.isArray(value) && values.length !== value.length) {
+		const hasInvalid = value.some((item) => typeof item !== 'string' || item.trim().length === 0);
+		if (hasInvalid) {
+			return { ok: false, error: `${fieldName} must contain only non-empty strings.` };
+		}
 	}
 
 	return { ok: true, value: values };
@@ -85,15 +161,20 @@ function normalizeMetrics(input: unknown): ValidationResult<string[]> {
 		return { ok: false, error: 'query.metrics must be an array of strings.' };
 	}
 
-	const metrics = input.map((metric) => (typeof metric === 'string' ? metric.trim().toLowerCase() : ''));
-	if (metrics.some((metric) => metric.length === 0)) {
-		return { ok: false, error: 'query.metrics must contain only non-empty strings.' };
+	const metrics = Array.from(
+		new Set(input.map((metric) => (typeof metric === 'string' ? metric.trim().toLowerCase() : '')).filter(Boolean))
+	);
+	if (metrics.length !== input.length) {
+		const hasInvalid = input.some((metric) => typeof metric !== 'string' || metric.trim().length === 0);
+		if (hasInvalid) {
+			return { ok: false, error: 'query.metrics must contain only non-empty strings.' };
+		}
 	}
 
 	return { ok: true, value: metrics };
 }
 
-function normalizeFilters(input: unknown): ValidationResult<SemanticQuery['filters']> {
+function normalizeFilters(input: unknown): ValidationResult<SemanticQueryFilters> {
 	if (!isPlainObject(input)) {
 		return { ok: false, error: 'query.filters must be an object.' };
 	}
@@ -114,7 +195,7 @@ function normalizeFilters(input: unknown): ValidationResult<SemanticQuery['filte
 		return { ok: false, error: 'query.filters.dateTo must be a string when provided.' };
 	}
 
-	let window: SemanticQuery['filters']['window'] = null;
+	let window: SemanticQueryFilters['window'] = null;
 	if (input.window !== undefined && input.window !== null) {
 		if (!isPlainObject(input.window)) {
 			return { ok: false, error: 'query.filters.window must be an object when provided.' };
@@ -225,50 +306,72 @@ function normalizeOptions(input: unknown): ValidationResult<SemanticQueryRequest
 	};
 }
 
-function legacyTraceProvenance(
-	traceId: string,
-	normalizedQuestion: string,
-	legacyIntent: QueryIntent | null,
-	dataFreshnessMode: DataFreshnessMode = 'nightly',
-	sourceCalls: TraceSourceCall[] = []
-): StatsQueryResponse['provenance'] {
-	return {
-		executor: 'legacy_adapter',
-		legacyIntent,
-		normalizedQuestion,
-		dataFreshnessMode,
-		sourceCalls
-	};
-}
-
 function buildWarning(code: string, message: string): StatsQueryWarning {
 	return { code, message };
 }
 
-function firstMetric(query: SemanticQuery): string | null {
-	return query.metrics[0] ?? null;
+function buildLatency(input: Omit<QueryTraceResponse['latencyMs'], 'total'>): QueryTraceResponse['latencyMs'] {
+	return {
+		...input,
+		total: input.planning + input.retrieval + input.compute + input.render
+	};
 }
 
-function subjectNames(query: SemanticQuery): string[] {
-	return query.subject.names ?? [];
+function resolveCurrentSeason(now: Date = new Date()): string {
+	const year = now.getUTCFullYear();
+	const month = now.getUTCMonth() + 1;
+	const startYear = month >= 10 ? year : year - 1;
+	const endYear = (startYear + 1).toString().slice(-2);
+	return `${startYear}-${endYear}`;
 }
 
-function formatMetric(metricId: string): string {
-	const definition = getMetricById(metricId);
-	if (!definition) {
-		return metricId.toUpperCase();
+function normalizeQuestion(message: string): string {
+	return normalizeMetricQuery(message);
+}
+
+function includesKeyword(normalizedQuestion: string, keyword: string): boolean {
+	if (keyword.includes(' ')) {
+		return normalizedQuestion.includes(keyword);
+	}
+	return normalizedQuestion.split(' ').includes(keyword);
+}
+
+function includesAny(normalizedQuestion: string, values: string[]): boolean {
+	return values.some((value) => includesKeyword(normalizedQuestion, value));
+}
+
+function extractWindowFilter(normalizedQuestion: string): SemanticQueryFilters['window'] {
+	const explicitWindow = normalizedQuestion.match(/\blast\s+(\d{1,2})\s+games?\b/);
+	if (explicitWindow) {
+		const n = Number.parseInt(explicitWindow[1], 10);
+		if (Number.isInteger(n) && n > 0) {
+			return { type: 'last_n_games', n };
+		}
 	}
 
-	return definition.aliases[0] ?? metricId.toUpperCase();
+	const shortWindow = normalizedQuestion.match(/\blast\s+(\d{1,2})\b/);
+	if (shortWindow) {
+		const n = Number.parseInt(shortWindow[1], 10);
+		if (Number.isInteger(n) && n > 0) {
+			return { type: 'last_n_games', n };
+		}
+	}
+
+	return null;
 }
 
-function formatSeason(query: SemanticQuery): string {
-	return query.filters.season ?? 'this season';
+function extractSeason(normalizedQuestion: string): string | null {
+	const match = normalizedQuestion.match(/\b(?:19|20)\d{2}-\d{2}\b/);
+	return match ? match[0] : null;
+}
+
+function extractPlayers(normalizedQuestion: string): string[] {
+	return PLAYER_DIRECTORY.map((player) => player.name).filter((player) => normalizedQuestion.includes(normalizeMetricQuery(player)));
 }
 
 function buildTraceQuestion(query: SemanticQuery): string {
-	const names = subjectNames(query);
-	const metricId = firstMetric(query) ?? 'unknown metric';
+	const names = query.subject.names ?? [];
+	const metricId = query.metrics[0] ?? 'unknown metric';
 
 	if (query.operation === 'compare') {
 		return `Compare ${names.join(' vs ')} by ${metricId}`;
@@ -285,244 +388,665 @@ function buildTraceQuestion(query: SemanticQuery): string {
 	return `${query.operation} ${query.entity} for ${metricId}`;
 }
 
-function buildCoverageResponse(
-	status: Exclude<StatsQueryStatus, 'ok'>,
-	query: SemanticQuery,
-	warning: StatsQueryWarning,
-	traceQuestion: string
-): StatsQueryResponse {
-	const trace = recordUnsupportedLegacyTrace(traceQuestion, [warning.message]);
-
+function sourceCallFromResult(result: EndpointFetchResult): TraceSourceCall {
 	return {
-		status,
-		result: null,
-		citations: [],
-		provenance: legacyTraceProvenance(trace.traceId, trace.normalizedQuestion, trace.queryPlan.intent),
-		warnings: [warning],
-		traceId: trace.traceId
+		endpointId: result.endpointId,
+		cacheStatus: result.cacheStatus,
+		latencyMs: result.latencyMs,
+		stale: result.stale,
+		isProvisional: result.isProvisional,
+		parserVersion: result.parserVersion,
+		sourceStatus: result.sourceStatus
 	};
 }
 
-function inferResultShape(query: SemanticQuery, legacyIntent: QueryIntent): StatsQueryResult['shape'] {
-	if (query.outputMode === 'timeseries' || legacyIntent === 'player_trend') {
-		return 'timeseries';
+function buildCitationFromResult(result: EndpointFetchResult): Citation {
+	const detailParts = [`cache=${result.cacheStatus}`];
+	if (result.stale) {
+		detailParts.push('stale');
+	}
+	if (result.sourceStatus !== 'ok') {
+		detailParts.push(`source_status=${result.sourceStatus}`);
+	}
+	if (result.errorDetail) {
+		detailParts.push(result.errorDetail);
 	}
 
-	if (query.outputMode === 'comparison' || legacyIntent === 'player_compare') {
-		return 'comparison';
-	}
-
-	if (legacyIntent === 'league_leaders' || legacyIntent === 'team_ranking') {
-		return 'ranking';
-	}
-
-	return 'table';
-}
-
-function inferColumns(shape: StatsQueryResult['shape']): string[] {
-	if (shape === 'timeseries') {
-		return ['label', 'value'];
-	}
-
-	if (shape === 'comparison') {
-		return ['subject', 'metric', 'value'];
-	}
-
-	if (shape === 'ranking') {
-		return ['rank', 'subject', 'metric', 'value'];
-	}
-
-	return ['subject', 'metric', 'value'];
-}
-
-function buildStructuredResult(query: SemanticQuery, summary: string, legacyIntent: QueryIntent): StatsQueryResult {
-	const shape = inferResultShape(query, legacyIntent);
 	return {
-		shape,
-		columns: inferColumns(shape),
-		rows: [],
-		summary
+		source: `NBA stats endpoint: ${result.endpointId}`,
+		detail: detailParts.join('; ')
 	};
 }
 
-function buildRankPlayerQuestion(query: SemanticQuery, metricId: string): string {
-	return `Who averaged the most ${formatMetric(metricId)} in ${formatSeason(query)}?`;
-}
-
-function buildTrendQuestion(query: SemanticQuery, metricId: string): string {
-	const player = subjectNames(query)[0];
-	const season = query.filters.season ? ` in ${query.filters.season}` : '';
-
-	if (query.filters.window) {
-		return `Show ${player} ${formatMetric(metricId)} over his last ${query.filters.window.n} games${season}`;
-	}
-
-	return `Show ${player} ${formatMetric(metricId)} trend${season}`;
-}
-
-function buildCompareQuestion(query: SemanticQuery, metricId: string): string {
-	const [left, right] = subjectNames(query);
-	const season = query.filters.season ? ` in ${query.filters.season}` : ' this season';
-	return `Compare ${left} vs ${right} by ${formatMetric(metricId)}${season}`;
-}
-
-function buildTeamRankingQuestion(query: SemanticQuery): string {
-	const season = query.filters.season ? ` in ${query.filters.season}` : ' this season';
-	return `Which teams have the best defensive rating${season}?`;
-}
-
-function analyzeQuery(query: SemanticQuery): AnalysisResult {
-	const metricId = firstMetric(query);
-	const names = subjectNames(query);
-
-	if (query.operation === 'compare') {
-		if (query.entity !== 'player') {
-			return {
-				type: 'coverage_gap',
-				warning: buildWarning('unsupported_compare_scope', 'Milestone 1 only supports player-to-player comparisons.'),
-				traceQuestion: buildTraceQuestion(query)
-			};
-		}
-
-		if (names.length !== 2) {
-			return {
-				type: 'clarification_needed',
-				warning: buildWarning('compare_requires_two_subjects', 'Player comparisons require exactly two player names in milestone 1.'),
-				traceQuestion: buildTraceQuestion(query)
-			};
-		}
-
-		if (!metricId) {
-			return {
-				type: 'clarification_needed',
-				warning: buildWarning('metric_required', 'A metric is required for player comparison queries.'),
-				traceQuestion: buildTraceQuestion(query)
-			};
-		}
-
-		const metricValidation = validateMetricsForIntent('player_compare', [{ id: metricId, confidence: 1 }]);
-		if (!metricValidation.ok) {
-			return {
-				type: 'coverage_gap',
-				warning: buildWarning('unsupported_metric', metricValidation.error),
-				traceQuestion: buildTraceQuestion(query)
-			};
-		}
-
+function buildFallbackSourceCalls(endpointIds: string[]): TraceSourceCall[] {
+	return endpointIds.map((endpointId) => {
+		const catalog = getEndpointCatalogEntry(endpointId);
 		return {
-			type: 'supported',
-			mapping: {
-				intent: 'player_compare',
-				legacyQuestion: buildCompareQuestion(query, metricId),
-				resultShape: 'comparison'
-			}
+			endpointId,
+			cacheStatus: 'miss',
+			latencyMs: 0,
+			stale: false,
+			isProvisional: false,
+			parserVersion: catalog?.parserVersion ?? 'v1',
+			sourceStatus: 'error'
+		};
+	});
+}
+
+async function executeEndpointRequests(requests: EndpointFetchRequest[]): Promise<RetrievalOutcome> {
+	const sourceCalls: TraceSourceCall[] = [];
+	const citations: Citation[] = [];
+	const responses: RetrievalOutcome['responses'] = [];
+
+	if (requests.length === 0) {
+		return {
+			sourceCalls: [],
+			citations: [],
+			cache: { hits: 0, misses: 0 },
+			dataFreshnessMode: 'nightly',
+			retrievalLatencyMs: 0,
+			responses
 		};
 	}
 
-	if (query.operation === 'trend') {
-		if (query.entity !== 'player') {
-			return {
-				type: 'coverage_gap',
-				warning: buildWarning('unsupported_trend_scope', 'Milestone 1 only supports player trend queries.'),
-				traceQuestion: buildTraceQuestion(query)
+	let retrievalLatencyMs = 0;
+
+	for (const request of requests) {
+		let result: EndpointFetchResult;
+		try {
+			result = await fetchStatsEndpointWithCache(request);
+		} catch (error) {
+			const fallback = buildFallbackSourceCalls([request.endpointId])[0];
+			result = {
+				endpointId: request.endpointId,
+				payload: null,
+				cacheStatus: fallback.cacheStatus,
+				sourceStatus: 'error',
+				latencyMs: 0,
+				stale: false,
+				isProvisional: false,
+				parserVersion: fallback.parserVersion,
+				errorDetail: String(error)
 			};
 		}
 
-		if (names.length !== 1) {
-			return {
-				type: 'clarification_needed',
-				warning: buildWarning('trend_requires_subject', 'Player trend queries require exactly one player name in milestone 1.'),
-				traceQuestion: buildTraceQuestion(query)
-			};
-		}
+		retrievalLatencyMs += result.latencyMs;
+		sourceCalls.push(sourceCallFromResult(result));
+		citations.push(buildCitationFromResult(result));
+		responses.push({ request, result });
+	}
 
-		if (!metricId) {
-			return {
-				type: 'clarification_needed',
-				warning: buildWarning('metric_required', 'A metric is required for player trend queries.'),
-				traceQuestion: buildTraceQuestion(query)
-			};
-		}
+	const hits = sourceCalls.filter((sourceCall) => sourceCall.cacheStatus === 'hit' || sourceCall.cacheStatus === 'stale_hit').length;
+	const misses = sourceCalls.filter((sourceCall) => sourceCall.cacheStatus === 'miss').length;
+	const dataFreshnessMode: DataFreshnessMode = sourceCalls.some((sourceCall) => sourceCall.isProvisional)
+		? 'provisional_live'
+		: 'nightly';
 
-		const metricValidation = validateMetricsForIntent('player_trend', [{ id: metricId, confidence: 1 }]);
-		if (!metricValidation.ok) {
-			return {
-				type: 'coverage_gap',
-				warning: buildWarning('unsupported_metric', metricValidation.error),
-				traceQuestion: buildTraceQuestion(query)
-			};
-		}
+	return {
+		sourceCalls,
+		citations,
+		cache: { hits, misses },
+		dataFreshnessMode,
+		retrievalLatencyMs,
+		responses
+	};
+}
 
+function validateMetricSet(intent: 'league_leaders' | 'player_trend' | 'player_compare' | 'team_ranking', metrics: string[]): WarningResult | null {
+	const validation = validateMetricsForIntent(
+		intent,
+		metrics.map((metric) => ({ id: metric, confidence: 1 }))
+	);
+	if (validation.ok) {
+		return null;
+	}
+
+	return {
+		type: 'coverage_gap',
+		warning: buildWarning('unsupported_metric', validation.error),
+		resolvedQuery: null
+	};
+}
+
+function resolvePlayerSubjects(subject: SemanticQuery['subject']): ValidationResult<ResolvedPlayerSubject[]> {
+	const names = subject.names ?? [];
+	const ids = subject.ids ?? [];
+
+	if (ids.length > 0 && names.length > 0 && ids.length !== names.length) {
+		return { ok: false, error: 'query.subject.ids and query.subject.names must have matching lengths when both are provided.' };
+	}
+
+	if (ids.length > 0) {
 		return {
-			type: 'supported',
-			mapping: {
-				intent: 'player_trend',
-				legacyQuestion: buildTrendQuestion(query, metricId),
-				resultShape: 'timeseries'
-			}
+			ok: true,
+			value: ids.map((id, index) => ({
+				id,
+				name: names[index] ?? PLAYER_NAME_BY_ID.get(id) ?? id
+			}))
+		};
+	}
+
+	return {
+		ok: true,
+		value: names.map((name) => {
+			const id = PLAYER_ID_BY_NORMALIZED_NAME.get(normalizeMetricQuery(name));
+			return {
+				id: id ?? '',
+				name
+			};
+		})
+	};
+}
+
+function resolvePlayerEntity(subject: SemanticQuery['subject'], expectedCount: number | null): ResolvedPlayerSubject[] | WarningResult {
+	const resolved = resolvePlayerSubjects(subject);
+	if (!resolved.ok) {
+		return {
+			type: 'clarification_needed',
+			warning: buildWarning('subject_resolution_error', resolved.error),
+			resolvedQuery: null
+		};
+	}
+
+	if (expectedCount !== null && resolved.value.length !== expectedCount) {
+		return {
+			type: 'clarification_needed',
+			warning: buildWarning(
+				expectedCount === 1 ? 'trend_requires_subject' : 'compare_requires_two_subjects',
+				expectedCount === 1
+					? 'Player trend queries require exactly one player name in this slice.'
+					: 'Player comparisons require exactly two player names in this slice.'
+			),
+			resolvedQuery: null
+		};
+	}
+
+	const missing = resolved.value.filter((player) => player.id.length === 0);
+	if (missing.length > 0) {
+		return {
+			type: 'coverage_gap',
+			warning: buildWarning(
+				'unknown_subject',
+				`Unable to resolve player IDs for: ${missing.map((player) => player.name).join(', ')}.`
+			),
+			resolvedQuery: null
+		};
+	}
+
+	return resolved.value;
+}
+
+function defaultMetricForQuery(operation: SemanticQuery['operation'], entity: SemanticQuery['entity']): string[] {
+	if (operation === 'rank' && entity === 'team') {
+		return ['drtg'];
+	}
+
+	return ['pts'];
+}
+
+function determineSupportedPlan(query: SemanticQuery, now: Date): ExecutionPlan | WarningResult {
+	if (query.orderBy && query.operation !== 'rank') {
+		return {
+			type: 'coverage_gap',
+			warning: buildWarning('unsupported_order_by', 'query.orderBy is only supported for ranking queries in this slice.'),
+			resolvedQuery: query
+		};
+	}
+
+	if (query.orderBy && !query.metrics.includes(query.orderBy.metric)) {
+		return {
+			type: 'coverage_gap',
+			warning: buildWarning('unsupported_order_by', 'query.orderBy.metric must reference one of the requested metrics.'),
+			resolvedQuery: query
 		};
 	}
 
 	if (query.operation === 'rank' && query.entity === 'player') {
-		if (!metricId) {
+		if ((query.subject.names?.length ?? 0) > 0 || (query.subject.ids?.length ?? 0) > 0) {
 			return {
-				type: 'clarification_needed',
-				warning: buildWarning('metric_required', 'A metric is required for player ranking queries.'),
-				traceQuestion: buildTraceQuestion(query)
+				type: 'coverage_gap',
+				warning: buildWarning('unsupported_subject_filter', 'Player rankings only support league-wide leader queries in this slice.'),
+				resolvedQuery: query
 			};
 		}
 
-		if (names.length > 0) {
-			return {
-				type: 'coverage_gap',
-				warning: buildWarning('unsupported_subject_filter', 'Milestone 1 player rankings only support league-wide leader queries.'),
-				traceQuestion: buildTraceQuestion(query)
-			};
-		}
-
-		const metricValidation = validateMetricsForIntent('league_leaders', [{ id: metricId, confidence: 1 }]);
-		if (!metricValidation.ok) {
-			return {
-				type: 'coverage_gap',
-				warning: buildWarning('unsupported_metric', metricValidation.error),
-				traceQuestion: buildTraceQuestion(query)
-			};
+		const metricWarning = validateMetricSet('league_leaders', query.metrics);
+		if (metricWarning) {
+			return { ...metricWarning, resolvedQuery: query };
 		}
 
 		return {
-			type: 'supported',
-			mapping: {
-				intent: 'league_leaders',
-				legacyQuestion: buildRankPlayerQuestion(query, metricId),
-				resultShape: 'ranking'
-			}
+			type: 'player_ranking',
+			query,
+			season: query.filters.season ?? resolveCurrentSeason(now),
+			limit: query.limit ?? 10
+		};
+	}
+
+	if (query.operation === 'trend' && query.entity === 'player') {
+		const subject = resolvePlayerEntity(query.subject, 1);
+		if (!Array.isArray(subject)) {
+			return { ...subject, resolvedQuery: query };
+		}
+
+		const metricWarning = validateMetricSet('player_trend', query.metrics);
+		if (metricWarning) {
+			return { ...metricWarning, resolvedQuery: query };
+		}
+
+		return {
+			type: 'player_trend',
+			query,
+			subject: subject[0],
+			season: query.filters.season ?? resolveCurrentSeason(now),
+			sampleLimit: query.limit ?? null
+		};
+	}
+
+	if (query.operation === 'compare' && query.entity === 'player') {
+		const subjects = resolvePlayerEntity(query.subject, 2);
+		if (!Array.isArray(subjects)) {
+			return { ...subjects, resolvedQuery: query };
+		}
+
+		const metricWarning = validateMetricSet('player_compare', query.metrics);
+		if (metricWarning) {
+			return { ...metricWarning, resolvedQuery: query };
+		}
+
+		return {
+			type: 'player_comparison',
+			query,
+			subjects,
+			season: query.filters.season ?? resolveCurrentSeason(now)
 		};
 	}
 
 	if (query.operation === 'rank' && query.entity === 'team') {
-		if (!metricId) {
+		if ((query.subject.names?.length ?? 0) > 0 || (query.subject.ids?.length ?? 0) > 0) {
 			return {
-				type: 'clarification_needed',
-				warning: buildWarning('metric_required', 'A metric is required for team ranking queries.'),
-				traceQuestion: buildTraceQuestion(query)
+				type: 'coverage_gap',
+				warning: buildWarning('unsupported_subject_filter', 'Team rankings only support league-wide team queries in this slice.'),
+				resolvedQuery: query
 			};
 		}
 
-		const metricValidation = validateMetricsForIntent('team_ranking', [{ id: metricId, confidence: 1 }]);
-		if (!metricValidation.ok) {
+		if (query.metrics.length !== 1) {
 			return {
 				type: 'coverage_gap',
-				warning: buildWarning('unsupported_metric', metricValidation.error),
-				traceQuestion: buildTraceQuestion(query)
+				warning: buildWarning('unsupported_metric', 'Team rankings support only one metric in this slice.'),
+				resolvedQuery: query
+			};
+		}
+
+		const metricWarning = validateMetricSet('team_ranking', query.metrics);
+		if (metricWarning) {
+			return { ...metricWarning, resolvedQuery: query };
+		}
+
+		return {
+			type: 'team_ranking',
+			query,
+			season: query.filters.season ?? resolveCurrentSeason(now),
+			limit: query.limit ?? 10
+		};
+	}
+
+	return {
+		type: 'coverage_gap',
+		warning: buildWarning(
+			'unsupported_query_shape',
+			'This slice supports player rankings, player trends, player comparisons, and team defensive rankings.'
+		),
+		resolvedQuery: query
+	};
+}
+
+function buildPlayerRankingRequest(plan: RankingPlan): EndpointFetchRequest {
+	return {
+		endpointId: 'leaguedashplayerstats',
+		params: {
+			DateFrom: '',
+			DateTo: '',
+			GameScope: '',
+			GameSegment: '',
+			LastNGames: '0',
+			Location: '',
+			MeasureType: 'Base',
+			Month: '0',
+			OpponentTeamID: '0',
+			Outcome: '',
+			PaceAdjust: 'N',
+			PerMode: 'PerGame',
+			Period: '0',
+			PlayerExperience: '',
+			PlayerPosition: '',
+			PlusMinus: 'N',
+			Rank: 'N',
+			Season: plan.season,
+			SeasonSegment: '',
+			SeasonType: plan.query.filters.seasonType ?? 'Regular Season',
+			StarterBench: '',
+			VsConference: '',
+			VsDivision: '',
+			Conference: '',
+			Division: '',
+			LeagueID: '',
+			PORound: '',
+			ShotClockRange: '',
+			TeamID: '',
+			TwoWay: ''
+		}
+	};
+}
+
+function buildPlayerTrendRequest(plan: TrendPlan): EndpointFetchRequest {
+	return {
+		endpointId: 'playergamelog',
+		params: {
+			PlayerID: plan.subject.id,
+			Season: plan.season,
+			SeasonType: plan.query.filters.seasonType ?? 'Regular Season',
+			LeagueID: '',
+			DateFrom: plan.query.filters.dateFrom ?? '',
+			DateTo: plan.query.filters.dateTo ?? ''
+		}
+	};
+}
+
+function buildPlayerComparisonRequests(plan: ComparisonPlan): EndpointFetchRequest[] {
+	return plan.subjects.map((subject) => ({
+		endpointId: 'playercareerstats',
+		params: {
+			PerMode: 'PerGame',
+			PlayerID: subject.id,
+			LeagueID: ''
+		}
+	}));
+}
+
+function buildTeamRankingRequest(plan: TeamRankingPlan): EndpointFetchRequest {
+	return {
+		endpointId: 'leaguedashteamstats',
+		params: {
+			DateFrom: '',
+			DateTo: '',
+			GameSegment: '',
+			LastNGames: '0',
+			Location: '',
+			MeasureType: 'Advanced',
+			Month: '0',
+			OpponentTeamID: '0',
+			Outcome: '',
+			PaceAdjust: 'N',
+			PerMode: 'PerGame',
+			Period: '0',
+			PlusMinus: 'N',
+			Rank: 'N',
+			Season: plan.season,
+			SeasonSegment: '',
+			SeasonType: plan.query.filters.seasonType ?? 'Regular Season',
+			VsConference: '',
+			VsDivision: '',
+			Conference: '',
+			Division: '',
+			GameScope: '',
+			LeagueID: '',
+			PORound: '',
+			PlayerExperience: '',
+			PlayerPosition: '',
+			ShotClockRange: '',
+			StarterBench: '',
+			TeamID: '',
+			TwoWay: ''
+		}
+	};
+}
+
+function buildEndpointRequests(plan: ExecutionPlan): EndpointFetchRequest[] {
+	if (plan.type === 'player_ranking') {
+		return [buildPlayerRankingRequest(plan)];
+	}
+
+	if (plan.type === 'player_trend') {
+		return [buildPlayerTrendRequest(plan)];
+	}
+
+	if (plan.type === 'player_comparison') {
+		return buildPlayerComparisonRequests(plan);
+	}
+
+	return [buildTeamRankingRequest(plan)];
+}
+
+function buildTraceFromResponse(
+	traceId: string,
+	normalizedQuestion: string,
+	status: StatsQueryStatus,
+	resolvedQuery: SemanticQuery | null,
+	dataFreshnessMode: DataFreshnessMode,
+	sourceCalls: TraceSourceCall[],
+	executedSources: Citation[],
+	warnings: StatsQueryWarning[],
+	latencyMs: QueryTraceResponse['latencyMs'],
+	cache: QueryTraceResponse['cache']
+): QueryTraceResponse {
+	return {
+		traceId,
+		normalizedQuestion,
+		status,
+		resolvedQuery,
+		dataFreshnessMode,
+		sourceCalls,
+		executedSources,
+		warnings,
+		computations: [],
+		latencyMs,
+		cache
+	};
+}
+
+function makeResponse(
+	status: StatsQueryStatus,
+	result: StatsQueryResult | null,
+	citations: Citation[],
+	resolvedQuery: SemanticQuery | null,
+	dataFreshnessMode: DataFreshnessMode,
+	sourceCalls: TraceSourceCall[],
+	warnings: StatsQueryWarning[],
+	traceId: string
+): StatsQueryResponse {
+	return {
+		status,
+		result,
+		citations,
+		provenance: {
+			executor: 'semantic_executor',
+			resolvedQuery,
+			dataFreshnessMode,
+			sourceCalls
+		},
+		warnings,
+		traceId
+	};
+}
+
+function buildNonOkResponse(
+	status: Exclude<StatsQueryStatus, 'ok'>,
+	normalizedQuestion: string,
+	warning: StatsQueryWarning,
+	resolvedQuery: SemanticQuery | null
+): StatsQueryResponse {
+	const traceId = crypto.randomUUID();
+	const latencyMs = buildLatency({
+		planning: 0,
+		retrieval: 0,
+		compute: 0,
+		render: 0
+	});
+	const trace = buildTraceFromResponse(traceId, normalizedQuestion, status, resolvedQuery, 'nightly', [], [], [warning], latencyMs, {
+		hits: 0,
+		misses: 0
+	});
+	saveSemanticTrace(trace);
+	return makeResponse(status, null, [], resolvedQuery, 'nightly', [], [warning], traceId);
+}
+
+function analyzeStructuredQuery(query: SemanticQuery, now: Date): ExecutionPlan | WarningResult {
+	return determineSupportedPlan(query, now);
+}
+
+function parseExecutionResult(plan: ExecutionPlan, retrieval: RetrievalOutcome): StatsQueryResult {
+	if (plan.type === 'player_ranking') {
+		const payload = retrieval.responses[0]?.result.payload;
+		return extractPlayerRankingRows(payload, plan.query.metrics, plan.limit, plan.query.orderBy ?? null, plan.season);
+	}
+
+	if (plan.type === 'player_trend') {
+		const payload = retrieval.responses[0]?.result.payload;
+		return extractPlayerTrendRows(
+			payload,
+			plan.query.metrics,
+			plan.query.filters.window ?? null,
+			plan.sampleLimit,
+			plan.subject.name
+		);
+	}
+
+	if (plan.type === 'player_comparison') {
+		return extractPlayerComparisonRows(
+			plan.subjects.map((subject, index) => ({
+				subject: subject.name,
+				payload: retrieval.responses[index]?.result.payload
+			})),
+			plan.query.metrics,
+			plan.season
+		);
+	}
+
+	return extractTeamRankingRows(
+		retrieval.responses[0]?.result.payload,
+		plan.query.metrics[0],
+		plan.limit,
+		plan.query.orderBy ?? null,
+		plan.season
+	);
+}
+
+function normalizeChatToSemanticQuery(request: ChatQueryRequest): WarningResult | SemanticQueryRequest {
+	const normalizedQuestion = normalizeQuestion(request.message);
+	const resolvedMetrics = resolveMetrics(normalizedQuestion);
+	if (resolvedMetrics.unresolvedTerms.length > 0) {
+		return {
+			type: 'coverage_gap',
+			warning: buildWarning(
+				'unsupported_metric',
+				`Unsupported metric cues detected: ${resolvedMetrics.unresolvedTerms.join(', ')}.`
+			),
+			resolvedQuery: null
+		};
+	}
+
+	const metrics = resolvedMetrics.metrics.map((metric) => metric.id);
+	const season = extractSeason(normalizedQuestion);
+	const window = extractWindowFilter(normalizedQuestion);
+	const players = extractPlayers(normalizedQuestion);
+
+	if (includesAny(normalizedQuestion, COMPARE_KEYWORDS)) {
+		if (players.length !== 2) {
+			return {
+				type: 'clarification_needed',
+				warning: buildWarning('compare_requires_two_subjects', 'Player comparisons require exactly two player names in this slice.'),
+				resolvedQuery: null
 			};
 		}
 
 		return {
-			type: 'supported',
-			mapping: {
-				intent: 'team_ranking',
-				legacyQuestion: buildTeamRankingQuestion(query),
-				resultShape: 'ranking'
+			question: request.message,
+			query: {
+				operation: 'compare',
+				entity: 'player',
+				subject: { names: players },
+				metrics: metrics.length > 0 ? metrics : defaultMetricForQuery('compare', 'player'),
+				filters: {
+					season,
+					seasonType: null,
+					window: null,
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'comparison'
+			}
+		};
+	}
+
+	if ((includesAny(normalizedQuestion, TREND_KEYWORDS) || window !== null) && players.length === 1) {
+		return {
+			question: request.message,
+			query: {
+				operation: 'trend',
+				entity: 'player',
+				subject: { names: players },
+				metrics: metrics.length > 0 ? metrics : defaultMetricForQuery('trend', 'player'),
+				filters: {
+					season,
+					seasonType: null,
+					window,
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'timeseries'
+			}
+		};
+	}
+
+	if (
+		(includesAny(normalizedQuestion, TEAM_TERMS) || includesAny(normalizedQuestion, TEAM_RANKING_KEYWORDS)) &&
+		(metrics.includes('drtg') || includesKeyword(normalizedQuestion, 'defensive rating') || includesKeyword(normalizedQuestion, 'drtg'))
+	) {
+		return {
+			question: request.message,
+			query: {
+				operation: 'rank',
+				entity: 'team',
+				subject: {},
+				metrics: ['drtg'],
+				filters: {
+					season,
+					seasonType: null,
+					window: null,
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'table'
+			}
+		};
+	}
+
+	if (includesAny(normalizedQuestion, LEADER_KEYWORDS) && (metrics.length > 0 || players.length === 0)) {
+		return {
+			question: request.message,
+			query: {
+				operation: 'rank',
+				entity: 'player',
+				subject: {},
+				metrics: metrics.length > 0 ? metrics : defaultMetricForQuery('rank', 'player'),
+				filters: {
+					season,
+					seasonType: null,
+					window: null,
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'table'
 			}
 		};
 	}
@@ -531,9 +1055,38 @@ function analyzeQuery(query: SemanticQuery): AnalysisResult {
 		type: 'coverage_gap',
 		warning: buildWarning(
 			'unsupported_query_shape',
-			'Milestone 1 only supports player rankings, player trends, player comparisons, and team defensive rankings.'
+			'This slice supports player rankings, player trends, player comparisons, and team defensive rankings.'
 		),
-		traceQuestion: buildTraceQuestion(query)
+		resolvedQuery: null
+	};
+}
+
+export function validateChatSemanticQueryRequest(input: unknown): ValidationResult<ChatQueryRequest> {
+	if (!input || typeof input !== 'object') {
+		return { ok: false, error: 'Request body must be a JSON object.' };
+	}
+
+	const { sessionId, message, clientTs } = input as Partial<ChatQueryRequest>;
+
+	if (typeof sessionId !== 'string' || sessionId.trim().length === 0) {
+		return { ok: false, error: 'sessionId is required.' };
+	}
+
+	if (typeof message !== 'string' || message.trim().length === 0) {
+		return { ok: false, error: 'message is required.' };
+	}
+
+	if (clientTs !== undefined && typeof clientTs !== 'string') {
+		return { ok: false, error: 'clientTs must be a string when provided.' };
+	}
+
+	return {
+		ok: true,
+		value: {
+			sessionId: sessionId.trim(),
+			message: message.trim(),
+			clientTs
+		}
 	};
 }
 
@@ -626,65 +1179,104 @@ export function validateSemanticQueryRequest(input: unknown): ValidationResult<S
 }
 
 /**
- * Runs the new semantic contract through the legacy executor until the canonical warehouse executor exists.
+ * Executes supported semantic queries directly against NBA endpoint payloads and returns structured rows.
  */
-export async function executeSemanticQuery(request: SemanticQueryRequest): Promise<StatsQueryResponse> {
-	const analysis = analyzeQuery(request.query);
-	if (analysis.type !== 'supported') {
-		return buildCoverageResponse(analysis.type, request.query, analysis.warning, request.question ?? analysis.traceQuestion);
-	}
+export async function executeSemanticQuery(request: SemanticQueryRequest, now: Date = new Date()): Promise<StatsQueryResponse> {
+	const normalizedQuestion = normalizeQuestion(request.question ?? buildTraceQuestion(request.query));
+	const traceId = crypto.randomUUID();
+	const planningStartedAt = performance.now();
+	const analysis = analyzeStructuredQuery(request.query, now);
+	const planningLatencyMs = Math.round(performance.now() - planningStartedAt);
 
-	const normalizedQuestion = normalizeLegacyQuestion(analysis.mapping.legacyQuestion);
-	const legacyPlan = buildQueryPlan(normalizedQuestion);
-	const legacyValidation = validateQueryPlan(legacyPlan);
-
-	if (!legacyValidation.ok || legacyPlan.intent !== analysis.mapping.intent) {
-		return buildCoverageResponse(
-			'coverage_gap',
-			request.query,
-			buildWarning(
-				'legacy_mapping_mismatch',
-				'The semantic query could not be translated into the current legacy execution slice.'
-			),
-			request.question ?? analysis.mapping.legacyQuestion
+	if (isWarningResult(analysis)) {
+		const trace = buildTraceFromResponse(
+			traceId,
+			normalizedQuestion,
+			analysis.type,
+			analysis.resolvedQuery,
+			'nightly',
+			[],
+			[],
+			[analysis.warning],
+			buildLatency({
+				planning: planningLatencyMs,
+				retrieval: 0,
+				compute: 0,
+				render: 0
+			}),
+			{ hits: 0, misses: 0 }
 		);
+		saveSemanticTrace(trace);
+		return makeResponse(analysis.type, null, [], analysis.resolvedQuery, 'nightly', [], [analysis.warning], traceId);
 	}
+
+	const retrieval = await executeEndpointRequests(buildEndpointRequests(analysis));
+	const computeStartedAt = performance.now();
 
 	try {
-		const legacyResponse = await runMockQuery({
-			sessionId: 'semantic-route',
-			message: analysis.mapping.legacyQuestion
+		const result = parseExecutionResult(analysis, retrieval);
+		const latencyMs = buildLatency({
+			planning: planningLatencyMs,
+			retrieval: retrieval.retrievalLatencyMs,
+			compute: Math.round(performance.now() - computeStartedAt),
+			render: 0
 		});
-		const trace = getTraceById(legacyResponse.traceId);
-
-		if (!trace) {
-			throw new Error('Missing legacy trace for semantic execution.');
-		}
-
-		return {
-			status: 'ok',
-			result: buildStructuredResult(request.query, legacyResponse.answer, trace.queryPlan.intent),
-			citations: legacyResponse.citations,
-			provenance: legacyTraceProvenance(
-				trace.traceId,
-				trace.normalizedQuestion,
-				trace.queryPlan.intent,
-				trace.dataFreshnessMode,
-				trace.sourceCalls
-			),
-			warnings: [],
-			traceId: legacyResponse.traceId
-		};
+		const trace = buildTraceFromResponse(
+			traceId,
+			normalizedQuestion,
+			'ok',
+			analysis.query,
+			retrieval.dataFreshnessMode,
+			retrieval.sourceCalls,
+			retrieval.citations,
+			[],
+			latencyMs,
+			retrieval.cache
+		);
+		saveSemanticTrace(trace);
+		return makeResponse('ok', result, retrieval.citations, analysis.query, retrieval.dataFreshnessMode, retrieval.sourceCalls, [], traceId);
 	} catch (error) {
-		if (isQueryEngineInvariantError(error)) {
-			return buildCoverageResponse(
-				'coverage_gap',
-				request.query,
-				buildWarning('legacy_invariant_filtered', 'The translated legacy query is outside the currently safe execution slice.'),
-				request.question ?? analysis.mapping.legacyQuestion
-			);
-		}
-
-		throw error;
+		const warning = buildWarning(
+			'extraction_failed',
+			error instanceof SemanticExtractionError ? error.message : 'Structured rows could not be extracted from the source payload.'
+		);
+		const latencyMs = buildLatency({
+			planning: planningLatencyMs,
+			retrieval: retrieval.retrievalLatencyMs,
+			compute: Math.round(performance.now() - computeStartedAt),
+			render: 0
+		});
+		const trace = buildTraceFromResponse(
+			traceId,
+			normalizedQuestion,
+			'coverage_gap',
+			analysis.query,
+			retrieval.dataFreshnessMode,
+			retrieval.sourceCalls,
+			retrieval.citations,
+			[warning],
+			latencyMs,
+			retrieval.cache
+		);
+		saveSemanticTrace(trace);
+		return makeResponse(
+			'coverage_gap',
+			null,
+			retrieval.citations,
+			analysis.query,
+			retrieval.dataFreshnessMode,
+			retrieval.sourceCalls,
+			[warning],
+			traceId
+		);
 	}
+}
+
+export async function executeChatSemanticQuery(request: ChatQueryRequest, now: Date = new Date()): Promise<StatsQueryResponse> {
+	const translated = normalizeChatToSemanticQuery(request);
+	if (isWarningResult(translated)) {
+		return buildNonOkResponse(translated.type, normalizeQuestion(request.message), translated.warning, translated.resolvedQuery);
+	}
+
+	return await executeSemanticQuery(translated, now);
 }

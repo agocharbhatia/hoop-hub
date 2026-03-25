@@ -1,5 +1,4 @@
 import type { Citation, DataFreshnessMode, TraceSourceCall } from './chat';
-import type { QueryIntent } from './query-plan';
 
 export type SemanticQueryOperation = 'lookup' | 'rank' | 'compare' | 'trend' | 'split' | 'game' | 'event';
 
@@ -70,9 +69,8 @@ export type StatsQueryWarning = {
 };
 
 export type StatsQueryProvenance = {
-	executor: 'legacy_adapter';
-	legacyIntent: QueryIntent | null;
-	normalizedQuestion: string;
+	executor: 'semantic_executor';
+	resolvedQuery: SemanticQuery | null;
 	dataFreshnessMode: DataFreshnessMode;
 	sourceCalls: TraceSourceCall[];
 };

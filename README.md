@@ -9,7 +9,7 @@ Users ask basketball questions in plain English, and Hoop Hub returns grounded s
 - Bun + SvelteKit app scaffolded and running locally.
 - Chat-first UI shell.
 - Health endpoint: `GET /api/health`.
-- Typed contracts for legacy chat/planning and structured stats queries.
+- Typed contracts for semantic stats queries, semantic traces, and legacy planner compatibility.
 - Milestone 1 planner foundation:
   - deterministic query intent normalization
   - metric registry + metric resolution logic
@@ -20,14 +20,18 @@ Users ask basketball questions in plain English, and Hoop Hub returns grounded s
   - environment toggles for live-fetch on/off and timeout control
 - Vertical MVP flow with retrieval-backed prototype:
   - `POST /api/stats/query` as the structured primary lookup API
-  - `POST /api/chat/query` retained as a legacy compatibility route
+  - `POST /api/chat/query` as a natural-language wrapper over the semantic executor
   - `GET /api/query-trace/:traceId`
   - unsupported/supported/error UI states
   - trace panel for "Show steps"
 - Current retrieval behavior:
   - live-fetch-first against `stats.nba.com`, with cache hits and stale-cache fallback
-  - `league_leaders` has real payload-backed answer composition
-  - `player_trend`, `player_compare`, and `team_ranking` still use templated answer composition after retrieval
+  - direct semantic execution now returns compact structured rows for:
+    - player rankings
+    - player trends
+    - player comparisons
+    - team defensive rankings
+  - the remaining architecture gap is the nightly-first warehouse path, not legacy intent rendering
 - Data freshness behavior:
   - traces can report `provisional_live` when a response came from a live fetch
   - nightly-run schema/storage exists, but finalized nightly-first ingestion is not implemented yet
@@ -46,7 +50,7 @@ Users ask basketball questions in plain English, and Hoop Hub returns grounded s
 - [x] Slice 1: Query planning foundation (query plan + metrics registry + tests)
 - [x] Vertical MVP mocked query flow (chat API + trace API + UI states)
 - [x] Slice 2: Official NBA data adapters + SQLite cache TTL strategy
-- [ ] Finish retrieval-backed answer composition for supported intents
+- [x] Finish direct structured result extraction for the currently supported semantic query shapes
 - [ ] Implement nightly-first ingest/finalization and stored-data-first reads
 - [ ] Slice 3: Restricted computed-metric DSL + DuckDB execution
 - [ ] Slice 4: End-to-end grounded answers + citations + trace persistence hardening

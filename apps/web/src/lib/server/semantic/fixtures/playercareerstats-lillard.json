@@ -1,0 +1,12 @@
+{
+	"resultSets": [
+		{
+			"name": "SeasonTotalsRegularSeason",
+			"headers": ["SEASON_ID", "PLAYER_ID", "PLAYER_NAME", "TEAM_ABBREVIATION", "PTS", "AST", "REB"],
+			"rowSet": [
+				["2022-23", "203081", "Damian Lillard", "POR", 32.2, 7.3, 4.8],
+				["2023-24", "203081", "Damian Lillard", "MIL", 24.3, 7.0, 4.4]
+			]
+		}
+	]
+}

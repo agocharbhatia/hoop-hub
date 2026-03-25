@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
-import { describe, test } from 'node:test';
+import { after, afterEach, beforeEach, describe, test } from 'node:test';
+import { resetDataStoreForTests } from '$lib/server/data/store';
+import { installSemanticFixtureFetch } from '../helpers/semantic-fixture-fetch';
 import { POST } from '../../routes/api/stats/query/+server';
+
+const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
+const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;
 
 function createPostEvent(body: BodyInit): Parameters<typeof POST>[0] {
 	return {
@@ -17,6 +22,26 @@ async function parseJson(response: Response): Promise<unknown> {
 }
 
 describe('POST /api/stats/query', () => {
+	let restoreFetch: (() => void) | null = null;
+
+	beforeEach(() => {
+		process.env.HOOP_HUB_DB_PATH = ':memory:';
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
+		resetDataStoreForTests();
+		restoreFetch = installSemanticFixtureFetch();
+	});
+
+	afterEach(() => {
+		restoreFetch?.();
+		restoreFetch = null;
+		resetDataStoreForTests();
+	});
+
+	after(() => {
+		process.env.HOOP_HUB_DB_PATH = ORIGINAL_DB_PATH;
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = ORIGINAL_LIVE_FETCH;
+	});
+
 	test('returns 400 for invalid json body', async () => {
 		const response = await POST(createPostEvent('{invalid-json'));
 		const payload = (await parseJson(response)) as { error: string };
@@ -68,9 +93,9 @@ describe('POST /api/stats/query', () => {
 		);
 		const payload = (await parseJson(response)) as {
 			status: string;
-			result: { shape: string; columns: string[] };
+			result: { shape: string; columns: string[]; rows: unknown[] };
 			citations: unknown[];
-			provenance: { legacyIntent: string | null };
+			provenance: { executor: string };
 			traceId: string;
 		};
 
@@ -78,7 +103,8 @@ describe('POST /api/stats/query', () => {
 		assert.equal(payload.status, 'ok');
 		assert.equal(payload.result.shape, 'ranking');
 		assert.equal(payload.result.columns.length > 0, true);
-		assert.equal(payload.provenance.legacyIntent, 'league_leaders');
+		assert.equal(payload.result.rows.length > 0, true);
+		assert.equal(payload.provenance.executor, 'semantic_executor');
 		assert.equal(payload.traceId.length > 0, true);
 	});
 
