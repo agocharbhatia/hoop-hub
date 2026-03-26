@@ -89,6 +89,10 @@ export function ensurePlayerDirectoryAvailable(options: { allowRefresh?: boolean
 	return refreshPlayerDirectorySnapshot();
 }
 
+export function hasStoredPlayerDirectorySnapshot(): boolean {
+	return getDataStore().countPlayerDirectoryEntries() > 0;
+}
+
 /* Public lookup API */
 
 export function findPlayerDirectoryEntryById(playerId: string): PlayerDirectoryEntryRecord | null {

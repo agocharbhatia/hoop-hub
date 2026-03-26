@@ -21,6 +21,7 @@ import {
 	ensurePlayerDirectoryAvailable,
 	findPlayerDirectoryEntriesByExactName,
 	findPlayerDirectoryEntryById,
+	hasStoredPlayerDirectorySnapshot,
 	validateStructuredPlayerSubjectPairs
 } from '$lib/server/players/player-directory';
 import {
@@ -1229,14 +1230,6 @@ export function validateSemanticQueryRequest(input: unknown): ValidationResult<S
 		return subject;
 	}
 
-	if (entity === 'player') {
-		ensurePlayerDirectoryAvailable();
-		const subjectConflictError = validateStructuredPlayerSubjectPairs(subject.value);
-		if (subjectConflictError) {
-			return { ok: false, error: subjectConflictError };
-		}
-	}
-
 	const metrics = normalizeMetrics(input.query.metrics);
 	if (!metrics.ok) {
 		return metrics;
@@ -1265,6 +1258,17 @@ export function validateSemanticQueryRequest(input: unknown): ValidationResult<S
 	const options = normalizeOptions(input.options);
 	if (!options.ok) {
 		return options;
+	}
+
+	if (entity === 'player') {
+		const allowDirectoryRefresh = options.value?.allowLiveFallback !== false;
+		if (hasStoredPlayerDirectorySnapshot() || allowDirectoryRefresh) {
+			ensurePlayerDirectoryAvailable({ allowRefresh: allowDirectoryRefresh });
+			const subjectConflictError = validateStructuredPlayerSubjectPairs(subject.value);
+			if (subjectConflictError) {
+				return { ok: false, error: subjectConflictError };
+			}
+		}
 	}
 
 	return {
