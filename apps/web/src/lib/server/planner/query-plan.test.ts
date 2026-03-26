@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { describe, test } from 'node:test';
+import { beforeEach, describe, test } from 'node:test';
 import type { QueryPlan } from '$lib/contracts/query-plan';
+import { resetDataStoreForTests } from '$lib/server/data/store';
 import { buildQueryPlan, normalizeQuestion, validateQueryPlan } from './query-plan';
 
 describe('normalizeQuestion', () => {
@@ -10,6 +11,11 @@ describe('normalizeQuestion', () => {
 });
 
 describe('buildQueryPlan', () => {
+	beforeEach(() => {
+		process.env.HOOP_HUB_DB_PATH = ':memory:';
+		resetDataStoreForTests();
+	});
+
 	test('builds league_leaders for assist leader query', () => {
 		const plan = buildQueryPlan(normalizeQuestion('Who averaged the most assists in 2023-24?'));
 
@@ -34,6 +40,24 @@ describe('buildQueryPlan', () => {
 		assert.equal(plan.filters.window?.type, 'last_n_games');
 		assert.equal(plan.filters.window?.n, 10);
 		assert.equal(plan.metrics.some((metric) => metric.id === 'reb'), true);
+		assert.deepEqual(validateQueryPlan(plan), { ok: true });
+	});
+
+	test('builds player_trend for seeded directory players outside the legacy hardcoded list', () => {
+		const plan = buildQueryPlan(normalizeQuestion('Show Precious Achiuwa points over his last 5 games'));
+
+		assert.equal(plan.intent, 'player_trend');
+		assert.deepEqual(plan.entities.players, ['Precious Achiuwa']);
+		assert.equal(plan.filters.window?.n, 5);
+		assert.deepEqual(validateQueryPlan(plan), { ok: true });
+	});
+
+	test('builds player_trend for curated aliases through the shared player directory overlay', () => {
+		const plan = buildQueryPlan(normalizeQuestion('Show Steph trend for points in the last 2 games'));
+
+		assert.equal(plan.intent, 'player_trend');
+		assert.deepEqual(plan.entities.players, ['Stephen Curry']);
+		assert.equal(plan.filters.window?.n, 2);
 		assert.deepEqual(validateQueryPlan(plan), { ok: true });
 	});
 

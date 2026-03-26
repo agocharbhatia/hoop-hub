@@ -39,3 +39,4 @@
 - Current dependency chain for issue work is `#2 -> (#3 and #5) -> #4 -> #6`, with `#7` depending on the live directory path from `#5` for a real non-blocking smoke workflow.
 - Among the still-open implementation issues visible locally, `#3` and `#5` are the parallel entry points: both touch `query-service` and `player-directory`, but neither requires the other's API shape first; `#4` depends on `#3`, `#6` depends on `#4`, and `#7` depends on `#5`.
 - Codex Sandcastle completion is commit-driven, not text-driven: a worker must create a branch commit before emitting `<promise>COMPLETE</promise>`, and the runner should fail fast if that token appears with zero commits ahead of base.
+- Legacy planner/mock regression coverage should pin player resolution to the shared player-directory helpers, not package-script env defaults or duplicated hardcoded name maps. That keeps direct test runs deterministic and prevents resolver drift from hiding behind `bun run test`.

@@ -1,15 +1,6 @@
 import type { MetricSelection, QueryIntent, QueryPlan } from '$lib/contracts/query-plan';
 import { normalizeMetricQuery, resolveMetrics, validateMetricsForIntent } from '$lib/server/metrics/resolve-metrics';
-
-const KNOWN_PLAYERS = [
-	'nikola jokic',
-	'stephen curry',
-	'damian lillard',
-	'lebron james',
-	'kevin durant',
-	'tyrese haliburton',
-	'domantas sabonis'
-];
+import { extractPlayerDirectoryExactNameMentions } from '$lib/server/players/player-directory';
 
 const KNOWN_TEAMS = [
 	'boston celtics',
@@ -53,7 +44,7 @@ function extractSeasons(normalizedQuestion: string): string[] {
 }
 
 function extractPlayers(normalizedQuestion: string): string[] {
-	return KNOWN_PLAYERS.filter((player) => normalizedQuestion.includes(player));
+	return extractPlayerDirectoryExactNameMentions(normalizedQuestion);
 }
 
 function extractTeams(normalizedQuestion: string): string[] {

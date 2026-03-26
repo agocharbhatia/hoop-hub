@@ -10,6 +10,7 @@ import type { QueryIntent, QueryPlan } from '$lib/contracts/query-plan';
 import { fetchStatsEndpointWithCache, type EndpointFetchRequest, type EndpointFetchResult } from '$lib/server/data/adapters';
 import { getEndpointCatalogEntry } from '$lib/server/data';
 import { getDataStore } from '$lib/server/data/store';
+import { findPlayerDirectoryEntriesByNameOrAlias } from '$lib/server/players/player-directory';
 import {
 	buildQueryPlan,
 	normalizeQuestion as normalizePlannedQuestion,
@@ -54,16 +55,6 @@ const METRIC_STAT_CATEGORY: Record<string, string> = {
 	ast: 'AST',
 	pts: 'PTS',
 	reb: 'REB'
-};
-
-const PLAYER_ID_BY_NAME: Record<string, string> = {
-	'nikola jokic': '203999',
-	'stephen curry': '201939',
-	'damian lillard': '203081',
-	'lebron james': '2544',
-	'kevin durant': '201142',
-	'tyrese haliburton': '1630169',
-	'domantas sabonis': '1627734'
 };
 
 type RetrievalOutcome = {
@@ -164,6 +155,17 @@ function resolveStatCategory(metricId: string | undefined): string {
 	return METRIC_STAT_CATEGORY[metricId] ?? 'PTS';
 }
 
+/* Helper functions */
+
+function resolveCanonicalPlayerId(name: string): string | null {
+	const matches = findPlayerDirectoryEntriesByNameOrAlias(name);
+	if (matches.length !== 1) {
+		return null;
+	}
+
+	return matches[0]?.playerId ?? null;
+}
+
 function buildEndpointRequestsForPlan(plan: SupportedQueryPlan): EndpointFetchRequest[] {
 	const season = resolveSeason(plan);
 
@@ -186,7 +188,7 @@ function buildEndpointRequestsForPlan(plan: SupportedQueryPlan): EndpointFetchRe
 
 	if (plan.intent === 'player_trend') {
 		const playerName = plan.entities.players[0];
-		const playerId = playerName ? PLAYER_ID_BY_NAME[playerName] : undefined;
+		const playerId = playerName ? resolveCanonicalPlayerId(playerName) : null;
 		if (!playerId) {
 			return [];
 		}
@@ -209,7 +211,7 @@ function buildEndpointRequestsForPlan(plan: SupportedQueryPlan): EndpointFetchRe
 	if (plan.intent === 'player_compare') {
 		const playerIds = plan.entities.players
 			.slice(0, 2)
-			.map((name) => PLAYER_ID_BY_NAME[name])
+			.map((name) => resolveCanonicalPlayerId(name))
 			.filter((playerId): playerId is string => typeof playerId === 'string');
 
 		return playerIds.map((playerId) => ({

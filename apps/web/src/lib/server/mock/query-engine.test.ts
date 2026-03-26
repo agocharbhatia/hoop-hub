@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { describe, test } from 'node:test';
+import { after, beforeEach, describe, test } from 'node:test';
+import { resetDataStoreForTests } from '$lib/server/data/store';
 import {
 	getTraceById,
 	isQueryEngineInvariantError,
@@ -8,6 +9,8 @@ import {
 	validateChatQueryRequest
 } from './query-engine';
 
+const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;
+
 describe('normalizeQuestion', () => {
 	test('normalizes whitespace, case, and punctuation', () => {
 		assert.equal(normalizeQuestion('  Who   Leads AST In 2023-24?  '), 'who leads ast in 2023-24');
@@ -15,6 +18,12 @@ describe('normalizeQuestion', () => {
 });
 
 describe('validateChatQueryRequest', () => {
+	beforeEach(() => {
+		process.env.HOOP_HUB_DB_PATH = ':memory:';
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '0';
+		resetDataStoreForTests();
+	});
+
 	test('accepts valid payloads', () => {
 		const result = validateChatQueryRequest({
 			sessionId: 'session-1',
@@ -34,6 +43,12 @@ describe('validateChatQueryRequest', () => {
 });
 
 describe('runMockQuery + getTraceById', () => {
+	beforeEach(() => {
+		process.env.HOOP_HUB_DB_PATH = ':memory:';
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '0';
+		resetDataStoreForTests();
+	});
+
 	test('returns ok response with citations and rich trace for supported questions', async () => {
 		const response = await runMockQuery({
 			sessionId: 'session-1',
@@ -97,6 +112,32 @@ describe('runMockQuery + getTraceById', () => {
 		assert.equal(trace?.sourceCalls.some((source) => source.endpointId === 'playergamelog'), true);
 	});
 
+	test('handles seeded directory players outside the legacy hardcoded map', async () => {
+		const response = await runMockQuery({
+			sessionId: 'session-1',
+			message: 'Show Precious Achiuwa points over his last 5 games'
+		});
+		const trace = getTraceById(response.traceId);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(trace?.queryPlan.intent, 'player_trend');
+		assert.deepEqual(trace?.queryPlan.entities.players, ['Precious Achiuwa']);
+		assert.equal(trace?.sourceCalls.some((source) => source.endpointId === 'playergamelog'), true);
+	});
+
+	test('handles curated aliases through the shared player directory overlay', async () => {
+		const response = await runMockQuery({
+			sessionId: 'session-1',
+			message: 'Show Steph trend for points in the last 2 games'
+		});
+		const trace = getTraceById(response.traceId);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(trace?.queryPlan.intent, 'player_trend');
+		assert.deepEqual(trace?.queryPlan.entities.players, ['Stephen Curry']);
+		assert.equal(trace?.sourceCalls.some((source) => source.endpointId === 'playergamelog'), true);
+	});
+
 	test('handles team ranking intent for defensive rating queries', async () => {
 		const response = await runMockQuery({
 			sessionId: 'session-1',
@@ -137,4 +178,8 @@ describe('runMockQuery + getTraceById', () => {
 			}
 		);
 	});
+});
+
+after(() => {
+	process.env.HOOP_HUB_ENABLE_LIVE_NBA = ORIGINAL_LIVE_FETCH;
 });
