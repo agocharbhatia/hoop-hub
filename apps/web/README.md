@@ -8,6 +8,7 @@ SvelteKit frontend + server routes for the Hoop Hub local POC.
 bun run dev
 bun run check
 bun run test
+bun run test:live-smoke
 bun run build
 ```
 
@@ -23,4 +24,5 @@ bun run build
   - `league_leaders` composes answers from retrieved NBA payloads
   - `player_trend`, `player_compare`, and `team_ranking` still return templated summaries after retrieval
 - The current runtime is live-fetch-first with cache fallback; finalized nightly-first ingestion is not implemented yet.
+- The live smoke path is isolated from default PR CI and runs through `.github/workflows/live-smoke.yml`.
 - Root project status and roadmap live in the repository [README](../../README.md).
