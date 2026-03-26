@@ -179,6 +179,38 @@ describe('GET /api/query-trace/:traceId', () => {
 		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
 	});
 
+	test('returns canonical full-directory player resolution for chat traces', async () => {
+		const chatResponse = await chatPost({
+			request: new Request('http://localhost/api/chat/query', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					sessionId: 'session-1',
+					message: 'Show Precious Achiuwa trend for points in the last 2 games'
+				})
+			})
+		} as Parameters<typeof chatPost>[0]);
+		const chat = (await chatResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(chat.traceId));
+		const payload = (await parseJson(response)) as {
+			status: string;
+			resolvedQuery: {
+				subject: { ids: string[]; names: string[] };
+				filters: { season: string | null; seasonType: string | null };
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.deepEqual(payload.resolvedQuery.subject, {
+			ids: ['1630173'],
+			names: ['Precious Achiuwa']
+		});
+		assert.equal(payload.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
+	});
+
 	test('returns canonical resolution for matching structured player ids and names in traces', async () => {
 		const statsResponse = await statsPost({
 			request: new Request('http://localhost/api/stats/query', {

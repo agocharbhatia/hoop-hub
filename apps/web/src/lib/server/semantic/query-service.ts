@@ -18,6 +18,7 @@ import { fetchStatsEndpointWithCache, type EndpointFetchRequest, type EndpointFe
 import { getEndpointCatalogEntry } from '$lib/server/data';
 import { normalizeMetricQuery, resolveMetrics, validateMetricsForIntent } from '$lib/server/metrics/resolve-metrics';
 import {
+	extractPlayerDirectoryExactNameMentions,
 	findPlayerDirectoryEntriesByExactName,
 	findPlayerDirectoryEntryById,
 	validateStructuredPlayerSubjectPairs
@@ -89,16 +90,6 @@ const LEADER_KEYWORDS = ['leader', 'leaders', 'most', 'highest', 'top'];
 const TREND_KEYWORDS = ['trend', 'trending'];
 const TEAM_RANKING_KEYWORDS = ['rank', 'ranking', 'best', 'worst'];
 const TEAM_TERMS = ['team', 'teams'];
-
-const CHAT_PLAYER_HINTS: ReadonlyArray<ResolvedPlayerSubject> = [
-	{ id: '203999', name: 'Nikola Jokic' },
-	{ id: '201939', name: 'Stephen Curry' },
-	{ id: '203081', name: 'Damian Lillard' },
-	{ id: '2544', name: 'LeBron James' },
-	{ id: '201142', name: 'Kevin Durant' },
-	{ id: '1630169', name: 'Tyrese Haliburton' },
-	{ id: '1627734', name: 'Domantas Sabonis' }
-];
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -368,9 +359,7 @@ function extractSeason(normalizedQuestion: string): string | null {
 }
 
 function extractPlayers(normalizedQuestion: string): string[] {
-	return CHAT_PLAYER_HINTS.map((player) => player.name).filter((player) =>
-		normalizedQuestion.includes(normalizeMetricQuery(player))
-	);
+	return extractPlayerDirectoryExactNameMentions(normalizedQuestion);
 }
 
 function buildTraceQuestion(query: SemanticQuery): string {

@@ -1,0 +1,13 @@
+{
+	"resource": "playercareerstats",
+	"resultSets": [
+		{
+			"name": "SeasonTotalsRegularSeason",
+			"headers": ["SEASON_ID", "PLAYER_ID", "PLAYER_NAME", "TEAM_ABBREVIATION", "PTS", "REB", "AST"],
+			"rowSet": [
+				["2022-23", "1630173", "Precious Achiuwa", "TOR", 9.2, 6.4, 1.1],
+				["2023-24", "1630173", "Precious Achiuwa", "TOR", 7.6, 5.5, 1.3]
+			]
+		}
+	]
+}

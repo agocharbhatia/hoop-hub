@@ -1,0 +1,15 @@
+{
+	"resultSets": [
+		{
+			"name": "PlayerGameLog",
+			"headers": ["GAME_DATE", "MATCHUP", "WL", "PTS", "AST", "REB"],
+			"rowSet": [
+				["MAR 10, 2026", "TOR vs. CHA", "W", 12, 2, 8],
+				["MAR 08, 2026", "TOR @ ATL", "L", 9, 1, 7],
+				["MAR 06, 2026", "TOR vs. ORL", "W", 7, 1, 6],
+				["MAR 04, 2026", "TOR @ MIA", "L", 11, 2, 5],
+				["MAR 02, 2026", "TOR vs. BKN", "W", 8, 1, 9]
+			]
+		}
+	]
+}

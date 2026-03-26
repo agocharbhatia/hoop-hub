@@ -91,6 +91,83 @@ describe('POST /api/chat/query', () => {
 		assert.equal(payload.traceId.length > 0, true);
 	});
 
+	test('resolves arbitrary exact-name player trends through the shared full-directory resolver', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					sessionId: 'session-1',
+					message: 'Show Precious Achiuwa trend for points in the last 2 games'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: { rows: Array<{ label?: string; metric?: string; value?: number }> };
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+					filters: {
+						season: string | null;
+						seasonType: string | null;
+						window: { type: string; n: number } | null;
+					};
+				};
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.result.rows.length, 2);
+		assert.equal(payload.result.rows[0]?.label, 'MAR 10, 2026');
+		assert.equal(payload.result.rows[0]?.metric, 'pts');
+		assert.equal(payload.result.rows[0]?.value, 12);
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['1630173'],
+			names: ['Precious Achiuwa']
+		});
+		assert.equal(payload.provenance.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.deepEqual(payload.provenance.resolvedQuery.filters.window, {
+			type: 'last_n_games',
+			n: 2
+		});
+	});
+
+	test('resolves arbitrary exact-name comparison subjects through the shared full-directory resolver', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					sessionId: 'session-1',
+					message: 'Compare Stephen Curry vs Precious Achiuwa by points in 2023-24'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: { rows: Array<{ subject?: string }> };
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+					filters: { season: string | null; seasonType: string | null };
+				};
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.result.rows.length, 2);
+		assert.deepEqual(
+			payload.result.rows.map((row) => row.subject),
+			['Stephen Curry', 'Precious Achiuwa']
+		);
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['201939', '1630173'],
+			names: ['Stephen Curry', 'Precious Achiuwa']
+		});
+		assert.equal(payload.provenance.resolvedQuery.filters.season, '2023-24');
+		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+	});
+
 	test('returns typed coverage gaps for ungrounded queries', async () => {
 		const response = await POST(
 			createPostEvent(

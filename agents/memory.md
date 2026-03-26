@@ -27,3 +27,4 @@
 
 - Name-based structured player resolution needs to canonicalize both identity fields, not just IDs. If provenance or traces echo caller casing, the execution record becomes less trustworthy than the underlying directory lookup.
 - When an issue is partly landed already, add missing behavior-first tests at the module and contract boundaries before assuming the remaining work is implementation. That keeps the branch scoped while still proving the acceptance criteria.
+- Natural-language player extraction should preserve subject order from the user message while still using the full seeded directory. Resolver breadth without stable ordering can silently skew comparison outputs and trace provenance.

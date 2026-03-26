@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { resetDataStoreForTests } from '$lib/server/data/store';
 import {
+	extractPlayerDirectoryExactNameMentions,
 	findPlayerDirectoryEntriesByExactName,
 	findPlayerDirectoryEntryById,
 	validateStructuredPlayerSubjectPairs
@@ -30,6 +31,14 @@ describe('player-directory', () => {
 
 		assert.equal(player?.canonicalName, 'Precious Achiuwa');
 		assert.equal(player?.normalizedName, 'precious achiuwa');
+	});
+
+	test('extracts exact-name mentions from the full seeded player directory', () => {
+		const matches = extractPlayerDirectoryExactNameMentions(
+			'Compare Stephen Curry vs Precious Achiuwa by points in 2023-24'
+		);
+
+		assert.deepEqual(matches, ['Stephen Curry', 'Precious Achiuwa']);
 	});
 
 	test('rejects structured id-name pairs that conflict with canonical directory data', () => {

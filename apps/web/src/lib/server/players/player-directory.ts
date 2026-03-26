@@ -40,6 +40,9 @@ function loadPlayerDirectorySnapshot(): ReplacePlayerDirectoryEntryInput[] {
 }
 
 const PLAYER_DIRECTORY_SNAPSHOT = loadPlayerDirectorySnapshot();
+const PLAYER_DIRECTORY_NAMES_BY_LENGTH = Array.from(
+	new Set(PLAYER_DIRECTORY_SNAPSHOT.map((entry) => entry.canonicalName))
+).sort((left, right) => right.length - left.length);
 
 /* Helper functions */
 
@@ -56,6 +59,11 @@ function ensurePlayerDirectorySeeded(): void {
 	);
 }
 
+function hasNormalizedNameMatch(normalizedQuestion: string, normalizedName: string): boolean {
+	const paddedQuestion = ` ${normalizedQuestion} `;
+	return paddedQuestion.includes(` ${normalizedName} `);
+}
+
 /* Public lookup API */
 
 export function findPlayerDirectoryEntryById(playerId: string): PlayerDirectoryEntryRecord | null {
@@ -66,6 +74,31 @@ export function findPlayerDirectoryEntryById(playerId: string): PlayerDirectoryE
 export function findPlayerDirectoryEntriesByExactName(name: string): PlayerDirectoryEntryRecord[] {
 	ensurePlayerDirectorySeeded();
 	return getDataStore().getPlayerDirectoryEntriesByNormalizedName(normalizeMetricQuery(name));
+}
+
+export function extractPlayerDirectoryExactNameMentions(question: string): string[] {
+	ensurePlayerDirectorySeeded();
+
+	const normalizedQuestion = normalizeMetricQuery(question);
+	return PLAYER_DIRECTORY_NAMES_BY_LENGTH.map((canonicalName) => ({
+		canonicalName,
+		normalizedName: normalizeMetricQuery(canonicalName)
+	}))
+		.flatMap(({ canonicalName, normalizedName }) => {
+			if (!hasNormalizedNameMatch(normalizedQuestion, normalizedName)) {
+				return [];
+			}
+
+			return [
+				{
+					canonicalName,
+					index: normalizedQuestion.indexOf(normalizedName),
+					length: normalizedName.length
+				}
+			];
+		})
+		.sort((left, right) => left.index - right.index || right.length - left.length)
+		.map((match) => match.canonicalName);
 }
 
 export function validateStructuredPlayerSubjectPairs(subject: { ids?: string[]; names?: string[] }): string | null {
