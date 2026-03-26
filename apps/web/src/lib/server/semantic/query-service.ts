@@ -19,8 +19,10 @@ import { getEndpointCatalogEntry } from '$lib/server/data';
 import { normalizeMetricQuery, resolveMetrics, validateMetricsForIntent } from '$lib/server/metrics/resolve-metrics';
 import {
 	extractPlayerDirectoryExactNameMentions,
+	ensurePlayerDirectoryAvailable,
 	findPlayerDirectoryEntriesByExactName,
 	findPlayerDirectoryEntryById,
+	hasStoredPlayerDirectorySnapshot,
 	validateStructuredPlayerSubjectPairs
 } from '$lib/server/players/player-directory';
 import {
@@ -426,7 +428,10 @@ function buildFallbackSourceCalls(endpointIds: string[]): TraceSourceCall[] {
 	});
 }
 
-async function executeEndpointRequests(requests: EndpointFetchRequest[]): Promise<RetrievalOutcome> {
+async function executeEndpointRequests(
+	requests: EndpointFetchRequest[],
+	options: { allowLiveFallback?: boolean } = {}
+): Promise<RetrievalOutcome> {
 	const sourceCalls: TraceSourceCall[] = [];
 	const citations: Citation[] = [];
 	const responses: RetrievalOutcome['responses'] = [];
@@ -447,7 +452,10 @@ async function executeEndpointRequests(requests: EndpointFetchRequest[]): Promis
 	for (const request of requests) {
 		let result: EndpointFetchResult;
 		try {
-			result = await fetchStatsEndpointWithCache(request);
+			result = await fetchStatsEndpointWithCache({
+				...request,
+				allowLiveFetch: options.allowLiveFallback
+			});
 		} catch (error) {
 			const fallback = buildFallbackSourceCalls([request.endpointId])[0];
 			result = {
@@ -503,12 +511,34 @@ function validateMetricSet(intent: 'league_leaders' | 'player_trend' | 'player_c
 
 /* Helper functions */
 
-function resolvePlayerSubjects(subject: SemanticQuery['subject']): ValidationResult<ResolvedPlayerSubject[]> {
+type PlayerSubjectResolutionResult =
+	| { ok: true; value: ResolvedPlayerSubject[] }
+	| { ok: false; code: 'player_directory_unavailable' | 'subject_resolution_error'; error: string };
+
+function resolvePlayerSubjects(
+	subject: SemanticQuery['subject'],
+	options: { allowLiveFallback?: boolean } = {}
+): PlayerSubjectResolutionResult {
 	const names = subject.names ?? [];
 	const ids = subject.ids ?? [];
 
 	if (ids.length > 0 && names.length > 0 && ids.length !== names.length) {
-		return { ok: false, error: 'query.subject.ids and query.subject.names must have matching lengths when both are provided.' };
+		return {
+			ok: false,
+			code: 'subject_resolution_error',
+			error: 'query.subject.ids and query.subject.names must have matching lengths when both are provided.'
+		};
+	}
+
+	const directoryAvailability = ensurePlayerDirectoryAvailable({
+		allowRefresh: options.allowLiveFallback !== false
+	});
+	if (!directoryAvailability.ok) {
+		return {
+			ok: false,
+			code: 'player_directory_unavailable',
+			error: directoryAvailability.message
+		};
 	}
 
 	if (ids.length > 0) {
@@ -536,12 +566,16 @@ function resolvePlayerSubjects(subject: SemanticQuery['subject']): ValidationRes
 	};
 }
 
-function resolvePlayerEntity(subject: SemanticQuery['subject'], expectedCount: number | null): ResolvedPlayerSubject[] | WarningResult {
-	const resolved = resolvePlayerSubjects(subject);
+function resolvePlayerEntity(
+	subject: SemanticQuery['subject'],
+	expectedCount: number | null,
+	options: { allowLiveFallback?: boolean } = {}
+): ResolvedPlayerSubject[] | WarningResult {
+	const resolved = resolvePlayerSubjects(subject, options);
 	if (!resolved.ok) {
 		return {
-			type: 'clarification_needed',
-			warning: buildWarning('subject_resolution_error', resolved.error),
+			type: resolved.code === 'player_directory_unavailable' ? 'coverage_gap' : 'clarification_needed',
+			warning: buildWarning(resolved.code, resolved.error),
 			resolvedQuery: null
 		};
 	}
@@ -610,7 +644,11 @@ function buildCanonicalResolvedQuery(
 	};
 }
 
-function determineSupportedPlan(query: SemanticQuery, now: Date): ExecutionPlan | WarningResult {
+function determineSupportedPlan(
+	query: SemanticQuery,
+	now: Date,
+	options: { allowLiveFallback?: boolean } = {}
+): ExecutionPlan | WarningResult {
 	if (query.orderBy && query.operation !== 'rank') {
 		return {
 			type: 'coverage_gap',
@@ -650,7 +688,7 @@ function determineSupportedPlan(query: SemanticQuery, now: Date): ExecutionPlan 
 	}
 
 	if (query.operation === 'trend' && query.entity === 'player') {
-		const subject = resolvePlayerEntity(query.subject, 1);
+		const subject = resolvePlayerEntity(query.subject, 1, options);
 		if (!Array.isArray(subject)) {
 			return { ...subject, resolvedQuery: query };
 		}
@@ -670,7 +708,7 @@ function determineSupportedPlan(query: SemanticQuery, now: Date): ExecutionPlan 
 	}
 
 	if (query.operation === 'compare' && query.entity === 'player') {
-		const subjects = resolvePlayerEntity(query.subject, 2);
+		const subjects = resolvePlayerEntity(query.subject, 2, options);
 		if (!Array.isArray(subjects)) {
 			return { ...subjects, resolvedQuery: query };
 		}
@@ -918,8 +956,34 @@ function buildNonOkResponse(
 	return makeResponse(status, null, [], resolvedQuery, 'nightly', [], [warning], traceId);
 }
 
-function analyzeStructuredQuery(query: SemanticQuery, now: Date): ExecutionPlan | WarningResult {
-	return determineSupportedPlan(query, now);
+function analyzeStructuredQuery(
+	query: SemanticQuery,
+	now: Date,
+	options: { allowLiveFallback?: boolean } = {}
+): ExecutionPlan | WarningResult {
+	return determineSupportedPlan(query, now, options);
+}
+
+function buildMissingPayloadWarning(
+	retrieval: RetrievalOutcome,
+	options: { allowLiveFallback?: boolean } = {}
+): StatsQueryWarning | null {
+	const missingPayload = retrieval.responses.find((response) => response.result.payload === null);
+	if (!missingPayload) {
+		return null;
+	}
+
+	if (options.allowLiveFallback === false) {
+		return buildWarning(
+			'live_fallback_disabled',
+			'Request policy disabled live fallback and no stored query data was available for this request.'
+		);
+	}
+
+	return buildWarning(
+		'source_data_unavailable',
+		'No source payload was available for one or more required endpoint requests.'
+	);
 }
 
 function parseExecutionResult(plan: ExecutionPlan, retrieval: RetrievalOutcome): StatsQueryResult {
@@ -1155,13 +1219,6 @@ export function validateSemanticQueryRequest(input: unknown): ValidationResult<S
 		return subject;
 	}
 
-	if (entity === 'player') {
-		const subjectConflictError = validateStructuredPlayerSubjectPairs(subject.value);
-		if (subjectConflictError) {
-			return { ok: false, error: subjectConflictError };
-		}
-	}
-
 	const metrics = normalizeMetrics(input.query.metrics);
 	if (!metrics.ok) {
 		return metrics;
@@ -1192,6 +1249,17 @@ export function validateSemanticQueryRequest(input: unknown): ValidationResult<S
 		return options;
 	}
 
+	if (entity === 'player') {
+		const allowDirectoryRefresh = options.value?.allowLiveFallback !== false;
+		if (hasStoredPlayerDirectorySnapshot() || allowDirectoryRefresh) {
+			ensurePlayerDirectoryAvailable({ allowRefresh: allowDirectoryRefresh });
+			const subjectConflictError = validateStructuredPlayerSubjectPairs(subject.value);
+			if (subjectConflictError) {
+				return { ok: false, error: subjectConflictError };
+			}
+		}
+	}
+
 	return {
 		ok: true,
 		value: {
@@ -1218,7 +1286,7 @@ export async function executeSemanticQuery(request: SemanticQueryRequest, now: D
 	const normalizedQuestion = normalizeQuestion(request.question ?? buildTraceQuestion(request.query));
 	const traceId = crypto.randomUUID();
 	const planningStartedAt = performance.now();
-	const analysis = analyzeStructuredQuery(request.query, now);
+	const analysis = analyzeStructuredQuery(request.query, now, request.options);
 	const planningLatencyMs = Math.round(performance.now() - planningStartedAt);
 
 	if (isWarningResult(analysis)) {
@@ -1243,8 +1311,41 @@ export async function executeSemanticQuery(request: SemanticQueryRequest, now: D
 		return makeResponse(analysis.type, null, [], analysis.resolvedQuery, 'nightly', [], [analysis.warning], traceId);
 	}
 
-	const retrieval = await executeEndpointRequests(buildEndpointRequests(analysis));
+	const retrieval = await executeEndpointRequests(buildEndpointRequests(analysis), request.options);
 	const computeStartedAt = performance.now();
+	const missingPayloadWarning = buildMissingPayloadWarning(retrieval, request.options);
+
+	if (missingPayloadWarning) {
+		const latencyMs = buildLatency({
+			planning: planningLatencyMs,
+			retrieval: retrieval.retrievalLatencyMs,
+			compute: 0,
+			render: 0
+		});
+		const trace = buildTraceFromResponse(
+			traceId,
+			normalizedQuestion,
+			'coverage_gap',
+			analysis.query,
+			retrieval.dataFreshnessMode,
+			retrieval.sourceCalls,
+			retrieval.citations,
+			[missingPayloadWarning],
+			latencyMs,
+			retrieval.cache
+		);
+		saveSemanticTrace(trace);
+		return makeResponse(
+			'coverage_gap',
+			null,
+			retrieval.citations,
+			analysis.query,
+			retrieval.dataFreshnessMode,
+			retrieval.sourceCalls,
+			[missingPayloadWarning],
+			traceId
+		);
+	}
 
 	try {
 		const result = parseExecutionResult(analysis, retrieval);

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import { resetDataStoreForTests } from '$lib/server/data/store';
+import { ensurePlayerDirectoryAvailable } from '$lib/server/players/player-directory';
 import { installSemanticFixtureFetch } from '../helpers/semantic-fixture-fetch';
 import { POST } from '../../routes/api/stats/query/+server';
 
@@ -134,6 +135,70 @@ describe('POST /api/stats/query', () => {
 		assert.equal(payload.result, null);
 		assert.equal(payload.warnings[0]?.code, 'unsupported_query_shape');
 		assert.equal(payload.traceId.length > 0, true);
+	});
+
+	test('returns 200 coverage_gap when request policy disallows live fallback and no stored query data exists', async () => {
+		assert.equal(ensurePlayerDirectoryAvailable().ok, true);
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'trend',
+						entity: 'player',
+						subject: {
+							ids: ['203999']
+						},
+						metrics: ['pts'],
+						filters: {}
+					},
+					options: {
+						allowLiveFallback: false
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: unknown;
+			warnings: { code: string }[];
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'coverage_gap');
+		assert.equal(payload.result, null);
+		assert.equal(payload.warnings[0]?.code, 'live_fallback_disabled');
+	});
+
+	test('returns 200 coverage_gap when request policy disallows directory refresh and no stored directory exists', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'trend',
+						entity: 'player',
+						subject: {
+							names: ['Nikola Jokic']
+						},
+						metrics: ['pts'],
+						filters: {}
+					},
+					options: {
+						allowLiveFallback: false
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: unknown;
+			warnings: { code: string }[];
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'coverage_gap');
+		assert.equal(payload.result, null);
+		assert.equal(payload.warnings[0]?.code, 'player_directory_unavailable');
 	});
 
 	test('returns 400 for conflicting structured player ids and names', async () => {

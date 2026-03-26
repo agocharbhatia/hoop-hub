@@ -69,6 +69,7 @@ export type EndpointFetchRequest = {
 	endpointId: string;
 	params: Record<string, string>;
 	now?: Date;
+	allowLiveFetch?: boolean;
 };
 
 export type EndpointFetchResult = {
@@ -155,7 +156,7 @@ export async function fetchStatsEndpointWithCache(request: EndpointFetchRequest)
 		}
 	}
 
-	const liveEnabled = isLiveFetchEnabled();
+	const liveEnabled = request.allowLiveFetch ?? isLiveFetchEnabled();
 	if (!liveEnabled) {
 		if (cached) {
 			const payload = parseCachedPayload(cached.payloadJson);
@@ -169,7 +170,10 @@ export async function fetchStatsEndpointWithCache(request: EndpointFetchRequest)
 					stale: true,
 					isProvisional: cached.isProvisional,
 					parserVersion: entry.parserVersion,
-					errorDetail: 'Live fetch disabled by HOOP_HUB_ENABLE_LIVE_NBA.'
+					errorDetail:
+						request.allowLiveFetch === false
+							? 'Live fetch disabled by request policy.'
+							: 'Live fetch disabled by HOOP_HUB_ENABLE_LIVE_NBA.'
 				};
 			}
 		}
@@ -183,7 +187,10 @@ export async function fetchStatsEndpointWithCache(request: EndpointFetchRequest)
 			stale: false,
 			isProvisional: false,
 			parserVersion: entry.parserVersion,
-			errorDetail: 'Live fetch disabled by HOOP_HUB_ENABLE_LIVE_NBA.'
+			errorDetail:
+				request.allowLiveFetch === false
+					? 'Live fetch disabled by request policy.'
+					: 'Live fetch disabled by HOOP_HUB_ENABLE_LIVE_NBA.'
 		};
 	}
 

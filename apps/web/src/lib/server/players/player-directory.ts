@@ -11,6 +11,7 @@ type PlayerDirectorySnapshotRow = {
 
 const PLAYER_DIRECTORY_SNAPSHOT_VERSION = 'bttmly-nba-master-players-json';
 const PLAYER_DIRECTORY_IMPORTED_AT = '2026-03-25T00:00:00.000Z';
+let playerDirectoryRefreshLoader: (() => ReplacePlayerDirectoryEntryInput[]) | null = null;
 
 /**
  * Keeps structured subject resolution pinned to a deterministic local snapshot instead of request-time network state.
@@ -43,20 +44,57 @@ const PLAYER_DIRECTORY_SNAPSHOT = loadPlayerDirectorySnapshot();
 const PLAYER_DIRECTORY_NAMES_BY_LENGTH = Array.from(
 	new Set(PLAYER_DIRECTORY_SNAPSHOT.map((entry) => entry.canonicalName))
 ).sort((left, right) => right.length - left.length);
-
 /* Helper functions */
 
-function ensurePlayerDirectorySeeded(): void {
+type PlayerDirectoryAvailabilityResult =
+	| { ok: true; source: 'stored' | 'refreshed' }
+	| { ok: false; message: string };
+
+function loadRefreshedPlayerDirectorySnapshot(): ReplacePlayerDirectoryEntryInput[] {
+	return (playerDirectoryRefreshLoader ?? loadPlayerDirectorySnapshot)();
+}
+
+function replacePlayerDirectorySnapshot(entries: ReplacePlayerDirectoryEntryInput[]): void {
+	getDataStore().replacePlayerDirectorySnapshot(PLAYER_DIRECTORY_SNAPSHOT_VERSION, PLAYER_DIRECTORY_IMPORTED_AT, entries);
+}
+
+/* Public availability API */
+
+export function refreshPlayerDirectorySnapshot(): PlayerDirectoryAvailabilityResult {
 	const store = getDataStore();
-	if (store.countPlayerDirectoryEntries() > 0) {
-		return;
+
+	try {
+		replacePlayerDirectorySnapshot(loadRefreshedPlayerDirectorySnapshot());
+		return { ok: true, source: 'refreshed' };
+	} catch (error) {
+		if (store.countPlayerDirectoryEntries() > 0) {
+			return { ok: true, source: 'stored' };
+		}
+
+		return {
+			ok: false,
+			message: error instanceof Error ? error.message : 'Player directory refresh failed.'
+		};
+	}
+}
+
+export function ensurePlayerDirectoryAvailable(options: { allowRefresh?: boolean } = {}): PlayerDirectoryAvailabilityResult {
+	if (getDataStore().countPlayerDirectoryEntries() > 0) {
+		return { ok: true, source: 'stored' };
 	}
 
-	store.replacePlayerDirectorySnapshot(
-		PLAYER_DIRECTORY_SNAPSHOT_VERSION,
-		PLAYER_DIRECTORY_IMPORTED_AT,
-		PLAYER_DIRECTORY_SNAPSHOT
-	);
+	if (options.allowRefresh === false) {
+		return {
+			ok: false,
+			message: 'Player directory refresh is disabled by request policy and no stored snapshot is available.'
+		};
+	}
+
+	return refreshPlayerDirectorySnapshot();
+}
+
+export function hasStoredPlayerDirectorySnapshot(): boolean {
+	return getDataStore().countPlayerDirectoryEntries() > 0;
 }
 
 function hasNormalizedNameMatch(normalizedQuestion: string, normalizedName: string): boolean {
@@ -67,17 +105,17 @@ function hasNormalizedNameMatch(normalizedQuestion: string, normalizedName: stri
 /* Public lookup API */
 
 export function findPlayerDirectoryEntryById(playerId: string): PlayerDirectoryEntryRecord | null {
-	ensurePlayerDirectorySeeded();
 	return getDataStore().getPlayerDirectoryEntryById(playerId);
 }
 
 export function findPlayerDirectoryEntriesByExactName(name: string): PlayerDirectoryEntryRecord[] {
-	ensurePlayerDirectorySeeded();
 	return getDataStore().getPlayerDirectoryEntriesByNormalizedName(normalizeMetricQuery(name));
 }
 
 export function extractPlayerDirectoryExactNameMentions(question: string): string[] {
-	ensurePlayerDirectorySeeded();
+	if (!ensurePlayerDirectoryAvailable().ok) {
+		return [];
+	}
 
 	const normalizedQuestion = normalizeMetricQuery(question);
 	return PLAYER_DIRECTORY_NAMES_BY_LENGTH.map((canonicalName) => ({
@@ -125,4 +163,8 @@ export function validateStructuredPlayerSubjectPairs(subject: { ids?: string[]; 
 	}
 
 	return null;
+}
+
+export function setPlayerDirectoryRefreshLoaderForTests(loader: (() => ReplacePlayerDirectoryEntryInput[]) | null): void {
+	playerDirectoryRefreshLoader = loader;
 }

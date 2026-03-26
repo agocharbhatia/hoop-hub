@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import { resetDataStoreForTests } from '$lib/server/data/store';
+import { ensurePlayerDirectoryAvailable, setPlayerDirectoryRefreshLoaderForTests } from '$lib/server/players/player-directory';
 import { installSemanticFixtureFetch } from '../../../tests/helpers/semantic-fixture-fetch';
 import { executeSemanticQuery, validateSemanticQueryRequest } from './query-service';
 
@@ -77,6 +78,7 @@ describe('executeSemanticQuery', () => {
 	afterEach(() => {
 		restoreFetch?.();
 		restoreFetch = null;
+		setPlayerDirectoryRefreshLoaderForTests(null);
 		resetDataStoreForTests();
 	});
 
@@ -156,6 +158,30 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
 	});
 
+	test('returns coverage_gap when request policy disallows live endpoint fallback and no cached query data exists', async () => {
+		assert.equal(ensurePlayerDirectoryAvailable().ok, true);
+
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'trend',
+				entity: 'player',
+				subject: {
+					ids: ['203999']
+				},
+				metrics: ['pts'],
+				filters: {}
+			},
+			options: {
+				allowLiveFallback: false
+			}
+		});
+
+		assert.equal(response.status, 'coverage_gap');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'live_fallback_disabled');
+		assert.equal(response.provenance.sourceCalls[0]?.cacheStatus, 'miss');
+	});
+
 	test('canonicalizes exact-name trend requests in resolvedQuery provenance', async () => {
 		const response = await executeSemanticQuery(
 			{
@@ -179,6 +205,63 @@ describe('executeSemanticQuery', () => {
 		});
 		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
 		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+	});
+
+	test('returns coverage_gap when request policy disallows directory refresh and no stored snapshot exists', async () => {
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'trend',
+				entity: 'player',
+				subject: {
+					names: ['Nikola Jokic']
+				},
+				metrics: ['pts'],
+				filters: {}
+			},
+			options: {
+				allowLiveFallback: false
+			}
+		});
+
+		assert.equal(response.status, 'coverage_gap');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'player_directory_unavailable');
+	});
+
+	test('falls back to the stored player directory snapshot when refresh fails', async () => {
+		await executeSemanticQuery({
+			query: {
+				operation: 'trend',
+				entity: 'player',
+				subject: {
+					names: ['Nikola Jokic']
+				},
+				metrics: ['pts'],
+				filters: {}
+			}
+		});
+
+		setPlayerDirectoryRefreshLoaderForTests(() => {
+			throw new Error('refresh unavailable');
+		});
+
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'trend',
+				entity: 'player',
+				subject: {
+					names: ['Nikola Jokic']
+				},
+				metrics: ['pts'],
+				filters: {}
+			}
+		});
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['203999'],
+			names: ['Nikola Jokic']
+		});
 	});
 
 	test('supports multi-metric player comparison rows', async () => {
