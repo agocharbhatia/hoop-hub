@@ -207,6 +207,51 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
 	});
 
+	test('canonicalizes curated alias trend requests in resolvedQuery provenance', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'trend',
+					entity: 'player',
+					subject: {
+						names: ['jokic']
+					},
+					metrics: ['pts'],
+					filters: {}
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['203999'],
+			names: ['Nikola Jokic']
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+	});
+
+	test('returns clarification_needed for ambiguous alias trend requests', async () => {
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'trend',
+				entity: 'player',
+				subject: {
+					names: ['williams']
+				},
+				metrics: ['pts'],
+				filters: {}
+			}
+		});
+
+		assert.equal(response.status, 'clarification_needed');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'ambiguous_subject');
+		assert.match(response.warnings[0]?.message ?? '', /grant williams/i);
+		assert.equal(response.provenance.resolvedQuery, null);
+	});
+
 	test('returns coverage_gap when request policy disallows directory refresh and no stored snapshot exists', async () => {
 		const response = await executeSemanticQuery({
 			query: {

@@ -133,6 +133,32 @@ describe('POST /api/chat/query', () => {
 		});
 	});
 
+	test('resolves curated aliases through the shared chat resolver', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					sessionId: 'session-1',
+					message: 'Show Jokic trend for points in the last 2 games'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+				};
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['203999'],
+			names: ['Nikola Jokic']
+		});
+	});
+
 	test('resolves arbitrary exact-name comparison subjects through the shared full-directory resolver', async () => {
 		const response = await POST(
 			createPostEvent(
@@ -166,6 +192,28 @@ describe('POST /api/chat/query', () => {
 		});
 		assert.equal(payload.provenance.resolvedQuery.filters.season, '2023-24');
 		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+	});
+
+	test('returns clarification_needed for ambiguous alias chat input instead of guessing', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					sessionId: 'session-1',
+					message: 'Show Williams trend for points in the last 2 games'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: unknown;
+			warnings: { code: string; message: string }[];
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'clarification_needed');
+		assert.equal(payload.result, null);
+		assert.equal(payload.warnings[0]?.code, 'ambiguous_subject');
+		assert.match(payload.warnings[0]?.message ?? '', /patrick williams/i);
 	});
 
 	test('returns typed coverage gaps for ungrounded queries', async () => {

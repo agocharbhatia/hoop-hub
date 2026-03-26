@@ -5,6 +5,7 @@ import {
 	extractPlayerDirectoryExactNameMentions,
 	ensurePlayerDirectoryAvailable,
 	findPlayerDirectoryEntriesByExactName,
+	findPlayerDirectoryEntriesByNameOrAlias,
 	findPlayerDirectoryEntryById,
 	refreshPlayerDirectorySnapshot,
 	setPlayerDirectoryRefreshLoaderForTests,
@@ -45,6 +46,32 @@ describe('player-directory', () => {
 		);
 
 		assert.deepEqual(matches, ['Stephen Curry', 'Precious Achiuwa']);
+	});
+
+	test('resolves curated aliases through the shared player directory overlay', () => {
+		assert.equal(ensurePlayerDirectoryAvailable().ok, true);
+		const matches = findPlayerDirectoryEntriesByNameOrAlias('steph');
+
+		assert.deepEqual(
+			matches.map((match) => ({ playerId: match.playerId, canonicalName: match.canonicalName })),
+			[{ playerId: '201939', canonicalName: 'Stephen Curry' }]
+		);
+	});
+
+	test('surfaces ambiguous curated aliases without guessing a canonical player', () => {
+		assert.equal(ensurePlayerDirectoryAvailable().ok, true);
+		const matches = findPlayerDirectoryEntriesByNameOrAlias('williams');
+
+		assert.deepEqual(
+			matches.map((match) => match.canonicalName),
+			['Grant Williams', 'Kenrich Williams', 'Lou Williams', 'Patrick Williams']
+		);
+	});
+
+	test('extracts curated alias mentions from the shared player directory overlay', () => {
+		const matches = extractPlayerDirectoryExactNameMentions('Show Steph trend for points in the last 2 games');
+
+		assert.deepEqual(matches, ['Stephen Curry']);
 	});
 
 	test('rejects structured id-name pairs that conflict with canonical directory data', () => {

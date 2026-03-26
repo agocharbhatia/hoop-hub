@@ -20,7 +20,7 @@ import { normalizeMetricQuery, resolveMetrics, validateMetricsForIntent } from '
 import {
 	extractPlayerDirectoryExactNameMentions,
 	ensurePlayerDirectoryAvailable,
-	findPlayerDirectoryEntriesByExactName,
+	findPlayerDirectoryEntriesByNameOrAlias,
 	findPlayerDirectoryEntryById,
 	hasStoredPlayerDirectorySnapshot,
 	validateStructuredPlayerSubjectPairs
@@ -512,8 +512,19 @@ function validateMetricSet(intent: 'league_leaders' | 'player_trend' | 'player_c
 /* Helper functions */
 
 type PlayerSubjectResolutionResult =
-	| { ok: true; value: ResolvedPlayerSubject[] }
-	| { ok: false; code: 'player_directory_unavailable' | 'subject_resolution_error'; error: string };
+	| {
+			ok: true;
+			value: Array<
+				ResolvedPlayerSubject & {
+					ambiguityError?: string | null;
+				}
+			>;
+	  }
+	| {
+			ok: false;
+			code: 'player_directory_unavailable' | 'subject_resolution_error' | 'ambiguous_subject';
+			error: string;
+	  };
 
 function resolvePlayerSubjects(
 	subject: SemanticQuery['subject'],
@@ -557,10 +568,22 @@ function resolvePlayerSubjects(
 	return {
 		ok: true,
 		value: names.map((name) => {
-			const player = findPlayerDirectoryEntriesByExactName(name)[0];
+			const matches = findPlayerDirectoryEntriesByNameOrAlias(name);
+			if (matches.length > 1) {
+				return {
+					id: '',
+					name: '',
+					ambiguityError: `Alias "${name}" is ambiguous. Matches: ${matches
+						.map((match) => match.canonicalName)
+						.join(', ')}.`
+				};
+			}
+
+			const player = matches[0];
 			return {
 				id: player?.playerId ?? '',
-				name: player?.canonicalName ?? name
+				name: player?.canonicalName ?? name,
+				ambiguityError: null
 			};
 		})
 	};
@@ -589,6 +612,19 @@ function resolvePlayerEntity(
 					? 'Player trend queries require exactly one player name in this slice.'
 					: 'Player comparisons require exactly two player names in this slice.'
 			),
+			resolvedQuery: null
+		};
+	}
+
+	const ambiguous = resolved.value.find(
+		(player) => 'ambiguityError' in player && typeof player.ambiguityError === 'string' && player.ambiguityError.length > 0
+	);
+	if (ambiguous && 'ambiguityError' in ambiguous) {
+		const ambiguityError =
+			typeof ambiguous.ambiguityError === 'string' ? ambiguous.ambiguityError : 'Player subject is ambiguous.';
+		return {
+			type: 'clarification_needed',
+			warning: buildWarning('ambiguous_subject', ambiguityError),
 			resolvedQuery: null
 		};
 	}
@@ -690,7 +726,7 @@ function determineSupportedPlan(
 	if (query.operation === 'trend' && query.entity === 'player') {
 		const subject = resolvePlayerEntity(query.subject, 1, options);
 		if (!Array.isArray(subject)) {
-			return { ...subject, resolvedQuery: query };
+			return subject.resolvedQuery === null ? subject : { ...subject, resolvedQuery: query };
 		}
 
 		const metricWarning = validateMetricSet('player_trend', query.metrics);
@@ -710,7 +746,7 @@ function determineSupportedPlan(
 	if (query.operation === 'compare' && query.entity === 'player') {
 		const subjects = resolvePlayerEntity(query.subject, 2, options);
 		if (!Array.isArray(subjects)) {
-			return { ...subjects, resolvedQuery: query };
+			return subjects.resolvedQuery === null ? subjects : { ...subjects, resolvedQuery: query };
 		}
 
 		const metricWarning = validateMetricSet('player_compare', query.metrics);

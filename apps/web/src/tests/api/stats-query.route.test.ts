@@ -297,6 +297,71 @@ describe('POST /api/stats/query', () => {
 		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
 	});
 
+	test('returns canonical resolvedQuery names and ids for curated alias structured requests', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'trend',
+						entity: 'player',
+						subject: {
+							names: ['jokic']
+						},
+						metrics: ['pts'],
+						filters: {}
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+					filters: { season: string | null; seasonType: string | null };
+				};
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['203999'],
+			names: ['Nikola Jokic']
+		});
+		assert.equal(payload.provenance.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+	});
+
+	test('returns clarification_needed for ambiguous alias structured requests', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'trend',
+						entity: 'player',
+						subject: {
+							names: ['williams']
+						},
+						metrics: ['pts'],
+						filters: {}
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: unknown;
+			warnings: { code: string; message: string }[];
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'clarification_needed');
+		assert.equal(payload.result, null);
+		assert.equal(payload.warnings[0]?.code, 'ambiguous_subject');
+		assert.match(payload.warnings[0]?.message ?? '', /lou williams/i);
+	});
+
 	test('returns canonical resolvedQuery subjects for exact-name structured comparisons', async () => {
 		const response = await POST(
 			createPostEvent(
