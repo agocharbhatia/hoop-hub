@@ -42,7 +42,16 @@ const SCHEMA_STATEMENTS = [
 		data_freshness_mode TEXT NOT NULL CHECK (data_freshness_mode IN ('nightly', 'provisional_live')),
 		created_at TEXT NOT NULL
 	)`,
-	'CREATE INDEX IF NOT EXISTS idx_query_trace_source_calls_trace ON query_trace_source_calls (trace_id, id)'
+	'CREATE INDEX IF NOT EXISTS idx_query_trace_source_calls_trace ON query_trace_source_calls (trace_id, id)',
+	`CREATE TABLE IF NOT EXISTS player_directory_entries (
+		player_id TEXT PRIMARY KEY,
+		canonical_name TEXT NOT NULL,
+		normalized_name TEXT NOT NULL,
+		team_id TEXT,
+		snapshot_version TEXT NOT NULL,
+		imported_at TEXT NOT NULL
+	)`,
+	'CREATE INDEX IF NOT EXISTS idx_player_directory_entries_name ON player_directory_entries (normalized_name, player_id)'
 ];
 
 type SqliteStatement<Row, Params> = {
@@ -104,6 +113,15 @@ type TraceSourceCallRow = {
 	data_freshness_mode: DataFreshnessMode;
 };
 
+type PlayerDirectoryEntryRow = {
+	player_id: string;
+	canonical_name: string;
+	normalized_name: string;
+	team_id: string | null;
+	snapshot_version: string;
+	imported_at: string;
+};
+
 export type RawEndpointCacheRecord = {
 	cacheKey: string;
 	endpointId: string;
@@ -133,6 +151,22 @@ export type NightlyRunRecord = {
 	status: NightlyRunStatus;
 	finalizedBy: NightlyRunFinalizedBy | null;
 	errorSummary: string | null;
+};
+
+export type PlayerDirectoryEntryRecord = {
+	playerId: string;
+	canonicalName: string;
+	normalizedName: string;
+	teamId: string | null;
+	snapshotVersion: string;
+	importedAt: string;
+};
+
+export type ReplacePlayerDirectoryEntryInput = {
+	playerId: string;
+	canonicalName: string;
+	normalizedName: string;
+	teamId?: string | null;
 };
 
 export type StartNightlyRunInput = {
@@ -236,11 +270,24 @@ function mapTraceSourceRows(rows: TraceSourceCallRow[]): TraceSourceBundle {
 	};
 }
 
+function mapPlayerDirectoryEntryRow(row: PlayerDirectoryEntryRow): PlayerDirectoryEntryRecord {
+	return {
+		playerId: row.player_id,
+		canonicalName: row.canonical_name,
+		normalizedName: row.normalized_name,
+		teamId: row.team_id,
+		snapshotVersion: row.snapshot_version,
+		importedAt: row.imported_at
+	};
+}
+
 export class DataStore {
 	private readonly sqlite: SqliteDatabase | null;
 	private readonly rawCacheMemory = new Map<string, RawEndpointCacheRecord>();
 	private readonly nightlyRunsMemory = new Map<string, NightlyRunRecord>();
 	private readonly traceSourceCallsMemory = new Map<string, TraceSourceBundle>();
+	private readonly playerDirectoryByIdMemory = new Map<string, PlayerDirectoryEntryRecord>();
+	private readonly playerDirectoryByNormalizedNameMemory = new Map<string, PlayerDirectoryEntryRecord[]>();
 
 	constructor(options: DataStoreOptions = {}) {
 		const dbPath = resolveDbPath(options.dbPath);
@@ -539,6 +586,100 @@ export class DataStore {
 		);
 		const rows = statement.all(traceId);
 		return mapTraceSourceRows(rows);
+	}
+
+	replacePlayerDirectorySnapshot(
+		snapshotVersion: string,
+		importedAt: string,
+		entries: ReplacePlayerDirectoryEntryInput[]
+	): void {
+		const records = entries.map<PlayerDirectoryEntryRecord>((entry) => ({
+			playerId: entry.playerId,
+			canonicalName: entry.canonicalName,
+			normalizedName: entry.normalizedName,
+			teamId: entry.teamId ?? null,
+			snapshotVersion,
+			importedAt
+		}));
+
+		if (!this.sqlite) {
+			this.playerDirectoryByIdMemory.clear();
+			this.playerDirectoryByNormalizedNameMemory.clear();
+			for (const record of records) {
+				this.playerDirectoryByIdMemory.set(record.playerId, record);
+				const existing = this.playerDirectoryByNormalizedNameMemory.get(record.normalizedName) ?? [];
+				existing.push(record);
+				this.playerDirectoryByNormalizedNameMemory.set(record.normalizedName, existing);
+			}
+			return;
+		}
+
+		const deleteEntries = this.sqlite.query('DELETE FROM player_directory_entries');
+		const insertEntry = this.sqlite.query<unknown, Record<string, string | null>>(`
+			INSERT INTO player_directory_entries (
+				player_id,
+				canonical_name,
+				normalized_name,
+				team_id,
+				snapshot_version,
+				imported_at
+			) VALUES (
+				@playerId,
+				@canonicalName,
+				@normalizedName,
+				@teamId,
+				@snapshotVersion,
+				@importedAt
+			)
+		`);
+
+		const tx = this.sqlite.transaction((snapshotEntries: PlayerDirectoryEntryRecord[]) => {
+			deleteEntries.run();
+			for (const entry of snapshotEntries) {
+				insertEntry.run({
+					playerId: entry.playerId,
+					canonicalName: entry.canonicalName,
+					normalizedName: entry.normalizedName,
+					teamId: entry.teamId,
+					snapshotVersion: entry.snapshotVersion,
+					importedAt: entry.importedAt
+				});
+			}
+		});
+
+		tx(records);
+	}
+
+	countPlayerDirectoryEntries(): number {
+		if (!this.sqlite) {
+			return this.playerDirectoryByIdMemory.size;
+		}
+
+		const statement = this.sqlite.query<{ count: number }, void>('SELECT COUNT(*) as count FROM player_directory_entries');
+		return statement.get()?.count ?? 0;
+	}
+
+	getPlayerDirectoryEntryById(playerId: string): PlayerDirectoryEntryRecord | null {
+		if (!this.sqlite) {
+			return this.playerDirectoryByIdMemory.get(playerId) ?? null;
+		}
+
+		const statement = this.sqlite.query<PlayerDirectoryEntryRow, string>(
+			'SELECT * FROM player_directory_entries WHERE player_id = ? LIMIT 1'
+		);
+		const row = statement.get(playerId);
+		return row ? mapPlayerDirectoryEntryRow(row) : null;
+	}
+
+	getPlayerDirectoryEntriesByNormalizedName(normalizedName: string): PlayerDirectoryEntryRecord[] {
+		if (!this.sqlite) {
+			return (this.playerDirectoryByNormalizedNameMemory.get(normalizedName) ?? []).map((entry) => ({ ...entry }));
+		}
+
+		const statement = this.sqlite.query<PlayerDirectoryEntryRow, string>(
+			'SELECT * FROM player_directory_entries WHERE normalized_name = ? ORDER BY player_id ASC'
+		);
+		return statement.all(normalizedName).map(mapPlayerDirectoryEntryRow);
 	}
 }
 

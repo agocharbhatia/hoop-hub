@@ -109,4 +109,46 @@ describe('data-store', () => {
 			store.close();
 		}
 	});
+
+	test('replaces and looks up player directory entries', () => {
+		const store = new DataStore({ dbPath: ':memory:' });
+		try {
+			store.replacePlayerDirectorySnapshot('snapshot-v1', '2026-03-25T12:00:00.000Z', [
+				{
+					playerId: '201939',
+					canonicalName: 'Stephen Curry',
+					normalizedName: 'stephen curry',
+					teamId: '1610612744'
+				},
+				{
+					playerId: '203999',
+					canonicalName: 'Nikola Jokic',
+					normalizedName: 'nikola jokic',
+					teamId: '1610612743'
+				}
+			]);
+
+			assert.equal(store.countPlayerDirectoryEntries(), 2);
+			assert.deepEqual(store.getPlayerDirectoryEntryById('201939'), {
+				playerId: '201939',
+				canonicalName: 'Stephen Curry',
+				normalizedName: 'stephen curry',
+				teamId: '1610612744',
+				snapshotVersion: 'snapshot-v1',
+				importedAt: '2026-03-25T12:00:00.000Z'
+			});
+			assert.deepEqual(store.getPlayerDirectoryEntriesByNormalizedName('nikola jokic'), [
+				{
+					playerId: '203999',
+					canonicalName: 'Nikola Jokic',
+					normalizedName: 'nikola jokic',
+					teamId: '1610612743',
+					snapshotVersion: 'snapshot-v1',
+					importedAt: '2026-03-25T12:00:00.000Z'
+				}
+			]);
+		} finally {
+			store.close();
+		}
+	});
 });

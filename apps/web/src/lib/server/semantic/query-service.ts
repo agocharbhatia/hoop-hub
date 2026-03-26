@@ -18,6 +18,11 @@ import { fetchStatsEndpointWithCache, type EndpointFetchRequest, type EndpointFe
 import { getEndpointCatalogEntry } from '$lib/server/data';
 import { normalizeMetricQuery, resolveMetrics, validateMetricsForIntent } from '$lib/server/metrics/resolve-metrics';
 import {
+	findPlayerDirectoryEntriesByExactName,
+	findPlayerDirectoryEntryById,
+	validateStructuredPlayerSubjectPairs
+} from '$lib/server/players/player-directory';
+import {
 	extractPlayerComparisonRows,
 	extractPlayerRankingRows,
 	extractPlayerTrendRows,
@@ -85,7 +90,7 @@ const TREND_KEYWORDS = ['trend', 'trending'];
 const TEAM_RANKING_KEYWORDS = ['rank', 'ranking', 'best', 'worst'];
 const TEAM_TERMS = ['team', 'teams'];
 
-const PLAYER_DIRECTORY: ReadonlyArray<ResolvedPlayerSubject> = [
+const CHAT_PLAYER_HINTS: ReadonlyArray<ResolvedPlayerSubject> = [
 	{ id: '203999', name: 'Nikola Jokic' },
 	{ id: '201939', name: 'Stephen Curry' },
 	{ id: '203081', name: 'Damian Lillard' },
@@ -94,9 +99,6 @@ const PLAYER_DIRECTORY: ReadonlyArray<ResolvedPlayerSubject> = [
 	{ id: '1630169', name: 'Tyrese Haliburton' },
 	{ id: '1627734', name: 'Domantas Sabonis' }
 ];
-
-const PLAYER_ID_BY_NORMALIZED_NAME = new Map(PLAYER_DIRECTORY.map((player) => [normalizeMetricQuery(player.name), player.id]));
-const PLAYER_NAME_BY_ID = new Map(PLAYER_DIRECTORY.map((player) => [player.id, player.name]));
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -366,7 +368,9 @@ function extractSeason(normalizedQuestion: string): string | null {
 }
 
 function extractPlayers(normalizedQuestion: string): string[] {
-	return PLAYER_DIRECTORY.map((player) => player.name).filter((player) => normalizedQuestion.includes(normalizeMetricQuery(player)));
+	return CHAT_PLAYER_HINTS.map((player) => player.name).filter((player) =>
+		normalizedQuestion.includes(normalizeMetricQuery(player))
+	);
 }
 
 function buildTraceQuestion(query: SemanticQuery): string {
@@ -508,6 +512,8 @@ function validateMetricSet(intent: 'league_leaders' | 'player_trend' | 'player_c
 	};
 }
 
+/* Helper functions */
+
 function resolvePlayerSubjects(subject: SemanticQuery['subject']): ValidationResult<ResolvedPlayerSubject[]> {
 	const names = subject.names ?? [];
 	const ids = subject.ids ?? [];
@@ -519,20 +525,23 @@ function resolvePlayerSubjects(subject: SemanticQuery['subject']): ValidationRes
 	if (ids.length > 0) {
 		return {
 			ok: true,
-			value: ids.map((id, index) => ({
-				id,
-				name: names[index] ?? PLAYER_NAME_BY_ID.get(id) ?? id
-			}))
+			value: ids.map((id, index) => {
+				const player = findPlayerDirectoryEntryById(id);
+				return {
+					id: player?.playerId ?? '',
+					name: player?.canonicalName ?? names[index] ?? id
+				};
+			})
 		};
 	}
 
 	return {
 		ok: true,
 		value: names.map((name) => {
-			const id = PLAYER_ID_BY_NORMALIZED_NAME.get(normalizeMetricQuery(name));
+			const player = findPlayerDirectoryEntriesByExactName(name)[0];
 			return {
-				id: id ?? '',
-				name
+				id: player?.playerId ?? '',
+				name: player?.canonicalName ?? name
 			};
 		})
 	};
@@ -584,6 +593,34 @@ function defaultMetricForQuery(operation: SemanticQuery['operation'], entity: Se
 	return ['pts'];
 }
 
+function buildCanonicalResolvedQuery(
+	query: SemanticQuery,
+	now: Date,
+	resolvedSubjects: ResolvedPlayerSubject[] = []
+): SemanticQuery {
+	const season = query.filters.season ?? resolveCurrentSeason(now);
+	const seasonType = query.filters.seasonType ?? 'Regular Season';
+
+	return {
+		...query,
+		subject:
+			query.entity === 'player'
+				? {
+						ids: resolvedSubjects.map((subject) => subject.id),
+						names: resolvedSubjects.map((subject) => subject.name)
+					}
+				: {
+						names: query.subject.names ?? [],
+						ids: query.subject.ids ?? []
+					},
+		filters: {
+			...query.filters,
+			season,
+			seasonType
+		}
+	};
+}
+
 function determineSupportedPlan(query: SemanticQuery, now: Date): ExecutionPlan | WarningResult {
 	if (query.orderBy && query.operation !== 'rank') {
 		return {
@@ -617,7 +654,7 @@ function determineSupportedPlan(query: SemanticQuery, now: Date): ExecutionPlan 
 
 		return {
 			type: 'player_ranking',
-			query,
+			query: buildCanonicalResolvedQuery(query, now),
 			season: query.filters.season ?? resolveCurrentSeason(now),
 			limit: query.limit ?? 10
 		};
@@ -636,7 +673,7 @@ function determineSupportedPlan(query: SemanticQuery, now: Date): ExecutionPlan 
 
 		return {
 			type: 'player_trend',
-			query,
+			query: buildCanonicalResolvedQuery(query, now, subject),
 			subject: subject[0],
 			season: query.filters.season ?? resolveCurrentSeason(now),
 			sampleLimit: query.limit ?? null
@@ -656,7 +693,7 @@ function determineSupportedPlan(query: SemanticQuery, now: Date): ExecutionPlan 
 
 		return {
 			type: 'player_comparison',
-			query,
+			query: buildCanonicalResolvedQuery(query, now, subjects),
 			subjects,
 			season: query.filters.season ?? resolveCurrentSeason(now)
 		};
@@ -686,7 +723,7 @@ function determineSupportedPlan(query: SemanticQuery, now: Date): ExecutionPlan 
 
 		return {
 			type: 'team_ranking',
-			query,
+			query: buildCanonicalResolvedQuery(query, now),
 			season: query.filters.season ?? resolveCurrentSeason(now),
 			limit: query.limit ?? 10
 		};
@@ -1127,6 +1164,13 @@ export function validateSemanticQueryRequest(input: unknown): ValidationResult<S
 	const subject = normalizeSubject(input.query.subject);
 	if (!subject.ok) {
 		return subject;
+	}
+
+	if (entity === 'player') {
+		const subjectConflictError = validateStructuredPlayerSubjectPairs(subject.value);
+		if (subjectConflictError) {
+			return { ok: false, error: subjectConflictError };
+		}
 	}
 
 	const metrics = normalizeMetrics(input.query.metrics);

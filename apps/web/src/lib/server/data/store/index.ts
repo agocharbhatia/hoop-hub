@@ -7,7 +7,9 @@ export {
 	type NightlyRunFinalizedBy,
 	type NightlyRunRecord,
 	type NightlyRunStatus,
+	type PlayerDirectoryEntryRecord,
 	type PutRawEndpointCacheInput,
+	type ReplacePlayerDirectoryEntryInput,
 	type RawEndpointCacheRecord,
 	type StartNightlyRunInput
 } from './data-store';

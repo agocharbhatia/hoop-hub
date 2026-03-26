@@ -44,6 +44,24 @@ describe('validateSemanticQueryRequest', () => {
 
 		assert.equal(result.ok, false);
 	});
+
+	test('rejects conflicting structured player ids and names', () => {
+		const result = validateSemanticQueryRequest({
+			query: {
+				operation: 'trend',
+				entity: 'player',
+				subject: {
+					ids: ['201939'],
+					names: ['Damian Lillard']
+				},
+				metrics: ['pts'],
+				filters: {}
+			}
+		});
+
+		assert.equal(result.ok, false);
+		assert.match(result.error, /same canonical player/i);
+	});
 });
 
 describe('executeSemanticQuery', () => {
@@ -111,6 +129,56 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.result?.shape, 'timeseries');
 		assert.equal(response.result?.rows.length, 4);
 		assert.equal(response.result?.rows[0]?.metric, 'pts');
+	});
+
+	test('returns canonical resolvedQuery subjects and defaulted filters for id-only trend requests', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'trend',
+					entity: 'player',
+					subject: {
+						ids: ['203999']
+					},
+					metrics: ['pts'],
+					filters: {}
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['203999'],
+			names: ['Nikola Jokic']
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+	});
+
+	test('canonicalizes exact-name trend requests in resolvedQuery provenance', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'trend',
+					entity: 'player',
+					subject: {
+						names: ['nikola jokic']
+					},
+					metrics: ['pts'],
+					filters: {}
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['203999'],
+			names: ['Nikola Jokic']
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
 	});
 
 	test('supports multi-metric player comparison rows', async () => {
