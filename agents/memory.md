@@ -27,3 +27,4 @@
 
 - Name-based structured player resolution needs to canonicalize both identity fields, not just IDs. If provenance or traces echo caller casing, the execution record becomes less trustworthy than the underlying directory lookup.
 - When an issue is partly landed already, add missing behavior-first tests at the module and contract boundaries before assuming the remaining work is implementation. That keeps the branch scoped while still proving the acceptance criteria.
+- Request-level `allowLiveFallback` needs to gate both endpoint retrieval and directory refresh. If either path has no stored snapshot/data and live fallback is blocked, return a typed `coverage_gap` instead of falling through to extraction failures or hidden snapshot seeding.

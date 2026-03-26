@@ -137,6 +137,30 @@ describe('stats-endpoint-client', () => {
 		assert.notEqual(result.payload, null);
 	});
 
+	test('request policy can disable live fetch even when environment fallback is enabled', async () => {
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
+
+		const now = new Date('2026-02-25T08:00:00.000Z');
+		const result = await fetchStatsEndpointWithCache({
+			endpointId: 'leagueleaders',
+			now,
+			allowLiveFetch: false,
+			params: {
+				LeagueID: '00',
+				PerMode: 'PerGame',
+				Scope: 'S',
+				Season: '2023-24',
+				SeasonType: 'Regular Season',
+				StatCategory: 'AST',
+				ActiveFlag: ''
+			}
+		});
+
+		assert.equal(result.cacheStatus, 'miss');
+		assert.equal(result.sourceStatus, 'error');
+		assert.match(result.errorDetail ?? '', /request policy/i);
+	});
+
 	test('throws for missing required parameters', async () => {
 		await assert.rejects(
 			() =>
