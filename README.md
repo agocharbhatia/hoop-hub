@@ -79,6 +79,15 @@ Or run the repo orchestration script:
 ./scripts/run-all.sh
 ```
 
+For fresh Codex workspaces, the repo also includes lifecycle helpers:
+
+```bash
+./scripts/setup-workspace.sh
+./scripts/teardown-workspace.sh
+```
+
+For `.superset` worktrees, the same root scripts are wired through [`.superset/config.json`](.superset/config.json) so new worktrees can install, run, and clean up with the repo-standard commands.
+
 ### Verify
 
 ```bash

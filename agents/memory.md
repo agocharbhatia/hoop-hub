@@ -40,3 +40,14 @@
 - Among the still-open implementation issues visible locally, `#3` and `#5` are the parallel entry points: both touch `query-service` and `player-directory`, but neither requires the other's API shape first; `#4` depends on `#3`, `#6` depends on `#4`, and `#7` depends on `#5`.
 - Codex Sandcastle completion is commit-driven, not text-driven: a worker must create a branch commit before emitting `<promise>COMPLETE</promise>`, and the runner should fail fast if that token appears with zero commits ahead of base.
 - Legacy planner/mock regression coverage should pin player resolution to the shared player-directory helpers, not package-script env defaults or duplicated hardcoded name maps. That keeps direct test runs deterministic and prevents resolver drift from hiding behind `bun run test`.
+- Codex Sandcastle should treat Codex CLI usage-limit exits as transient orchestration state: wait through the reported reset window, then retry the same planner/worker/merger command instead of aborting the whole run.
+- After a Ralph/Sandcastle loop lands a tooling package, build QA from the real git diff plus the package test surface first; that separates already-covered unit behavior from the manual integration seams that still need deliberate validation.
+- When the user asks for a QA plan after a Ralph/Sandcastle run, default to a repo-local manual tester checklist they can execute themselves, not just an internal fake-harness integration matrix.
+- If the Ralph loop merged app features rather than tooling, the QA plan should be anchored to the merged product behavior and route contracts first: exact-name resolution, canonical traces, alias ambiguity, fallback policy, and any isolated smoke workflow changes.
+
+## 2026-03-27
+
+- Codex workspace ergonomics for this repo should live in dedicated root scripts: keep `run`, `setup`, and `teardown` separate so new workspaces can install dependencies, preserve existing `.env` files, and clean only generated artifacts on exit.
+- `.superset/config.json` should point its worktree lifecycle hooks at those same root scripts so new Git worktrees use one shared install/run/cleanup contract instead of drift between local tooling entrypoints.
+- Ignore rules need to stay artifact-specific. Ignoring a whole workspace root like `packages/` hides real source packages from normal Git flows and causes review regressions.
+- README file links must stay repo-relative so they work on GitHub and in other clones; never commit machine-local absolute paths.
