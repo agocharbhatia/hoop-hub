@@ -51,3 +51,10 @@
 - `.superset/config.json` should point its worktree lifecycle hooks at those same root scripts so new Git worktrees use one shared install/run/cleanup contract instead of drift between local tooling entrypoints.
 - Ignore rules need to stay artifact-specific. Ignoring a whole workspace root like `packages/` hides real source packages from normal Git flows and causes review regressions.
 - README file links must stay repo-relative so they work on GitHub and in other clones; never commit machine-local absolute paths.
+
+## 2026-03-28
+
+- The current app already has a deterministic semantic executor, but the remaining core-engine gaps are architectural, not cosmetic: true NL planning, persisted traces/session state, nightly-first materialization, a compute layer for derived metrics, and answer/artifact composition still need to be built.
+- `sessionId` is currently validated at the chat boundary but not used to load or store conversational context. Until session grounding exists, follow-up UX is only a UI affordance, not a real engine capability.
+- The repo now has two parallel query paths: the active semantic executor and a legacy mock planner/query-engine path. Future engine work should consolidate around one production query-runtime boundary rather than extending both.
+- Planning context should now be read in this order: `agents/current-state.md` first for the concise engine snapshot, then `README.md` / `apps/web/README.md` for roadmap and operational details, and `agents/memory.md` for deeper historical breadcrumbs.

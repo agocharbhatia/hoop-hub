@@ -1,104 +1,129 @@
-# NBA NL Search Engine POC Plan (Bun + SvelteKit, Local-First)
+# Hoop Hub Plan
+
+This plan supersedes the older `QueryPlan`-first package-split draft. It reflects the current repo state and the next intended architectural moves.
 
 ## Summary
-Build a local-first, stats-grounded NBA natural-language search engine in thin vertical slices, starting with core stat Q&A (modern era coverage), then adding visualization, then play-by-play clip playlists.  
-Architecture is a single Bun + SvelteKit app (server routes + UI), with on-demand official NBA endpoint retrieval, local caching in SQLite, analytical computation in DuckDB, and cloud LLM orchestration for query planning.
 
-## Locked Decisions
-- Product scope: stats-only contract in V1; unsupported non-groundable questions return explicit “unsupported” responses.
-- First slice: core stat Q&A only.
-- Data coverage: modern era NBA seasons (configurable start; default `1996-97`).
-- Data strategy: on-demand retrieval + local cache.
-- Source strategy: official NBA endpoints first.
-- Runtime/UI: Bun + SvelteKit web chat.
-- Service topology: single app with server routes.
-- LLM: cloud model, local app hosting.
-- Custom metrics: free-form user intent supported via restricted expression DSL compiled to SQL.
-- Transparency UX: default clean chat, with a “Show steps” popup containing query/provenance/formulas.
-- Visualization policy: model-driven selection (with strict schema validation and fallback).
-- Clip support: Phase 2, ordered playlist output first (not stitched montage).
-- Chat memory: session-scoped with citation re-grounding.
-- Observability: structured logs + traces from day one.
-- Quality/perf gates: >=90% grounded correctness on curated 100-query suite; p95 <= 6s target.
-- Distribution: private/local POC initially.
+Hoop Hub is a stats-grounded NBA natural-language search engine built as a single Bun + SvelteKit app.
 
-## System Architecture (Decision-Complete)
+Today, the app already has:
+- a structured semantic query API
+- a natural-language wrapper over the same semantic executor
+- retrieval against official NBA endpoints with SQLite-backed caching
+- canonical semantic traces with source-call and freshness details
+- compact structured result rows for the currently supported query families
 
-### 1) Query Orchestration Pipeline
-Request flow for `POST /api/chat/query`:
-1. Normalize input + session context.
-2. Entity resolution (player/team/game disambiguation).
-3. LLM planner generates typed `QueryPlan` JSON.
-4. Plan validator enforces schema + scope constraints.
-5. Execution planner maps plan to:
-- endpoint fetch operations
-- cache hits/misses
-- derived metric calculations
-- optional visualization intent
-6. Execute retrieval + compute.
-7. Compose answer + citations + optional artifacts.
-8. Persist trace for “Show steps” popup.
+The main remaining work is not “finish the old legacy intent system.” The remaining work is:
+- broader semantic planning and entity resolution
+- nightly-first materialization and stored-data-first reads
+- computed/derived metric execution
+- persisted session grounding
+- richer answer and artifact composition on top of structured rows
 
-### 2) Data Layer
-- SQLite (operational/cache metadata):
-- request cache keys, TTLs, query traces, session context, benchmark logs.
-- DuckDB (analytical execution):
-- temporary normalized frames per query run.
-- formula/aggregation execution.
-- no raw season-wide warehouse in V1 (on-demand only).
-- Caching:
-- endpoint result cache key = `source + endpoint + normalized_params + season_or_range`.
-- TTL tiers:
-- high-volatility endpoints: shorter TTL
-- stable boxscore aggregates: longer TTL
-- stale-on-error fallback allowed with explicit stale marker in provenance.
+## Current Shipped State
 
-### 3) Computation Engine (Restricted DSL)
-- Free-form metric intent is translated into a safe DSL AST.
-- Allowed:
-- arithmetic ops, aggregations (`sum`, `avg`, `count`, ratios), filters over whitelisted fields.
-- Disallowed:
-- arbitrary function calls, file/network/system access, raw code eval.
-- Compiler emits parameterized DuckDB SQL only.
-- Every computed metric returns:
-- formula string,
-- resolved SQL fragment,
-- source fields used.
+### Runtime
 
-### 4) Visualization Layer (Model-Driven + Guardrails)
-- LLM proposes `VisualizationSpec` (typed JSON).
-- Server validates against strict schema and data-shape checks.
-- Supported V1 visuals:
-- table, bar, line, scatter.
-- V1.5:
-- shot zone heatmap + half-court overlay.
-- If invalid/low confidence/incompatible data:
-- fallback to table + explanatory note.
+- Single Bun + SvelteKit app in `apps/web`
+- Primary structured route: `POST /api/stats/query`
+- Natural-language wrapper: `POST /api/chat/query`
+- Trace route: `GET /api/query-trace/:traceId`
 
-### 5) Phase 2 Clip Retrieval Layer
-- New endpoint `POST /api/clips/search`.
-- Input: structured play filters (player/action/zone/time/game filters).
-- Output: ordered playlist items with metadata (game, clock, play type, clip URL).
-- No media stitching in Phase 2.
-- Clip list can be embedded in chat response when query intent includes video request.
+### Query Execution
 
-### 6) UI/UX
-- SvelteKit chat interface with:
-- answer panel,
-- optional visualization panel,
-- optional clip playlist panel (Phase 2),
-- “Show steps” button -> popup with:
-- normalized intent
-- structured plan summary
-- sources touched
-- formulas/computations
-- latency breakdown
-- follow-up prompts carry session memory but always re-ground against fresh/valid cached data.
+- Supported semantic query families:
+  - player rankings
+  - player trends
+  - player comparisons
+  - team defensive rankings
+- Supported queries execute through the semantic executor in `apps/web/src/lib/server/semantic/query-service.ts`
+- Structured responses return compact canonical rows; summaries are secondary
+- Traces expose canonical `resolvedQuery` data, source calls, warnings, cache stats, and latency
 
-## Public APIs / Types
+### Data and Resolution
+
+- Retrieval is still live-fetch-first against official NBA endpoints
+- SQLite stores cache and operational metadata
+- Finalized nightly-first materialization is not implemented yet
+- Player resolution uses the shared seeded player-directory snapshot and curated aliases
+- `allowLiveFallback` is a real execution policy input and should gate both endpoint retrieval and directory refresh behavior
+
+### UX and Session State
+
+- The UI shows structured results, citations, warnings, and trace details
+- `sessionId` is currently validated at the chat boundary but does not yet load or persist conversational context
+- Follow-up chips are a UI convenience, not real multi-turn engine memory
+
+### Legacy Boundary
+
+- The repo still contains the older planner/mock-engine path for compatibility tests
+- New product behavior should not be added there unless the task is explicitly about compatibility or migration
+- Future runtime work should consolidate around one semantic query boundary
+
+## Current Public Contracts
+
+### `POST /api/stats/query`
+
+Purpose:
+- primary structured tool contract for LLM or programmatic callers
+
+Current request shape:
+```ts
+type SemanticQueryRequest = {
+  question?: string;
+  query: {
+    operation: 'lookup' | 'rank' | 'compare' | 'trend' | 'split' | 'game' | 'event';
+    entity: 'player' | 'team' | 'game' | 'event' | 'league';
+    subject: {
+      names?: string[];
+      ids?: string[];
+    };
+    metrics: string[];
+    filters: {
+      season?: string | null;
+      seasonType?: string | null;
+      window?: { type: 'last_n_games'; n: number } | null;
+      dateFrom?: string | null;
+      dateTo?: string | null;
+    };
+    orderBy?: { metric: string; direction: 'asc' | 'desc' } | null;
+    limit?: number | null;
+    outputMode?: string | null;
+  };
+  options?: {
+    allowLiveFallback?: boolean;
+  };
+};
+```
+
+Current response shape:
+```ts
+type StatsQueryResponse = {
+  status: 'ok' | 'clarification_needed' | 'coverage_gap';
+  result: {
+    shape: 'ranking' | 'timeseries' | 'comparison';
+    columns: string[];
+    rows: Array<Record<string, string | number | null>>;
+    summary?: string;
+  } | null;
+  citations: Citation[];
+  provenance: {
+    executor: 'semantic_executor';
+    resolvedQuery: SemanticQuery | null;
+    dataFreshnessMode: DataFreshnessMode;
+    sourceCalls: TraceSourceCall[];
+  };
+  warnings: StatsQueryWarning[];
+  traceId: string;
+};
+```
 
 ### `POST /api/chat/query`
-Request:
+
+Purpose:
+- raw natural-language wrapper over the semantic executor
+
+Current request shape:
 ```ts
 type ChatQueryRequest = {
   sessionId: string;
@@ -107,29 +132,29 @@ type ChatQueryRequest = {
 };
 ```
 
-Response:
-```ts
-type ChatQueryResponse = {
-  answer: string;
-  artifacts: {
-    table?: { columns: string[]; rows: (string | number | null)[][] };
-    visualization?: VisualizationSpec;
-    clips?: ClipItem[]; // Phase 2
-  };
-  citations: Citation[];
-  traceId: string; // used by Show Steps popup
-  followups?: string[];
-};
-```
+Current response shape:
+- same `StatsQueryResponse` structure as `POST /api/stats/query`
+
+Important note:
+- `sessionId` is currently validated but not yet used for persisted conversational grounding
 
 ### `GET /api/query-trace/:traceId`
-Returns plan + execution trace for popup:
+
+Purpose:
+- return semantic execution trace details for the UI and debugging
+
+Current trace shape:
 ```ts
-type QueryTrace = {
+type QueryTraceResponse = {
+  traceId: string;
   normalizedQuestion: string;
-  queryPlan: QueryPlan;
+  status: 'ok' | 'clarification_needed' | 'coverage_gap';
+  resolvedQuery: SemanticQuery | null;
+  dataFreshnessMode: DataFreshnessMode;
+  sourceCalls: TraceSourceCall[];
   executedSources: Citation[];
-  computations: ComputationTrace[];
+  warnings: StatsQueryWarning[];
+  computations: unknown[];
   latencyMs: {
     planning: number;
     retrieval: number;
@@ -137,114 +162,140 @@ type QueryTrace = {
     render: number;
     total: number;
   };
-  cache: { hits: number; misses: number };
+  cache: {
+    hits: number;
+    misses: number;
+  };
 };
 ```
 
-### `POST /api/clips/search` (Phase 2)
-```ts
-type ClipSearchRequest = {
-  sessionId: string;
-  filters: ClipFilterPlan;
-};
-type ClipSearchResponse = { clips: ClipItem[]; traceId: string };
+## Repository Reality
+
+Do not follow the old package-split assumptions from the previous draft unless the repo actually grows into them later.
+
+Relevant current paths:
+- `apps/web/src/lib/contracts`
+- `apps/web/src/lib/server/data`
+- `apps/web/src/lib/server/players`
+- `apps/web/src/lib/server/semantic`
+- `apps/web/src/routes`
+- `agents/current-state.md`
+- `agents/memory.md`
+
+## Completed Milestones
+
+1. Foundation
+- SvelteKit app scaffold
+- health route
+- base contracts and tests
+
+2. Planning and metric groundwork
+- deterministic normalization
+- metric resolution
+- planner invariants and validation
+
+3. Official endpoint adapters and cache
+- official NBA endpoint adapter
+- SQLite-backed cache
+- source-call persistence
+
+4. Structured semantic execution for the initial vertical slice
+- `POST /api/stats/query` as the primary structured route
+- `POST /api/chat/query` as NL wrapper
+- semantic traces with canonical `resolvedQuery`
+- structured row extraction for the currently supported query families
+
+5. Seeded player-directory and canonicalized subject resolution
+- shared seeded directory snapshot
+- curated aliases
+- canonical subject data reflected in provenance and traces
+- live-fallback gating tied to retrieval and directory refresh
+
+## Next Milestones
+
+### Milestone A: Consolidate on one semantic runtime
+
+Goals:
+- stop extending the legacy planner/mock-engine path for product behavior
+- make the semantic executor the only path future features target
+
+Exit criteria:
+- future engine slices land only on the semantic runtime path
+- legacy code is clearly compatibility-only or retired
+
+### Milestone B: Broader semantic planning and entity resolution
+
+Goals:
+- expand beyond the current narrow NL wrapper
+- handle more players, teams, seasons, and disambiguation cases
+- improve typed clarification responses for ambiguous user inputs
+
+Exit criteria:
+- broader exact-name and alias coverage
+- cleaner ambiguity handling
+- more natural-language stat questions map into supported semantic queries
+
+### Milestone C: Nightly-first materialization and stored-data-first reads
+
+Goals:
+- move from live-fetch-first to a materialized canonical read path where possible
+- preserve live fallback only for current-day or uncovered cases
+
+Exit criteria:
+- nightly ingest/finalization path exists
+- supported reads prefer stored canonical data over raw live fetches
+
+### Milestone D: Computed and derived metrics
+
+Goals:
+- support grounded derived metrics on top of canonical data
+- keep the execution model typed and auditable
+
+Exit criteria:
+- derived metric requests produce explainable computed outputs
+- provenance traces include source fields and computation details
+
+### Milestone E: Session grounding and answer/artifact composition
+
+Goals:
+- make `sessionId` meaningful
+- support follow-up resolution against prior context without losing grounding
+- improve answer composition and artifact rendering on top of structured rows
+
+Exit criteria:
+- persisted session context exists
+- follow-up queries can reuse prior grounded context
+- answer composition remains citation- and trace-backed
+
+## Constraints and Non-Goals
+
+### Constraints
+
+- Every supported answer must remain grounded in NBA data or a typed coverage/clarification response
+- Default CI should remain deterministic and fixture-backed
+- Live integration smoke coverage should stay isolated from default PR gating
+- New execution features should prefer extending semantic contracts rather than adding new legacy intent enums
+
+### Non-Goals Right Now
+
+- pretending `sessionId` is already full memory
+- adding new user-facing behavior to the legacy mock engine
+- treating summaries as the primary execution artifact
+- introducing a wide free-form compute engine before the canonical data path is ready
+
+## Verification
+
+Default verification:
+```bash
+cd apps/web
+bun run check
+bun run test
+bun run build
 ```
 
-## Repository Structure
-- `/Users/agocharbhatia/Desktop/code/hoop-hub/apps/web` (SvelteKit UI + server routes)
-- `/Users/agocharbhatia/Desktop/code/hoop-hub/packages/contracts` (zod/json schemas + shared TS types)
-- `/Users/agocharbhatia/Desktop/code/hoop-hub/packages/query-engine` (planner, validator, execution planner)
-- `/Users/agocharbhatia/Desktop/code/hoop-hub/packages/data-adapters` (NBA endpoint clients + cache adapters)
-- `/Users/agocharbhatia/Desktop/code/hoop-hub/packages/compute` (DSL parser + DuckDB compiler)
-- `/Users/agocharbhatia/Desktop/code/hoop-hub/packages/evals` (100-query benchmark harness)
-- `/Users/agocharbhatia/Desktop/code/hoop-hub/tasks/todo.md` (milestone checklist + working notes)
-- `/Users/agocharbhatia/Desktop/code/hoop-hub/tasks/lessons.md` (failure mode log + prevention rules)
-
-## Milestones (Thin Slices)
-
-1. Milestone 0: Bootstrap + contracts + task discipline
-- Bun + SvelteKit app scaffold, Docker Compose, base schemas, logging scaffold.
-- Create `tasks/todo.md` and `tasks/lessons.md` templates.
-- Exit: app boots in Docker; `/api/health` + schema package wired.
-
-2. Milestone 1: QueryPlan + entity resolution
-- Build typed `QueryPlan` schema and resolver (player/team disambiguation).
-- Add planner prompt + JSON validation.
-- Exit: sample NL queries produce valid plans or explicit validation errors.
-
-3. Milestone 2: Data adapters + cache
-- Implement official endpoint client wrappers and SQLite cache with TTL policy.
-- Exit: deterministic retrieval tests pass with cache hit/miss accounting.
-
-4. Milestone 3: Compute DSL + DuckDB execution
-- Implement restricted DSL parser -> AST -> parameterized DuckDB SQL.
-- Exit: derived metric tests pass; unsafe expressions rejected.
-
-5. Milestone 4: End-to-end answer composition + citations
-- Wire planner + retrieval + compute + answer composer + trace storage.
-- Add “Show steps” popup endpoint.
-- Exit: 30 seed queries run end-to-end with provenance.
-
-6. Milestone 5: Model-driven visualization
-- Add `VisualizationSpec` generation + schema validation + fallback behavior.
-- Render table/bar/line/scatter in chat.
-- Exit: visualization compatibility tests and fallback tests pass.
-
-7. Milestone 6: Benchmark + performance hardening
-- Build curated 100-query eval suite and scoring harness.
-- Tune caching/planning/execution until gates met.
-- Exit: >=90% grounded correctness, p95 <= 6s on local benchmark conditions.
-
-8. Milestone 7 (Phase 2): Clip playlist retrieval
-- Add clip filter planner + retrieval endpoint + ordered playlist rendering.
-- Exit: clip queries return correct filtered playlist with trace/citations.
-
-## Test Cases and Scenarios
-
-### Unit
-- QueryPlan schema validation and coercion.
-- Entity disambiguation (duplicate names, nicknames, typos).
-- DSL parser safety (reject unsafe tokens/functions).
-- SQL compiler correctness for arithmetic/aggregate/filter combos.
-- Visualization spec validator + fallback selection.
-
-### Integration
-- Endpoint adapter + SQLite cache lifecycle (miss -> hit -> TTL expiry).
-- Planner -> execution -> response pipeline with trace persistence.
-- Session follow-up re-grounding behavior.
-- “Show steps” popup trace retrieval consistency.
-
-### End-to-End
-- Curated 100-query benchmark across:
-- player/game/team comparisons
-- time filters (season split, last N games)
-- derived metrics
-- ambiguous entity prompts
-- unsupported question handling
-- Phase 2: clip playlist query flows.
-
-### Acceptance Gates
-- Correctness: >=90% grounded on curated benchmark.
-- Performance: p95 <=6s.
-- Reliability: zero silent failures; all errors mapped to typed user-facing states.
-- Explainability: every answer includes citations and traceId.
-
-## Rollout and Monitoring
-- Feature flags:
-- `ENABLE_VIZ`
-- `ENABLE_CLIPS`
-- `ENABLE_FREEFORM_DSL`
-- Default rollout:
-- Milestones 0-4 enabled; viz and clips off until validated.
-- Structured logs per request:
-- plan validity, cache stats, source calls, latencies, failure class.
-- Trace retention local-only for POC.
-
-## Assumptions and Defaults
-- Official endpoint access is available for private/local testing.
-- `MODERN_ERA_START_SEASON` controls lower-bound coverage; default is `1996-97`.
-- No auth/multi-tenant requirements in V1.
-- Single-user local environment on your machine.
-- No public distribution in POC phase.
-- If model output fails schema, system retries once with corrective prompt, then hard-fails with explicit error.
-- If a query cannot be grounded in stats/video metadata, system returns unsupported response (no hallucinated answer).
+Planning context order for future agents:
+1. `agents/current-state.md`
+2. `README.md`
+3. `apps/web/README.md`
+4. `.docs/PLAN.md`
+5. `agents/memory.md`

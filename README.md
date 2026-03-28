@@ -1,69 +1,47 @@
 # Hoop Hub
 
-AI-powered NBA natural language search engine.
+AI-powered NBA natural-language search engine.
 
-Users ask basketball questions in plain English, and Hoop Hub returns grounded stat answers with citations, optional visual artifacts, and step-by-step query provenance.
+Hoop Hub is currently a single Bun + SvelteKit app that answers grounded NBA stats questions through a semantic executor, backed by official NBA endpoint retrieval, SQLite caching, and semantic traces.
 
-## Current State
+## Current Scope
 
-- Bun + SvelteKit app scaffolded and running locally.
-- Chat-first UI shell.
-- Health endpoint: `GET /api/health`.
-- Typed contracts for semantic stats queries, semantic traces, and legacy planner compatibility.
-- Milestone 1 planner foundation:
-  - deterministic query intent normalization
-  - metric registry + metric resolution logic
-  - planner invariants and validation tests
-- Slice 2 adapter/cache foundation:
-  - official NBA endpoint adapter with fetch-through SQLite cache
-  - TTL-aware cache keys and source-call trace persistence
-  - environment toggles for live-fetch on/off and timeout control
-- Vertical MVP flow with retrieval-backed prototype:
-  - `POST /api/stats/query` as the structured primary lookup API
-  - `POST /api/chat/query` as a natural-language wrapper over the semantic executor
-  - `GET /api/query-trace/:traceId`
-  - unsupported/supported/error UI states
-  - trace panel for "Show steps"
-- Current retrieval behavior:
-  - live-fetch-first against `stats.nba.com`, with cache hits and stale-cache fallback
-  - direct semantic execution now returns compact structured rows for:
-    - player rankings
-    - player trends
-    - player comparisons
-    - team defensive rankings
-  - the remaining architecture gap is the nightly-first warehouse path, not legacy intent rendering
-- Data freshness behavior:
-  - traces can report `provisional_live` when a response came from a live fetch
-  - nightly-run schema/storage exists, but finalized nightly-first ingestion is not implemented yet
-- Local run orchestration via `scripts/run-all.sh`.
+- Primary structured route: `POST /api/stats/query`
+- Natural-language wrapper: `POST /api/chat/query`
+- Trace route: `GET /api/query-trace/:traceId`
+- Supported semantic query families:
+  - player rankings
+  - player trends
+  - player comparisons
+  - team defensive rankings
+- Player resolution uses the shared seeded player-directory snapshot and curated aliases.
+- Retrieval is still live-fetch-first with cache fallback. Nightly-first materialization is not implemented yet.
+- `sessionId` is validated at the chat boundary but does not yet persist conversational context.
 
-## What Is Actively Being Worked On
+Detailed implementation context for future agents lives in [agents/current-state.md](agents/current-state.md) and [`.docs/PLAN.md`](.docs/PLAN.md).
 
-- Finalizing UI reference and interaction system for the productionized chat + artifact experience.
-- Reconciling the long-term data strategy:
-  - complete retrieval-backed answer composition for currently supported intents
-  - or shift to the intended nightly-first ingestion/finalization path before adding more compute features
+## TODO
 
-## Roadmap / TODO
-
-- [x] Slice 0: Foundation (app scaffold, contracts wiring, health endpoint)
-- [x] Slice 1: Query planning foundation (query plan + metrics registry + tests)
-- [x] Vertical MVP mocked query flow (chat API + trace API + UI states)
-- [x] Slice 2: Official NBA data adapters + SQLite cache TTL strategy
-- [x] Finish direct structured result extraction for the currently supported semantic query shapes
-- [ ] Implement nightly-first ingest/finalization and stored-data-first reads
-- [ ] Slice 3: Restricted computed-metric DSL + DuckDB execution
-- [ ] Slice 4: End-to-end grounded answers + citations + trace persistence hardening
-- [ ] Slice 5: Visualization artifact rendering (table/bar/line/scatter)
-- [ ] Slice 6: 100-query evaluation harness + correctness/performance gates
-- [ ] Slice 7 (Phase 2): Play-by-play clip retrieval and ordered playlist output
+- [x] Foundation: app scaffold, contracts, health route
+- [x] Planning groundwork: normalization, metrics, validation
+- [x] Official NBA endpoint adapters + SQLite cache
+- [x] Structured semantic execution for the initial query families
+- [x] Seeded player-directory resolution + canonical semantic traces
+- [ ] Consolidate around one production semantic runtime and stop extending the legacy mock-engine path
+- [ ] Broaden semantic planning and entity resolution beyond the current supported families
+- [ ] Implement nightly-first ingest/materialization and stored-data-first reads
+- [ ] Add grounded derived/computed metric execution
+- [ ] Add persisted session grounding and stronger answer/artifact composition
+- [ ] Add richer visualization artifacts
+- [ ] Add the evaluation harness and performance gates
+- [ ] Phase 2: play-by-play clip retrieval and ordered playlist output
 
 ## Local Setup
 
 ### Requirements
 
 - Node `22.12.0+` (see [`.nvmrc`](.nvmrc))
-- Bun (latest stable)
+- Bun
 
 ### Install + Run
 
@@ -73,20 +51,13 @@ bun install
 bun run dev
 ```
 
-Or run the repo orchestration script:
+Repo helpers:
 
 ```bash
 ./scripts/run-all.sh
-```
-
-For fresh Codex workspaces, the repo also includes lifecycle helpers:
-
-```bash
 ./scripts/setup-workspace.sh
 ./scripts/teardown-workspace.sh
 ```
-
-For `.superset` worktrees, the same root scripts are wired through [`.superset/config.json`](.superset/config.json) so new worktrees can install, run, and clean up with the repo-standard commands.
 
 ### Verify
 
@@ -100,9 +71,4 @@ bun run build
 ## CI
 
 - GitHub Actions workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
-- Runs on push to `main` and pull requests.
-- Executes in `apps/web`:
-  - `bun ci`
-  - `bun run check`
-  - `bun run test`
-  - `bun run build`
+- Default CI runs `bun ci`, `bun run check`, `bun run test`, and `bun run build` in `apps/web`
