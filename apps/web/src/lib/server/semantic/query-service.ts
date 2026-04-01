@@ -280,7 +280,7 @@ function normalizeLimit(input: unknown): ValidationResult<number | null> {
 	return { ok: true, value: limit };
 }
 
-function normalizeOptions(input: unknown): ValidationResult<SemanticQueryRequest['options']> {
+function normalizeOptions(input: unknown): ValidationResult<Record<string, never> | undefined> {
 	if (input === undefined) {
 		return { ok: true, value: undefined };
 	}
@@ -289,16 +289,15 @@ function normalizeOptions(input: unknown): ValidationResult<SemanticQueryRequest
 		return { ok: false, error: 'options must be an object when provided.' };
 	}
 
-	if (input.allowLiveFallback !== undefined && typeof input.allowLiveFallback !== 'boolean') {
-		return { ok: false, error: 'options.allowLiveFallback must be a boolean when provided.' };
+	if (input.allowLiveFallback !== undefined) {
+		return { ok: false, error: 'options.allowLiveFallback has been removed. Semantic queries now use stored nightly data only.' };
 	}
 
-	return {
-		ok: true,
-		value: {
-			allowLiveFallback: typeof input.allowLiveFallback === 'boolean' ? input.allowLiveFallback : undefined
-		}
-	};
+	if (Object.keys(input).length > 0) {
+		return { ok: false, error: 'options does not currently accept any fields.' };
+	}
+
+	return { ok: true, value: {} };
 }
 
 function buildWarning(code: string, message: string): StatsQueryWarning {
@@ -429,8 +428,7 @@ function buildFallbackSourceCalls(endpointIds: string[]): TraceSourceCall[] {
 }
 
 async function executeEndpointRequests(
-	requests: EndpointFetchRequest[],
-	options: { allowLiveFallback?: boolean } = {}
+	requests: EndpointFetchRequest[]
 ): Promise<RetrievalOutcome> {
 	const sourceCalls: TraceSourceCall[] = [];
 	const citations: Citation[] = [];
@@ -454,7 +452,7 @@ async function executeEndpointRequests(
 		try {
 			result = await fetchStatsEndpointWithCache({
 				...request,
-				allowLiveFetch: options.allowLiveFallback
+				allowLiveFetch: false
 			});
 		} catch (error) {
 			const fallback = buildFallbackSourceCalls([request.endpointId])[0];
@@ -527,8 +525,7 @@ type PlayerSubjectResolutionResult =
 	  };
 
 function resolvePlayerSubjects(
-	subject: SemanticQuery['subject'],
-	options: { allowLiveFallback?: boolean } = {}
+	subject: SemanticQuery['subject']
 ): PlayerSubjectResolutionResult {
 	const names = subject.names ?? [];
 	const ids = subject.ids ?? [];
@@ -541,9 +538,7 @@ function resolvePlayerSubjects(
 		};
 	}
 
-	const directoryAvailability = ensurePlayerDirectoryAvailable({
-		allowRefresh: options.allowLiveFallback !== false
-	});
+	const directoryAvailability = ensurePlayerDirectoryAvailable();
 	if (!directoryAvailability.ok) {
 		return {
 			ok: false,
@@ -591,10 +586,9 @@ function resolvePlayerSubjects(
 
 function resolvePlayerEntity(
 	subject: SemanticQuery['subject'],
-	expectedCount: number | null,
-	options: { allowLiveFallback?: boolean } = {}
+	expectedCount: number | null
 ): ResolvedPlayerSubject[] | WarningResult {
-	const resolved = resolvePlayerSubjects(subject, options);
+	const resolved = resolvePlayerSubjects(subject);
 	if (!resolved.ok) {
 		return {
 			type: resolved.code === 'player_directory_unavailable' ? 'coverage_gap' : 'clarification_needed',
@@ -682,8 +676,7 @@ function buildCanonicalResolvedQuery(
 
 function determineSupportedPlan(
 	query: SemanticQuery,
-	now: Date,
-	options: { allowLiveFallback?: boolean } = {}
+	now: Date
 ): ExecutionPlan | WarningResult {
 	if (query.orderBy && query.operation !== 'rank') {
 		return {
@@ -724,7 +717,7 @@ function determineSupportedPlan(
 	}
 
 	if (query.operation === 'trend' && query.entity === 'player') {
-		const subject = resolvePlayerEntity(query.subject, 1, options);
+		const subject = resolvePlayerEntity(query.subject, 1);
 		if (!Array.isArray(subject)) {
 			return subject.resolvedQuery === null ? subject : { ...subject, resolvedQuery: query };
 		}
@@ -744,7 +737,7 @@ function determineSupportedPlan(
 	}
 
 	if (query.operation === 'compare' && query.entity === 'player') {
-		const subjects = resolvePlayerEntity(query.subject, 2, options);
+		const subjects = resolvePlayerEntity(query.subject, 2);
 		if (!Array.isArray(subjects)) {
 			return subjects.resolvedQuery === null ? subjects : { ...subjects, resolvedQuery: query };
 		}
@@ -994,31 +987,20 @@ function buildNonOkResponse(
 
 function analyzeStructuredQuery(
 	query: SemanticQuery,
-	now: Date,
-	options: { allowLiveFallback?: boolean } = {}
+	now: Date
 ): ExecutionPlan | WarningResult {
-	return determineSupportedPlan(query, now, options);
+	return determineSupportedPlan(query, now);
 }
 
-function buildMissingPayloadWarning(
-	retrieval: RetrievalOutcome,
-	options: { allowLiveFallback?: boolean } = {}
-): StatsQueryWarning | null {
+function buildMissingPayloadWarning(retrieval: RetrievalOutcome): StatsQueryWarning | null {
 	const missingPayload = retrieval.responses.find((response) => response.result.payload === null);
 	if (!missingPayload) {
 		return null;
 	}
 
-	if (options.allowLiveFallback === false) {
-		return buildWarning(
-			'live_fallback_disabled',
-			'Request policy disabled live fallback and no stored query data was available for this request.'
-		);
-	}
-
 	return buildWarning(
-		'source_data_unavailable',
-		'No source payload was available for one or more required endpoint requests.'
+		'nightly_data_unavailable',
+		'No stored nightly endpoint payload was available for one or more required requests.'
 	);
 }
 
@@ -1286,9 +1268,7 @@ export function validateSemanticQueryRequest(input: unknown): ValidationResult<S
 	}
 
 	if (entity === 'player') {
-		const allowDirectoryRefresh = options.value?.allowLiveFallback !== false;
-		if (hasStoredPlayerDirectorySnapshot() || allowDirectoryRefresh) {
-			ensurePlayerDirectoryAvailable({ allowRefresh: allowDirectoryRefresh });
+		if (hasStoredPlayerDirectorySnapshot() || ensurePlayerDirectoryAvailable().ok) {
 			const subjectConflictError = validateStructuredPlayerSubjectPairs(subject.value);
 			if (subjectConflictError) {
 				return { ok: false, error: subjectConflictError };
@@ -1309,8 +1289,7 @@ export function validateSemanticQueryRequest(input: unknown): ValidationResult<S
 				orderBy: orderBy.value,
 				limit: limit.value,
 				outputMode: outputMode.value
-			},
-			options: options.value
+			}
 		}
 	};
 }
@@ -1322,7 +1301,7 @@ export async function executeSemanticQuery(request: SemanticQueryRequest, now: D
 	const normalizedQuestion = normalizeQuestion(request.question ?? buildTraceQuestion(request.query));
 	const traceId = crypto.randomUUID();
 	const planningStartedAt = performance.now();
-	const analysis = analyzeStructuredQuery(request.query, now, request.options);
+	const analysis = analyzeStructuredQuery(request.query, now);
 	const planningLatencyMs = Math.round(performance.now() - planningStartedAt);
 
 	if (isWarningResult(analysis)) {
@@ -1347,9 +1326,9 @@ export async function executeSemanticQuery(request: SemanticQueryRequest, now: D
 		return makeResponse(analysis.type, null, [], analysis.resolvedQuery, 'nightly', [], [analysis.warning], traceId);
 	}
 
-	const retrieval = await executeEndpointRequests(buildEndpointRequests(analysis), request.options);
+	const retrieval = await executeEndpointRequests(buildEndpointRequests(analysis));
 	const computeStartedAt = performance.now();
-	const missingPayloadWarning = buildMissingPayloadWarning(retrieval, request.options);
+	const missingPayloadWarning = buildMissingPayloadWarning(retrieval);
 
 	if (missingPayloadWarning) {
 		const latencyMs = buildLatency({

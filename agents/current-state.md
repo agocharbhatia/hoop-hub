@@ -17,11 +17,10 @@ This file is the short source of truth for future agents. Use it before relying 
 
 ## Data and Resolution State
 
-- Retrieval is still live-fetch-first against NBA endpoints with cache fallback.
-- Finalized nightly-first ingestion/materialization is not implemented yet.
+- Semantic query execution now reads stored endpoint payloads only; it no longer exposes request-level live fallback.
+- Finalized nightly ingestion/materialization is still not implemented yet, so missing stored endpoint data currently returns typed `coverage_gap` responses.
 - Player resolution now goes through the shared seeded player-directory snapshot in `apps/web/src/lib/server/players/player-directory.ts`.
 - Curated aliases sit on top of canonical player identity; do not reintroduce ad hoc player name maps in new execution code.
-- `options.allowLiveFallback` is a real policy input and should gate both endpoint retrieval and directory refresh behavior.
 
 ## Trace and Session State
 

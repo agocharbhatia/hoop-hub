@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import { resetDataStoreForTests } from '$lib/server/data/store';
-import { installSemanticFixtureFetch } from '../helpers/semantic-fixture-fetch';
+import { seedSemanticFixtureCache } from '../helpers/seed-semantic-fixture-cache';
 import { POST } from '../../routes/api/chat/query/+server';
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
@@ -22,18 +22,15 @@ async function parseJson(response: Response): Promise<unknown> {
 }
 
 describe('POST /api/chat/query', () => {
-	let restoreFetch: (() => void) | null = null;
-
 	beforeEach(() => {
 		process.env.HOOP_HUB_DB_PATH = ':memory:';
-		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '0';
 		resetDataStoreForTests();
-		restoreFetch = installSemanticFixtureFetch();
+		seedSemanticFixtureCache();
+		seedSemanticFixtureCache(new Date('2026-03-25T12:00:00.000Z'));
 	});
 
 	afterEach(() => {
-		restoreFetch?.();
-		restoreFetch = null;
 		resetDataStoreForTests();
 	});
 
