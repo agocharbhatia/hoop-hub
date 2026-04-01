@@ -7,7 +7,6 @@
 .cursor/
 node_modules/
 .pnpm-store/
-/.sandcastle
 
 # Build outputs
 apps/web/.vite/

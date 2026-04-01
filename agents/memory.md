@@ -58,3 +58,4 @@
 - `sessionId` is currently validated at the chat boundary but not used to load or store conversational context. Until session grounding exists, follow-up UX is only a UI affordance, not a real engine capability.
 - The repo now has two parallel query paths: the active semantic executor and a legacy mock planner/query-engine path. Future engine work should consolidate around one production query-runtime boundary rather than extending both.
 - Planning context should now be read in this order: `agents/current-state.md` first for the concise engine snapshot, then `README.md` / `apps/web/README.md` for roadmap and operational details, and `agents/memory.md` for deeper historical breadcrumbs.
+- The old in-repo Codex Sandcastle package and `.sandcastle/` runner assets were removed. Future agent workflow tooling for this repo should come from the standalone external `codex-sandcastle` tool plus `.superset/`, not from reviving repo-local sandbox code.
