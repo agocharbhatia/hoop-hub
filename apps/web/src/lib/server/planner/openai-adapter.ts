@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import type { PlannerAdapter } from './service';
@@ -38,7 +40,7 @@ const PLANNER_OUTPUT_SCHEMA = {
 								items: { type: 'string' }
 							}
 						},
-						required: []
+						required: ['names', 'ids']
 					},
 					metrics: {
 						type: 'array',
@@ -121,33 +123,7 @@ const PLANNER_OUTPUT_SCHEMA = {
 				required: ['code', 'message']
 			}
 		},
-		required: ['type', 'query', 'warning'],
-		allOf: [
-			{
-				if: {
-					properties: {
-						type: { const: 'planned' }
-					}
-				},
-				then: {
-					properties: {
-						warning: { type: 'null' }
-					}
-				}
-			},
-			{
-				if: {
-					properties: {
-						type: { enum: ['coverage_gap', 'clarification_needed'] }
-					}
-				},
-				then: {
-					properties: {
-						query: { type: 'null' }
-					}
-				}
-			}
-		]
+		required: ['type', 'query', 'warning']
 	}
 } as const;
 
@@ -155,8 +131,8 @@ const PLANNER_OUTPUT_SCHEMA = {
  * Isolates the OpenAI call so planner prompting and model upgrades stay outside route orchestration.
  */
 export function createOpenAIPlannerAdapter(): PlannerAdapter {
-	const apiKey = process.env.OPENAI_API_KEY;
-	const model = process.env.OPENAI_PLANNER_MODEL;
+	const apiKey = readPlannerEnv('OPENAI_API_KEY');
+	const model = readPlannerEnv('OPENAI_PLANNER_MODEL');
 
 	if (!apiKey || apiKey.trim().length === 0) {
 		throw new Error('OPENAI_API_KEY is required for planner runtime.');
@@ -195,7 +171,38 @@ export function createOpenAIPlannerAdapter(): PlannerAdapter {
 
 /* Helper functions */
 
-function buildPlannerMessages(question: string): ChatCompletionMessageParam[] {
+let plannerEnvLoaded = false;
+
+/**
+ * Loads local app env files on demand so the planner works in the SvelteKit server and the direct Bun test harness.
+ */
+function readPlannerEnv(name: 'OPENAI_API_KEY' | 'OPENAI_PLANNER_MODEL'): string | undefined {
+	const directValue = process.env[name]?.trim();
+	if (directValue) {
+		return directValue;
+	}
+
+	if (!plannerEnvLoaded && typeof process.loadEnvFile === 'function') {
+		for (const candidate of ['.env.local', '.env.development', '.env']) {
+			const path = resolve(process.cwd(), candidate);
+			if (!existsSync(path)) {
+				continue;
+			}
+
+			try {
+				process.loadEnvFile(path);
+			} catch {
+				// Ignore malformed or missing optional env files here and rely on the required-variable guard below.
+			}
+		}
+		plannerEnvLoaded = true;
+	}
+
+	const loadedValue = process.env[name]?.trim();
+	return loadedValue && loadedValue.length > 0 ? loadedValue : undefined;
+}
+
+export function _buildPlannerMessagesForTests(question: string): ChatCompletionMessageParam[] {
 	return [
 		{
 			role: 'system',
@@ -205,7 +212,7 @@ function buildPlannerMessages(question: string): ChatCompletionMessageParam[] {
 		{
 			role: 'system',
 			content:
-				"Allowed metric ids in this slice are canonical executor ids such as pts, ast, reb, and drtg. For player rankings, use rank/player, keep subject empty, and set orderBy to the same metric descending. For team defensive rankings, use rank/team, keep subject empty, normalize any defensive-rating wording to metric drtg, set orderBy to drtg ascending, and use outputMode table. For player trends, use trend/player, include exactly one raw player name in subject.names, preserve explicit rolling windows like last 5 as filters.window, and use outputMode timeseries. For player comparisons, use compare/player, preserve the two raw player names in subject.names in the same order they appear in the question, use outputMode comparison, and leave orderBy and limit null."
+				"Allowed metric ids in this slice are canonical executor ids such as pts, ast, reb, and drtg. Always include every schema field. Use empty arrays instead of omitting subject.names or subject.ids. Use null for optional scalar/object fields that do not apply. Season normalization is the planner's responsibility. Never emit season phrases like this season or current season in filters.season. Use null for implicit current-season asks. When the question names a season, always normalize it to exact YYYY-YY form before returning it. For example, 2023/24, 2023-2024, and 2023 24 must all become 2023-24. For player rankings, use rank/player, keep both subject arrays empty, and set orderBy to the same metric descending. For team defensive rankings, use rank/team, keep both subject arrays empty, normalize any defensive-rating wording to metric drtg, set orderBy to drtg ascending, and use outputMode table. For player trends, use trend/player, include exactly one raw player name in subject.names, keep subject.ids empty, preserve explicit rolling windows like last 5 as filters.window, and use outputMode timeseries. For player comparisons, use compare/player, preserve the two raw player names in subject.names in the same order they appear in the question, keep subject.ids empty, use outputMode comparison, and leave orderBy and limit null."
 		},
 		{
 			role: 'system',
@@ -217,4 +224,8 @@ function buildPlannerMessages(question: string): ChatCompletionMessageParam[] {
 			content: question
 		}
 	];
+}
+
+function buildPlannerMessages(question: string): ChatCompletionMessageParam[] {
+	return _buildPlannerMessagesForTests(question);
 }

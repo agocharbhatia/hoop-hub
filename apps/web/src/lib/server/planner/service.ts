@@ -21,7 +21,7 @@ export function createPlannerService(adapter: PlannerAdapter): PlannerService {
 				throw new Error(validated.error);
 			}
 
-			return validated.value;
+			return normalizePlannerDecision(validated.value);
 		}
 	};
 }
@@ -34,6 +34,52 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isStringArray(value: unknown): value is string[] {
 	return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function normalizeSeasonFilter(season: SemanticQuery['filters']['season']): SemanticQuery['filters']['season'] {
+	if (season === null || season === undefined) {
+		return null;
+	}
+
+	const normalizedSeason = season.trim().toLowerCase();
+	if (normalizedSeason.length === 0) {
+		return null;
+	}
+
+	if (
+		normalizedSeason === 'this season' ||
+		normalizedSeason === 'current season' ||
+		normalizedSeason === 'this nba season' ||
+		normalizedSeason === 'current nba season' ||
+		normalizedSeason === 'this year'
+	) {
+		return null;
+	}
+
+	const slashFormatMatch = normalizedSeason.match(/^(\d{4})\s*[/-]\s*(\d{2}|\d{4})$/);
+	if (!slashFormatMatch) {
+		return season.trim();
+	}
+
+	const [, startYear, endYear] = slashFormatMatch;
+	return `${startYear}-${endYear.slice(-2)}`;
+}
+
+function normalizePlannerDecision(decision: PlannerDecision): PlannerDecision {
+	if (decision.type !== 'planned') {
+		return decision;
+	}
+
+	return {
+		type: 'planned',
+		query: {
+			...decision.query,
+			filters: {
+				...decision.query.filters,
+				season: normalizeSeasonFilter(decision.query.filters.season)
+			}
+		}
+	};
 }
 
 function validateSubject(

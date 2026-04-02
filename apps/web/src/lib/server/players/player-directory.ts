@@ -20,12 +20,19 @@ type PlayerDirectoryMention = {
 	resolvedName: string;
 };
 
+type PlayerDirectoryMentionMatch = {
+	resolvedName: string;
+	index: number;
+	length: number;
+};
+
 const PLAYER_DIRECTORY_SNAPSHOT_VERSION = 'bttmly-nba-master-players-json';
 const PLAYER_DIRECTORY_IMPORTED_AT = '2026-03-25T00:00:00.000Z';
 let playerDirectoryRefreshLoader: (() => ReplacePlayerDirectoryEntryInput[]) | null = null;
 
 const CURATED_PLAYER_ALIASES: CuratedPlayerAliasDefinition[] = [
 	{ alias: 'Steph', playerIds: ['201939'] },
+	{ alias: 'Curry', playerIds: ['201939'] },
 	{ alias: 'Dame', playerIds: ['203081'] },
 	{ alias: 'Jokic', playerIds: ['203999'] },
 	{ alias: 'Williams', playerIds: ['1629684', '1629026', '101150', '1630172'] }
@@ -166,6 +173,26 @@ function hasNormalizedNameMatch(normalizedQuestion: string, normalizedName: stri
 	return paddedQuestion.includes(` ${normalizedName} `);
 }
 
+function filterOverlappingMentions(matches: PlayerDirectoryMentionMatch[]): PlayerDirectoryMentionMatch[] {
+	const acceptedMatches: PlayerDirectoryMentionMatch[] = [];
+
+	for (const match of matches) {
+		const matchEnd = match.index + match.length;
+		const overlapsExistingMatch = acceptedMatches.some((acceptedMatch) => {
+			const acceptedEnd = acceptedMatch.index + acceptedMatch.length;
+			return match.index < acceptedEnd && acceptedMatch.index < matchEnd;
+		});
+
+		if (overlapsExistingMatch) {
+			continue;
+		}
+
+		acceptedMatches.push(match);
+	}
+
+	return acceptedMatches;
+}
+
 /* Public lookup API */
 
 export function findPlayerDirectoryEntryById(playerId: string): PlayerDirectoryEntryRecord | null {
@@ -196,7 +223,8 @@ export function extractPlayerDirectoryExactNameMentions(question: string): strin
 	}
 
 	const normalizedQuestion = normalizeMetricQuery(question);
-	return PLAYER_DIRECTORY_MENTIONS_BY_LENGTH.flatMap(({ resolvedName, normalizedValue }) => {
+	return filterOverlappingMentions(
+		PLAYER_DIRECTORY_MENTIONS_BY_LENGTH.flatMap(({ resolvedName, normalizedValue }) => {
 			if (!hasNormalizedNameMatch(normalizedQuestion, normalizedValue)) {
 				return [];
 			}
@@ -209,7 +237,8 @@ export function extractPlayerDirectoryExactNameMentions(question: string): strin
 				}
 			];
 		})
-		.sort((left, right) => left.index - right.index || right.length - left.length)
+			.sort((left, right) => left.index - right.index || right.length - left.length)
+	)
 		.map((match) => match.resolvedName);
 }
 

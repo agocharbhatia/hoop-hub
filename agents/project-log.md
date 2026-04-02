@@ -50,3 +50,10 @@
 - Interface contract: UI posts { question } to /api/query | no sessionId remains in the public natural-language route contract | /api/chat/query is removed as a production path
 - Tests: migrate route tests from /api/chat/query to /api/query | update UI tests or smoke coverage if present | rerun the full repo verification surface after route removal
 
+## planner runtime follow-up
+
+- Live planner regressions exposed two missing hardening steps after the initial slice landed: the shared player directory overlay needed a curated bare `Curry -> Stephen Curry` alias for comparison asks, and planner outputs needed server-side season normalization so implicit phrases like `this season` become `null` before executor validation.
+- Adding the bare `Curry` alias surfaced an overlap bug in mention extraction where alias matches nested inside longer canonical names were double-counted. The shared player-directory mention extractor now filters overlapping matches so alias overlays do not duplicate canonical names.
+- Verified with deterministic regressions and a live local `/api/query` smoke pass:
+  - `Compare Curry and Dame in 2023-24` returns `ok` with canonical resolved subjects `Stephen Curry` and `Damian Lillard`.
+  - `Which teams have the best defensive rating this season?` returns `ok` and defaults season through the executor instead of 500ing on planner validation.

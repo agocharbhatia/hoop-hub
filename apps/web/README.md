@@ -12,6 +12,13 @@ bun run test:live-smoke
 bun run build
 ```
 
+## Environment
+
+- Planner runtime configuration should be set in `apps/web/.env` for local development.
+- Required planner variables:
+  - `OPENAI_API_KEY`
+  - `OPENAI_PLANNER_MODEL`
+
 ## Current API Routes
 
 - `GET /api/health`

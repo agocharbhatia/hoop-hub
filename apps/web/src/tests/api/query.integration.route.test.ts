@@ -299,6 +299,55 @@ describe('POST /api/query integration', () => {
 		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
 	});
 
+	test('resolves curated comparison aliases through the shared player resolver', async () => {
+		usePlannerDecision({
+			type: 'planned',
+			query: {
+				operation: 'compare',
+				entity: 'player',
+				subject: {
+					names: ['Curry', 'Dame']
+				},
+				metrics: ['pts'],
+				filters: {
+					season: '2023-24',
+					seasonType: null,
+					window: null,
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'comparison'
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'Compare Curry and Dame in 2023-24'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: { rows: Array<{ subject?: string }> };
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+				};
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.result.rows.length, 2);
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['201939', '203081'],
+			names: ['Stephen Curry', 'Damian Lillard']
+		});
+	});
+
 	test('returns clarification_needed for ambiguous alias questions instead of guessing', async () => {
 		usePlannerDecision({
 			type: 'planned',

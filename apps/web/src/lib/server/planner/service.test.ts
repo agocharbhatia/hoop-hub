@@ -206,6 +206,44 @@ describe('createPlannerService', () => {
 		});
 	});
 
+	test('normalizes implicit current-season planner outputs before executor validation', async () => {
+		const planner = createPlannerService(
+			createAdapter({
+				type: 'planned',
+				query: {
+					operation: 'rank',
+					entity: 'team',
+					subject: {
+						names: [],
+						ids: []
+					},
+					metrics: ['drtg'],
+					filters: {
+						season: 'this season',
+						seasonType: null,
+						window: null,
+						dateFrom: null,
+						dateTo: null
+					},
+					orderBy: {
+						metric: 'drtg',
+						direction: 'asc'
+					},
+					limit: 10,
+					outputMode: 'table'
+				}
+			})
+		);
+
+		const decision = await planner.planQuestion('Which teams have the best defensive rating this season?');
+
+		assert.equal(decision.type, 'planned');
+		if (decision.type !== 'planned') {
+			throw new Error('Expected planned decision.');
+		}
+		assert.equal(decision.query.filters.season, null);
+	});
+
 	test('returns typed clarification_needed decisions for vague trend asks with no metric', async () => {
 		const planner = createPlannerService(
 			createAdapter({
