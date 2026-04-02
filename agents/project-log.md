@@ -63,6 +63,7 @@
 - Slice `nightly_snapshot_reads_and_lazy_planner_cleanup` locked two runtime assumptions:
   - raw stored endpoint reads now select the latest snapshot whose `snapshot_date` is less than or equal to the query-time date, so previous-night materializations can satisfy next-day reads without changing public query contracts.
   - `POST /api/query` now loads the default OpenAI planner adapter lazily behind the route dependency boundary, so route imports and injected tests do not depend on eager planner-module loading.
+- Slice `nightly_current_season_rankings_and_team_defense` adds a nightly bootstrap CLI/service for the two current-season league-wide ranking shapes, and its authoritative raw-cache writes are keyed to the requested `slateDate` rather than wall-clock ingest time so run bookkeeping and snapshot semantics stay aligned.
 ## nightly_snapshot_reads_and_lazy_planner_cleanup
 
 - Title: Make nightly snapshots readable across days and lazily isolate the planner route
@@ -70,3 +71,9 @@
 - Interface contract: query-time stored reads select the latest matching snapshot where snapshot date is less than or equal to the query date | public query and trace contracts remain unchanged | test dependency injection for /api/query does not eagerly instantiate the default planner adapter
 - Tests: add data-store tests for latest-row lookup across snapshot dates | add integration or route-level regression coverage for previous-day snapshot reuse | add route import or dependency-injection coverage for lazy planner creation
 
+## nightly_current_season_rankings_and_team_defense
+
+- Title: Bootstrap current-season nightly league-wide ranking and team-defense data
+- Module scope: nightly bootstrap service, bootstrap CLI entrypoint, nightly run bookkeeping, current-season league-wide request planning
+- Interface contract: bootstrap requires a slate date | authoritative nightly cache rows are written for current-season `leaguedashplayerstats` and `leaguedashteamstats` request shapes | nightly runs report `completed`, `partial`, or `failed` based on actual request outcomes
+- Tests: add bootstrap service coverage for completed, partial, and failed bookkeeping | verify authoritative nightly cache writes are non-provisional and queryable from an empty DB | add CLI argument coverage for the required slate date
