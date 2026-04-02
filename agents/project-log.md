@@ -63,3 +63,10 @@
 - Slice `nightly_snapshot_reads_and_lazy_planner_cleanup` locked two runtime assumptions:
   - raw stored endpoint reads now select the latest snapshot whose `snapshot_date` is less than or equal to the query-time date, so previous-night materializations can satisfy next-day reads without changing public query contracts.
   - `POST /api/query` now loads the default OpenAI planner adapter lazily behind the route dependency boundary, so route imports and injected tests do not depend on eager planner-module loading.
+## nightly_snapshot_reads_and_lazy_planner_cleanup
+
+- Title: Make nightly snapshots readable across days and lazily isolate the planner route
+- Module scope: raw endpoint cache read semantics, data store latest-row lookup, query-time endpoint adapter reads, query route dependency wiring
+- Interface contract: query-time stored reads select the latest matching snapshot where snapshot date is less than or equal to the query date | public query and trace contracts remain unchanged | test dependency injection for /api/query does not eagerly instantiate the default planner adapter
+- Tests: add data-store tests for latest-row lookup across snapshot dates | add integration or route-level regression coverage for previous-day snapshot reuse | add route import or dependency-injection coverage for lazy planner creation
+

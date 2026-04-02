@@ -190,7 +190,7 @@ tasks:
       Add the storage/read contract that selects the latest stored nightly
       snapshot up to the query date, and lazily instantiate the default planner
       so route tests and tooling stop depending on eager OpenAI imports.
-    status: pending
+    status: done
     blocked_by: []
     module_scope:
       - raw endpoint cache read semantics
@@ -226,8 +226,8 @@ tasks:
     github_issue: 17
     type: afk
   - id: nightly_current_season_rankings_and_team_defense
-    title: Bootstrap current-season league-wide nightly data for rankings and
-      team defense
+    title: Bootstrap current-season league-wide nightly data for rankings and team
+      defense
     summary: >
       Add the nightly bootstrap CLI and service path for the current-season
       league-wide request shapes needed by player rankings and team defensive
@@ -253,8 +253,7 @@ tasks:
       - current-season league-wide writes are marked as authoritative nightly
         data
     test_plan:
-      - add bootstrap service tests for completed, partial, and failed run
-        status
+      - add bootstrap service tests for completed, partial, and failed run status
       - add ingest tests for authoritative nightly cache writes
       - add end-to-end coverage that ranking and team-defense queries work after
         bootstrap
@@ -268,8 +267,7 @@ tasks:
     github_issue: 18
     type: afk
   - id: nightly_player_cohort_and_comparisons
-    title: Derive the nightly player cohort and bootstrap regular-season
-      comparisons
+    title: Derive the nightly player cohort and bootstrap regular-season comparisons
     summary: >
       Derive the nightly player cohort from current-season league-wide player
       stats plus a checked-in demo allowlist, then materialize regular-season
@@ -325,8 +323,7 @@ tasks:
       - valid empty payloads are treated as successful nightly materialization
       - the public trend response contract remains unchanged
     acceptance_criteria:
-      - supported current-season trend asks work from an empty DB after
-        bootstrap
+      - supported current-season trend asks work from an empty DB after bootstrap
       - trend materialization covers the full derived cohort
       - empty but valid trend payloads do not mark the overall run as failed by
         themselves
