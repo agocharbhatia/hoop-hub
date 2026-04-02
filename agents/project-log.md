@@ -16,3 +16,10 @@
 - Module scope: planner contracts and schema, OpenAI planner adapter, planner service, query route orchestration, trace persistence for planner non-ok responses
 - Interface contract: POST /api/query accepts { question: string } | public response remains StatsQueryResponse | POST /api/stats/query remains the direct structured executor route | planner outputs a closed validated decision contract before executor delegation
 - Tests: add deterministic planner service tests for planned and coverage-gap decisions | add /api/query route tests for rankings, unsupported asks, and server-error behavior | keep existing executor tests green
+## planner_player_trends
+
+- Title: Add player trend planning with safe metric clarification
+- Module scope: planner service, planner schema, query route tests, semantic executor integration path
+- Interface contract: player trend questions plan into canonical metric ids and supported semantic filters | vague trend asks return clarification_needed with no executor call | executor remains the canonical grounding authority
+- Tests: add deterministic planner tests for scoring inference and missing_metric | add /api/query route tests for supported and clarification-needed trend asks
+

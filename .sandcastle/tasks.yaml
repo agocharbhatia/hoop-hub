@@ -47,7 +47,7 @@ tasks:
       Extend the planner runtime to support player-trend asks, safe scoring
       inference, rolling-window planning, and planner-side clarification for
       vague trend questions.
-    status: pending
+    status: done
     blocked_by:
       - planner_runtime_rankings
     module_scope:
