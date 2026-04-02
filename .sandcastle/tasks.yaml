@@ -232,7 +232,7 @@ tasks:
       Add the nightly bootstrap CLI and service path for the current-season
       league-wide request shapes needed by player rankings and team defensive
       rankings, including honest nightly run bookkeeping.
-    status: pending
+    status: done
     blocked_by:
       - nightly_snapshot_reads_and_lazy_planner_cleanup
     module_scope:

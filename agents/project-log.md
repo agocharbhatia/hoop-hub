@@ -77,3 +77,10 @@
 - Module scope: nightly bootstrap service, bootstrap CLI entrypoint, nightly run bookkeeping, current-season league-wide request planning
 - Interface contract: bootstrap requires a slate date | authoritative nightly cache rows are written for current-season `leaguedashplayerstats` and `leaguedashteamstats` request shapes | nightly runs report `completed`, `partial`, or `failed` based on actual request outcomes
 - Tests: add bootstrap service coverage for completed, partial, and failed bookkeeping | verify authoritative nightly cache writes are non-provisional and queryable from an empty DB | add CLI argument coverage for the required slate date
+## nightly_current_season_rankings_and_team_defense
+
+- Title: Bootstrap current-season league-wide nightly data for rankings and team defense
+- Module scope: nightly bootstrap service, bootstrap CLI entrypoint, nightly run bookkeeping, current-season league-wide request planning
+- Interface contract: bootstrap command accepts a required slate date | current-season league-wide ranking and team-defense request shapes are written as authoritative nightly cache rows | run status reports completed, partial, or failed honestly
+- Tests: add bootstrap service tests for completed, partial, and failed run status | add ingest tests for authoritative nightly cache writes | add end-to-end coverage that ranking and team-defense queries work after bootstrap
+
