@@ -38,7 +38,7 @@ function isStringArray(value: unknown): value is string[] {
 
 function validateSubject(
 	subject: unknown,
-	requirement: 'empty' | 'non_empty'
+	requirement: 'empty' | 'non_empty' | 'exactly_two'
 ): subject is SemanticQuery['subject'] {
 	if (!isPlainObject(subject)) {
 		return false;
@@ -53,6 +53,10 @@ function validateSubject(
 	const subjectCount = (names?.length ?? 0) + (ids?.length ?? 0);
 	if (requirement === 'empty') {
 		return subjectCount === 0;
+	}
+
+	if (requirement === 'exactly_two') {
+		return subjectCount === 2;
 	}
 
 	return subjectCount > 0;
@@ -113,7 +117,7 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 		return false;
 	}
 
-	if (query.operation !== 'rank' && query.operation !== 'trend') {
+	if (query.operation !== 'rank' && query.operation !== 'trend' && query.operation !== 'compare') {
 		return false;
 	}
 
@@ -127,7 +131,8 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 
 	if (
 		(query.operation === 'rank' && !validateSubject(query.subject, 'empty')) ||
-		(query.operation === 'trend' && !validateSubject(query.subject, 'non_empty'))
+		(query.operation === 'trend' && !validateSubject(query.subject, 'non_empty')) ||
+		(query.operation === 'compare' && !validateSubject(query.subject, 'exactly_two'))
 	) {
 		return false;
 	}
@@ -159,6 +164,10 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 		query.outputMode !== 'timeseries' &&
 		query.outputMode !== 'comparison'
 	) {
+		return false;
+	}
+
+	if (query.operation === 'compare' && query.outputMode !== 'comparison') {
 		return false;
 	}
 
@@ -201,7 +210,8 @@ function validatePlannerDecision(input: unknown): { ok: true; value: PlannerDeci
 			input.warning.code !== 'unsupported_query_shape' &&
 			input.warning.code !== 'unsupported_metric' &&
 			input.warning.code !== 'clarification_needed' &&
-			input.warning.code !== 'missing_metric'
+			input.warning.code !== 'missing_metric' &&
+			input.warning.code !== 'compare_requires_two_subjects'
 		) {
 			return { ok: false, error: 'Planner warning code is not supported.' };
 		}

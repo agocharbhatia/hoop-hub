@@ -19,7 +19,7 @@ const PLANNER_OUTPUT_SCHEMA = {
 				properties: {
 					operation: {
 						type: 'string',
-						enum: ['rank', 'trend']
+						enum: ['rank', 'trend', 'compare']
 					},
 					entity: {
 						type: 'string',
@@ -108,7 +108,13 @@ const PLANNER_OUTPUT_SCHEMA = {
 				properties: {
 					code: {
 						type: 'string',
-						enum: ['unsupported_query_shape', 'unsupported_metric', 'clarification_needed', 'missing_metric']
+						enum: [
+							'unsupported_query_shape',
+							'unsupported_metric',
+							'clarification_needed',
+							'missing_metric',
+							'compare_requires_two_subjects'
+						]
 					},
 					message: { type: 'string' }
 				},
@@ -194,17 +200,17 @@ function buildPlannerMessages(question: string): ChatCompletionMessageParam[] {
 		{
 			role: 'system',
 			content:
-				'You plan NBA stats questions into a closed contract. Only support player ranking and player trend questions in this slice. Do not resolve player identity into canonical ids. If the question is unsupported, return coverage_gap.'
+				'You plan NBA stats questions into a closed contract. Only support player ranking, player trend, and player comparison questions in this slice. Do not resolve player identity into canonical ids. If the question is unsupported, return coverage_gap.'
 		},
 		{
 			role: 'system',
 			content:
-				"Allowed metric ids in this slice are canonical executor ids such as pts, ast, and reb. For rankings, use rank/player, keep subject empty, and set orderBy to the same metric descending. For player trends, use trend/player, include exactly one raw player name in subject.names, preserve explicit rolling windows like last 5 as filters.window, and use outputMode timeseries."
+				"Allowed metric ids in this slice are canonical executor ids such as pts, ast, and reb. For rankings, use rank/player, keep subject empty, and set orderBy to the same metric descending. For player trends, use trend/player, include exactly one raw player name in subject.names, preserve explicit rolling windows like last 5 as filters.window, and use outputMode timeseries. For player comparisons, use compare/player, preserve the two raw player names in subject.names in the same order they appear in the question, use outputMode comparison, and leave orderBy and limit null."
 		},
 		{
 			role: 'system',
 			content:
-				"If a trend question uses scoring language like scored or scoring, infer metric pts. If a trend question names a player and window but does not safely imply a metric, return clarification_needed with warning code missing_metric. The executor remains the grounding authority."
+				"If a trend question uses scoring language like scored or scoring, infer metric pts. If a trend question names a player and window but does not safely imply a metric, return clarification_needed with warning code missing_metric. If a comparison question omits a metric, default safely to pts. If a comparison question does not clearly include exactly two subjects, return clarification_needed with warning code compare_requires_two_subjects. The executor remains the grounding authority."
 		},
 		{
 			role: 'user',

@@ -199,6 +199,74 @@ describe('POST /api/query', () => {
 		});
 	});
 
+	test('executes supported player comparison questions through the planner route with stable subject order', async () => {
+		let executedRequest: SemanticQueryRequest | null = null;
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<PlannerDecision> {
+				return {
+					type: 'planned',
+					query: {
+						operation: 'compare',
+						entity: 'player',
+						subject: {
+							names: ['Damian Lillard', 'Stephen Curry']
+						},
+						metrics: ['pts'],
+						filters: {
+							season: '2023-24',
+							seasonType: null,
+							window: null,
+							dateFrom: null,
+							dateTo: null
+						},
+						orderBy: null,
+						limit: null,
+						outputMode: 'comparison'
+					}
+				};
+			},
+			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
+				executedRequest = request;
+				return {
+					status: 'ok',
+					result: {
+						shape: 'comparison',
+						columns: ['player', 'pts'],
+						rows: [
+							{ player: 'Damian Lillard', pts: 24.3 },
+							{ player: 'Stephen Curry', pts: 26.4 }
+						]
+					},
+					citations: [],
+					provenance: {
+						executor: 'semantic_executor',
+						resolvedQuery: request.query,
+						dataFreshnessMode: 'nightly',
+						sourceCalls: []
+					},
+					warnings: [],
+					traceId: 'trace-compare'
+				};
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'Compare Damian Lillard vs Stephen Curry in 2023-24'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as StatsQueryResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.notEqual(executedRequest, null);
+		assert.deepEqual(executedRequest!.query.subject.names, ['Damian Lillard', 'Stephen Curry']);
+		assert.deepEqual(executedRequest!.query.metrics, ['pts']);
+		assert.equal(executedRequest!.query.outputMode, 'comparison');
+	});
+
 	test('returns clarification_needed for vague trend questions without calling the executor', async () => {
 		let executorCalls = 0;
 		_setQueryRouteDependenciesForTests({
@@ -230,6 +298,40 @@ describe('POST /api/query', () => {
 		assert.equal(payload.status, 'clarification_needed');
 		assert.equal(executorCalls, 0);
 		assert.equal(payload.warnings[0]?.code, 'missing_metric');
+		assert.equal(payload.provenance.resolvedQuery, null);
+	});
+
+	test('returns clarification_needed for comparison questions with fewer than two subjects without calling the executor', async () => {
+		let executorCalls = 0;
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<PlannerDecision> {
+				return {
+					type: 'clarification_needed',
+					warning: {
+						code: 'compare_requires_two_subjects',
+						message: 'Player comparisons require exactly two player names in this slice.'
+					}
+				};
+			},
+			async executeSemanticQuery(): Promise<StatsQueryResponse> {
+				executorCalls += 1;
+				throw new Error('Executor should not be called.');
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'Compare Steph in 2023-24'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as StatsQueryResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'clarification_needed');
+		assert.equal(executorCalls, 0);
+		assert.equal(payload.warnings[0]?.code, 'compare_requires_two_subjects');
 		assert.equal(payload.provenance.resolvedQuery, null);
 	});
 

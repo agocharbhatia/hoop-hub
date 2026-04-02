@@ -4,7 +4,8 @@ export type PlannerWarningCode =
 	| 'unsupported_query_shape'
 	| 'unsupported_metric'
 	| 'clarification_needed'
-	| 'missing_metric';
+	| 'missing_metric'
+	| 'compare_requires_two_subjects';
 
 export type PlannerDecision =
 	| {
