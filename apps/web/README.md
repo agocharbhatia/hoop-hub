@@ -12,11 +12,18 @@ bun run test:live-smoke
 bun run build
 ```
 
+## Environment
+
+- Planner runtime configuration should be set in `apps/web/.env` for local development.
+- Required planner variables:
+  - `OPENAI_API_KEY`
+  - `OPENAI_PLANNER_MODEL`
+
 ## Current API Routes
 
 - `GET /api/health`
+- `POST /api/query`
 - `POST /api/stats/query`
-- `POST /api/chat/query`
 - `GET /api/query-trace/:traceId`
 
 ## Notes
@@ -26,11 +33,10 @@ bun run build
   - player trends
   - player comparisons
   - team defensive rankings
-- `POST /api/chat/query` is a raw natural-language wrapper over the same semantic executor used by `POST /api/stats/query`.
+- `POST /api/query` is the primary natural-language planner route in front of the same semantic executor used by `POST /api/stats/query`.
 - Traces now expose canonical `resolvedQuery` data, source calls, cache/freshness details, and warnings instead of relying on legacy planner output.
 - Player resolution uses the shared seeded player-directory snapshot plus curated aliases; future engine work should reuse that path instead of embedding local name maps.
-- `sessionId` is currently validated at the route boundary but does not yet load or persist conversational context.
-- The semantic executor now reads stored endpoint payloads only; finalized nightly ingestion/materialization still needs to populate that cache more fully.
+- The current runtime is still live-fetch-first with cache fallback; finalized nightly-first ingestion/materialization is not implemented yet.
 - The legacy mock planner/query-engine remains in the repo for compatibility tests, but new execution behavior should be added to the semantic executor path, not the legacy path.
 - The live smoke path is isolated from default PR CI and runs through `.github/workflows/live-smoke.yml`.
 - Root project status and roadmap live in the repository [README](../../README.md).

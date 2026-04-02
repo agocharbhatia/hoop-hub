@@ -1,11 +1,10 @@
 <script lang="ts">
 	import brandNet from '$lib/assets/brand-net.svg';
-	import type { ChatQueryRequest, ErrorResponse } from '$lib/contracts/chat';
+	import type { ErrorResponse } from '$lib/contracts/chat';
 	import type { QueryTraceResponse } from '$lib/contracts/query-trace';
 	import type { StatsQueryResponse, StatsQueryRowValue } from '$lib/contracts/semantic-query';
 	import { NeoBadge, NeoButton, NeoCard, NeoInput, NeoPanel } from '$lib';
 
-	const sessionId = 'local-session';
 	let query = $state('Who averaged the most assists in 2023-24?');
 	let response = $state<StatsQueryResponse | null>(null);
 	let trace = $state<QueryTraceResponse | null>(null);
@@ -23,14 +22,7 @@
 	const emptyAnswerPreview =
 		'Ask an NBA stats question to get a grounded response with citations, structured comparisons, and query trace details.';
 
-	const emptyFollowups = [
-		'Break that down by month',
-		'Compare top 5 players',
-		'Show the same for last season'
-	];
-
 	const shownCitations = $derived(response?.citations ?? []);
-	const shownFollowups = $derived(emptyFollowups);
 
 	function resetErrors() {
 		queryError = null;
@@ -50,17 +42,11 @@
 		isQueryLoading = true;
 		trace = null;
 
-		const payload: ChatQueryRequest = {
-			sessionId,
-			message: query,
-			clientTs: new Date().toISOString()
-		};
-
 		try {
-			const result = await fetch('/api/chat/query', {
+			const result = await fetch('/api/query', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(payload)
+				body: JSON.stringify({ question: query.trim() })
 			});
 			const data = (await result.json()) as StatsQueryResponse | ErrorResponse;
 			if (!result.ok) {
@@ -100,14 +86,6 @@
 		} finally {
 			isTraceLoading = false;
 		}
-	}
-
-	function applyFollowup(value: string) {
-		query = value;
-	}
-
-	function formatTraceList(values: string[]): string {
-		return values.length > 0 ? values.join(', ') : 'None';
 	}
 
 	function formatTraceMetrics(traceData: QueryTraceResponse): string {
@@ -260,14 +238,6 @@
 				{:else}
 					<p class="neo-copy-muted">Run a query to view grounded sources.</p>
 				{/if}
-			</NeoCard>
-
-			<NeoCard tone="surface" kicker="Suggestions" title="Follow-ups">
-				<div class="neo-chip-row" role="list">
-					{#each shownFollowups as item}
-						<button type="button" class="neo-followup-chip" onclick={() => applyFollowup(item)}>{item}</button>
-					{/each}
-				</div>
 			</NeoCard>
 
 			{#if traceError}

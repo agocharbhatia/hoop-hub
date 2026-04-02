@@ -1,15 +1,20 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
+import type { PlannerDecision } from '$lib/contracts/planner';
+import type { StatsQueryResponse } from '$lib/contracts/semantic-query';
 import { resetDataStoreForTests } from '$lib/server/data/store';
+import { executeSemanticQuery } from '$lib/server/semantic/query-service';
 import { seedSemanticFixtureCache } from '../helpers/seed-semantic-fixture-cache';
-import { POST } from '../../routes/api/chat/query/+server';
+import { POST, _setQueryRouteDependenciesForTests } from '../../routes/api/query/+server';
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
 const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;
 
+/* Helper functions */
+
 function createPostEvent(body: BodyInit): Parameters<typeof POST>[0] {
 	return {
-		request: new Request('http://localhost/api/chat/query', {
+		request: new Request('http://localhost/api/query', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body
@@ -21,7 +26,16 @@ async function parseJson(response: Response): Promise<unknown> {
 	return response.json();
 }
 
-describe('POST /api/chat/query', () => {
+function usePlannerDecision(decision: PlannerDecision): void {
+	_setQueryRouteDependenciesForTests({
+		async planQuestion(): Promise<PlannerDecision> {
+			return decision;
+		},
+		executeSemanticQuery
+	});
+}
+
+describe('POST /api/query integration', () => {
 	beforeEach(() => {
 		process.env.HOOP_HUB_DB_PATH = ':memory:';
 		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '0';
@@ -31,6 +45,7 @@ describe('POST /api/chat/query', () => {
 	});
 
 	afterEach(() => {
+		_setQueryRouteDependenciesForTests(null);
 		resetDataStoreForTests();
 	});
 
@@ -51,23 +66,44 @@ describe('POST /api/chat/query', () => {
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
-					sessionId: 'session-1',
-					message: '   '
+					question: '   '
 				})
 			)
 		);
 		const payload = (await parseJson(response)) as { error: string };
 
 		assert.equal(response.status, 400);
-		assert.match(payload.error, /message is required/i);
+		assert.match(payload.error, /question is required/i);
 	});
 
 	test('returns structured rows for supported raw natural-language queries', async () => {
+		usePlannerDecision({
+			type: 'planned',
+			query: {
+				operation: 'rank',
+				entity: 'player',
+				subject: {},
+				metrics: ['ast'],
+				filters: {
+					season: '2023-24',
+					seasonType: null,
+					window: null,
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: {
+					metric: 'ast',
+					direction: 'desc'
+				},
+				limit: 10,
+				outputMode: 'table'
+			}
+		});
+
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
-					sessionId: 'session-1',
-					message: 'Who averaged the most assists in 2023-24?'
+					question: 'Who averaged the most assists in 2023-24?'
 				})
 			)
 		);
@@ -89,11 +125,35 @@ describe('POST /api/chat/query', () => {
 	});
 
 	test('resolves arbitrary exact-name player trends through the shared full-directory resolver', async () => {
+		usePlannerDecision({
+			type: 'planned',
+			query: {
+				operation: 'trend',
+				entity: 'player',
+				subject: {
+					names: ['Precious Achiuwa']
+				},
+				metrics: ['pts'],
+				filters: {
+					season: null,
+					seasonType: null,
+					window: {
+						type: 'last_n_games',
+						n: 2
+					},
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'timeseries'
+			}
+		});
+
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
-					sessionId: 'session-1',
-					message: 'Show Precious Achiuwa trend for points in the last 2 games'
+					question: 'Show Precious Achiuwa trend for points in the last 2 games'
 				})
 			)
 		);
@@ -130,12 +190,36 @@ describe('POST /api/chat/query', () => {
 		});
 	});
 
-	test('resolves curated aliases through the shared chat resolver', async () => {
+	test('resolves curated aliases through the shared player resolver', async () => {
+		usePlannerDecision({
+			type: 'planned',
+			query: {
+				operation: 'trend',
+				entity: 'player',
+				subject: {
+					names: ['Jokic']
+				},
+				metrics: ['pts'],
+				filters: {
+					season: null,
+					seasonType: null,
+					window: {
+						type: 'last_n_games',
+						n: 2
+					},
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'timeseries'
+			}
+		});
+
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
-					sessionId: 'session-1',
-					message: 'Show Jokic trend for points in the last 2 games'
+					question: 'Show Jokic trend for points in the last 2 games'
 				})
 			)
 		);
@@ -157,11 +241,32 @@ describe('POST /api/chat/query', () => {
 	});
 
 	test('resolves arbitrary exact-name comparison subjects through the shared full-directory resolver', async () => {
+		usePlannerDecision({
+			type: 'planned',
+			query: {
+				operation: 'compare',
+				entity: 'player',
+				subject: {
+					names: ['Stephen Curry', 'Precious Achiuwa']
+				},
+				metrics: ['pts'],
+				filters: {
+					season: '2023-24',
+					seasonType: null,
+					window: null,
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'comparison'
+			}
+		});
+
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
-					sessionId: 'session-1',
-					message: 'Compare Stephen Curry vs Precious Achiuwa by points in 2023-24'
+					question: 'Compare Stephen Curry vs Precious Achiuwa by points in 2023-24'
 				})
 			)
 		);
@@ -191,12 +296,85 @@ describe('POST /api/chat/query', () => {
 		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
 	});
 
-	test('returns clarification_needed for ambiguous alias chat input instead of guessing', async () => {
+	test('resolves curated comparison aliases through the shared player resolver', async () => {
+		usePlannerDecision({
+			type: 'planned',
+			query: {
+				operation: 'compare',
+				entity: 'player',
+				subject: {
+					names: ['Curry', 'Dame']
+				},
+				metrics: ['pts'],
+				filters: {
+					season: '2023-24',
+					seasonType: null,
+					window: null,
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'comparison'
+			}
+		});
+
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
-					sessionId: 'session-1',
-					message: 'Show Williams trend for points in the last 2 games'
+					question: 'Compare Curry and Dame in 2023-24'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: { rows: Array<{ subject?: string }> };
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+				};
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.result.rows.length, 2);
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['201939', '203081'],
+			names: ['Stephen Curry', 'Damian Lillard']
+		});
+	});
+
+	test('returns clarification_needed for ambiguous alias questions instead of guessing', async () => {
+		usePlannerDecision({
+			type: 'planned',
+			query: {
+				operation: 'trend',
+				entity: 'player',
+				subject: {
+					names: ['Williams']
+				},
+				metrics: ['pts'],
+				filters: {
+					season: null,
+					seasonType: null,
+					window: {
+						type: 'last_n_games',
+						n: 2
+					},
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'timeseries'
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'Show Williams trend for points in the last 2 games'
 				})
 			)
 		);
@@ -214,11 +392,27 @@ describe('POST /api/chat/query', () => {
 	});
 
 	test('returns typed coverage gaps for ungrounded queries', async () => {
+		let executorCalls = 0;
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<PlannerDecision> {
+				return {
+					type: 'coverage_gap',
+					warning: {
+						code: 'unsupported_query_shape',
+						message: 'Predictions are not supported in this slice.'
+					}
+				};
+			},
+			async executeSemanticQuery(): Promise<StatsQueryResponse> {
+				executorCalls += 1;
+				throw new Error('Executor should not be called.');
+			}
+		});
+
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
-					sessionId: 'session-1',
-					message: 'Who wins the championship this year?'
+					question: 'Who wins the championship this year?'
 				})
 			)
 		);
@@ -234,14 +428,31 @@ describe('POST /api/chat/query', () => {
 		assert.equal(payload.result, null);
 		assert.equal(payload.warnings.length > 0, true);
 		assert.equal(payload.traceId.length > 0, true);
+		assert.equal(executorCalls, 0);
 	});
 
 	test('returns coverage gaps instead of 500s for unsupported comparison metrics', async () => {
+		let executorCalls = 0;
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<PlannerDecision> {
+				return {
+					type: 'coverage_gap',
+					warning: {
+						code: 'unsupported_metric',
+						message: 'Defensive rating comparisons are not supported in this slice.'
+					}
+				};
+			},
+			async executeSemanticQuery(): Promise<StatsQueryResponse> {
+				executorCalls += 1;
+				throw new Error('Executor should not be called.');
+			}
+		});
+
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
-					sessionId: 'session-1',
-					message: 'Compare Stephen Curry vs Damian Lillard by defensive rating'
+					question: 'Compare Stephen Curry vs Damian Lillard by defensive rating'
 				})
 			)
 		);
@@ -250,5 +461,6 @@ describe('POST /api/chat/query', () => {
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'coverage_gap');
 		assert.equal(payload.warnings[0]?.code, 'unsupported_metric');
+		assert.equal(executorCalls, 0);
 	});
 });

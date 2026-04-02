@@ -1,0 +1,185 @@
+tasks:
+  - id: planner_runtime_rankings
+    title: Establish /api/query planner runtime for player rankings and typed
+      unsupported gaps
+    summary: >
+      Add the new primary natural-language route and planner boundary, but land
+      only the supported player-ranking flow plus typed planner-side
+      unsupported-gap behavior.
+    status: done
+    blocked_by: []
+    module_scope:
+      - planner contracts and schema
+      - OpenAI planner adapter
+      - planner service
+      - query route orchestration
+      - trace persistence for planner non-ok responses
+    interface_contract:
+      - "POST /api/query accepts { question: string }"
+      - public response remains StatsQueryResponse
+      - POST /api/stats/query remains the direct structured executor route
+      - planner outputs a closed validated decision contract before executor
+        delegation
+    acceptance_criteria:
+      - /api/query executes supported player-ranking asks through the semantic
+        executor
+      - unsupported asks return typed coverage_gap with no executor call
+      - planner output is revalidated before executor use
+      - planner outages or invalid structured output return server errors
+    test_plan:
+      - add deterministic planner service tests for planned and coverage-gap
+        decisions
+      - add /api/query route tests for rankings, unsupported asks, and
+        server-error behavior
+      - keep existing executor tests green
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 10
+    type: afk
+  - id: planner_player_trends
+    title: Add player trend planning with safe metric clarification
+    summary: >
+      Extend the planner runtime to support player-trend asks, safe scoring
+      inference, rolling-window planning, and planner-side clarification for
+      vague trend questions.
+    status: done
+    blocked_by:
+      - planner_runtime_rankings
+    module_scope:
+      - planner service
+      - planner schema
+      - query route tests
+      - semantic executor integration path
+    interface_contract:
+      - player trend questions plan into canonical metric ids and supported
+        semantic filters
+      - vague trend asks return clarification_needed with no executor call
+      - executor remains the canonical grounding authority
+    acceptance_criteria:
+      - scoring-language trend asks execute successfully through /api/query
+      - last-N window filters are preserved through planning
+      - vague trend asks return typed clarification_needed
+    test_plan:
+      - add deterministic planner tests for scoring inference and missing_metric
+      - add /api/query route tests for supported and clarification-needed trend
+        asks
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 11
+    type: afk
+  - id: planner_player_comparisons
+    title: Add player comparison planning with subject-order guarantees
+    summary: >
+      Extend the planner runtime to support player-comparison asks, safe default
+      metrics, preserved subject order, and planner-side clarification when two
+      subjects are not present.
+    status: done
+    blocked_by:
+      - planner_runtime_rankings
+    module_scope:
+      - planner service
+      - planner schema
+      - query route tests
+      - comparison integration path
+    interface_contract:
+      - comparison asks preserve subject order from the user question
+      - compare-without-metric defaults safely to pts
+      - incomplete comparison asks return clarification_needed with no executor
+        call
+    acceptance_criteria:
+      - comparison asks execute successfully through /api/query
+      - subject order is stable in planned semantic queries
+      - incomplete comparison asks return typed clarification_needed
+    test_plan:
+      - add deterministic planner tests for compare planning and subject order
+      - add /api/query route tests for compare success and
+        compare_requires_two_subjects
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 12
+    type: afk
+  - id: planner_team_defense_rankings
+    title: Add team defensive ranking planning to the new runtime
+    summary: >
+      Complete the current supported stats domain on the planner path by adding
+      team defensive-ranking planning and adjacent unsupported-gap handling.
+    status: done
+    blocked_by:
+      - planner_runtime_rankings
+    module_scope:
+      - planner service
+      - planner schema
+      - query route tests
+      - team ranking integration path
+    interface_contract:
+      - team defensive ranking asks plan into rank/team with canonical drtg
+        metric
+      - unsupported adjacent team asks still fail as typed coverage gaps
+      - public response and trace semantics remain unchanged
+    acceptance_criteria:
+      - supported team defensive ranking asks execute through /api/query
+      - planner normalizes to drtg and a supported team ranking shape
+      - unsupported adjacent team asks return typed coverage_gap
+    test_plan:
+      - add deterministic planner tests for supported and unsupported team asks
+      - add /api/query route tests for team defensive ranking behavior
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 13
+    type: afk
+  - id: migrate_ui_and_remove_chat_route
+    title: Remove /api/chat/query and switch the app UI to /api/query
+    summary: >
+      Remove the old natural-language route, point the app UI at /api/query, and
+      delete fake follow-up and memory cues while preserving current results and
+      trace UX.
+    status: done
+    blocked_by:
+      - planner_player_trends
+      - planner_player_comparisons
+      - planner_team_defense_rankings
+    module_scope:
+      - natural-language route boundary
+      - UI query flow
+      - route and trace tests
+    interface_contract:
+      - UI posts { question } to /api/query
+      - no sessionId remains in the public natural-language route contract
+      - /api/chat/query is removed as a production path
+    acceptance_criteria:
+      - the app uses /api/query end to end for natural-language stats asks
+      - fake follow-up and memory cues are removed
+      - natural-language route and trace tests target /api/query
+    test_plan:
+      - migrate route tests from /api/chat/query to /api/query
+      - update UI tests or smoke coverage if present
+      - rerun the full repo verification surface after route removal
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 14
+    type: afk

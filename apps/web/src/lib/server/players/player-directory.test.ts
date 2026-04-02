@@ -58,6 +58,16 @@ describe('player-directory', () => {
 		);
 	});
 
+	test('resolves bare Curry through the shared player directory overlay for comparison asks', () => {
+		assert.equal(ensurePlayerDirectoryAvailable().ok, true);
+		const matches = findPlayerDirectoryEntriesByNameOrAlias('curry');
+
+		assert.deepEqual(
+			matches.map((match) => ({ playerId: match.playerId, canonicalName: match.canonicalName })),
+			[{ playerId: '201939', canonicalName: 'Stephen Curry' }]
+		);
+	});
+
 	test('surfaces ambiguous curated aliases without guessing a canonical player', () => {
 		assert.equal(ensurePlayerDirectoryAvailable().ok, true);
 		const matches = findPlayerDirectoryEntriesByNameOrAlias('williams');

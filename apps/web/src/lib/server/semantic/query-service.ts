@@ -964,15 +964,16 @@ function makeResponse(
 	};
 }
 
-function buildNonOkResponse(
+export function buildSemanticNonOkResponse(
 	status: Exclude<StatsQueryStatus, 'ok'>,
 	normalizedQuestion: string,
 	warning: StatsQueryWarning,
-	resolvedQuery: SemanticQuery | null
+	resolvedQuery: SemanticQuery | null,
+	planningLatencyMs = 0
 ): StatsQueryResponse {
 	const traceId = crypto.randomUUID();
 	const latencyMs = buildLatency({
-		planning: 0,
+		planning: planningLatencyMs,
 		retrieval: 0,
 		compute: 0,
 		render: 0
@@ -1424,7 +1425,12 @@ export async function executeSemanticQuery(request: SemanticQueryRequest, now: D
 export async function executeChatSemanticQuery(request: ChatQueryRequest, now: Date = new Date()): Promise<StatsQueryResponse> {
 	const translated = normalizeChatToSemanticQuery(request);
 	if (isWarningResult(translated)) {
-		return buildNonOkResponse(translated.type, normalizeQuestion(request.message), translated.warning, translated.resolvedQuery);
+		return buildSemanticNonOkResponse(
+			translated.type,
+			normalizeQuestion(request.message),
+			translated.warning,
+			translated.resolvedQuery
+		);
 	}
 
 	return await executeSemanticQuery(translated, now);

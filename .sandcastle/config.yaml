@@ -1,0 +1,32 @@
+loop:
+  tasks_file: .sandcastle/tasks.yaml
+  prompt_file: .sandcastle/implement-prompt.md
+  max_tasks_per_run: 50
+  continue_on_blocked: true
+codex:
+  sandbox: danger-full-access
+  approval: never
+  search: true
+  ephemeral: true
+  extra_args: []
+  completion_signal: <promise>COMPLETE</promise>
+verify:
+  commands:
+    - cd apps/web && bun run check
+    - cd apps/web && bun run test
+    - cd apps/web && bun run build
+logging:
+  run_log: .sandcastle/logs/run.log
+  project_log: agents/project-log.md
+  patches_dir: .sandcastle/patches
+github:
+  issue_updates:
+    enabled: false
+    comment_on_start: true
+    comment_on_complete: true
+    comment_on_escalation: true
+    close_on_complete: false
+  final_pr:
+    enabled: false
+    draft: true
+    title_prefix: "[AFK]"
