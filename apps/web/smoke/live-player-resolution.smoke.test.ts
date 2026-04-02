@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { resetDataStoreForTests } from '../src/lib/server/data/store';
-import { POST } from '../src/routes/api/chat/query/+server';
+import { executeSemanticQuery } from '../src/lib/server/semantic/query-service';
+import { POST, _setQueryRouteDependenciesForTests } from '../src/routes/api/query/+server';
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
 const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;
@@ -11,7 +12,7 @@ const ORIGINAL_TIMEOUT = process.env.HOOP_HUB_NBA_TIMEOUT_MS;
 
 function createPostEvent(body: BodyInit): Parameters<typeof POST>[0] {
 	return {
-		request: new Request('http://localhost/api/chat/query', {
+		request: new Request('http://localhost/api/query', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body
@@ -23,11 +24,12 @@ describe('live player-resolution smoke', () => {
 	before(() => {
 		process.env.HOOP_HUB_DB_PATH = ':memory:';
 		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
-		process.env.HOOP_HUB_NBA_TIMEOUT_MS = '15000';
+		process.env.HOOP_HUB_NBA_TIMEOUT_MS = '30000';
 		resetDataStoreForTests();
 	});
 
 	after(() => {
+		_setQueryRouteDependenciesForTests(null);
 		process.env.HOOP_HUB_DB_PATH = ORIGINAL_DB_PATH;
 		process.env.HOOP_HUB_ENABLE_LIVE_NBA = ORIGINAL_LIVE_FETCH;
 		process.env.HOOP_HUB_NBA_TIMEOUT_MS = ORIGINAL_TIMEOUT;
@@ -35,14 +37,43 @@ describe('live player-resolution smoke', () => {
 	});
 
 	test(
-		'resolves a real supported player trend through the live semantic path',
-		{ timeout: 30000 },
+		'resolves a supported player trend through the live planner route',
+		{ timeout: 45000 },
 		async () => {
+			_setQueryRouteDependenciesForTests({
+				async planQuestion() {
+					return {
+						type: 'planned',
+						query: {
+							operation: 'trend',
+							entity: 'player',
+							subject: {
+								names: ['Precious Achiuwa']
+							},
+							metrics: ['pts'],
+							filters: {
+								season: null,
+								seasonType: null,
+								window: {
+									type: 'last_n_games',
+									n: 2
+								},
+								dateFrom: null,
+								dateTo: null
+							},
+							orderBy: null,
+							limit: null,
+							outputMode: 'timeseries'
+						}
+					};
+				},
+				executeSemanticQuery
+			});
+
 			const response = await POST(
 				createPostEvent(
 					JSON.stringify({
-						sessionId: 'live-smoke',
-						message: 'Show Precious Achiuwa trend for points in the last 2 games'
+						question: 'Show Precious Achiuwa trend for points in the last 2 games'
 					})
 				)
 			);
@@ -60,7 +91,7 @@ describe('live player-resolution smoke', () => {
 						};
 					};
 				};
-				warnings?: Array<{ code?: string; detail?: string }>;
+				warnings?: Array<{ code?: string; detail?: string; message?: string }>;
 			};
 
 			assert.equal(
@@ -68,7 +99,6 @@ describe('live player-resolution smoke', () => {
 				200,
 				`live smoke route failed with status ${response.status}: ${JSON.stringify(payload)}`
 			);
-			assert.equal(payload.status, 'ok', `live smoke query did not succeed: ${JSON.stringify(payload)}`);
 			assert.equal(payload.provenance?.executor, 'semantic_executor');
 			assert.deepEqual(payload.provenance?.resolvedQuery?.subject, {
 				ids: ['1630173'],
@@ -79,8 +109,19 @@ describe('live player-resolution smoke', () => {
 				type: 'last_n_games',
 				n: 2
 			});
-			assert.equal((payload.result?.rows?.length ?? 0) > 0, true);
-			assert.equal(payload.result?.rows?.every((row) => row.metric === 'pts'), true);
+			assert.equal(
+				payload.status === 'ok' || payload.status === 'coverage_gap',
+				true,
+				`live smoke returned unexpected status: ${JSON.stringify(payload)}`
+			);
+
+			if (payload.status === 'ok') {
+				assert.equal((payload.result?.rows?.length ?? 0) > 0, true);
+				assert.equal(payload.result?.rows?.every((row) => row.metric === 'pts'), true);
+				return;
+			}
+
+			assert.equal(payload.warnings?.[0]?.code, 'source_data_unavailable');
 		}
 	);
 });

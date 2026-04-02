@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import { resetDataStoreForTests } from '$lib/server/data/store';
+import { executeSemanticQuery } from '$lib/server/semantic/query-service';
 import { installSemanticFixtureFetch } from '../helpers/semantic-fixture-fetch';
-import { POST as chatPost } from '../../routes/api/chat/query/+server';
 import { POST as queryPost, _setQueryRouteDependenciesForTests } from '../../routes/api/query/+server';
 import { POST as statsPost } from '../../routes/api/stats/query/+server';
 import { GET } from '../../routes/api/query-trace/[traceId]/+server';
@@ -20,6 +20,16 @@ function createTraceEvent(traceId: string | undefined): Parameters<typeof GET>[0
 
 async function parseJson(response: Response): Promise<unknown> {
 	return response.json();
+}
+
+function createQueryPostEvent(question: string): Parameters<typeof queryPost>[0] {
+	return {
+		request: new Request('http://localhost/api/query', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ question })
+		})
+	} as Parameters<typeof queryPost>[0];
 }
 
 describe('GET /api/query-trace/:traceId', () => {
@@ -61,19 +71,38 @@ describe('GET /api/query-trace/:traceId', () => {
 	});
 
 	test('returns migrated rich trace payload for supported query traces', async () => {
-		const chatResponse = await chatPost({
-			request: new Request('http://localhost/api/chat/query', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					sessionId: 'session-1',
-					message: 'Who averaged the most assists in 2023-24?'
-				})
-			})
-		} as Parameters<typeof chatPost>[0]);
-		const chat = (await chatResponse.json()) as { traceId: string };
+		_setQueryRouteDependenciesForTests({
+			async planQuestion() {
+				return {
+					type: 'planned',
+					query: {
+						operation: 'rank',
+						entity: 'player',
+						subject: {},
+						metrics: ['ast'],
+						filters: {
+							season: '2023-24',
+							seasonType: null,
+							window: null,
+							dateFrom: null,
+							dateTo: null
+						},
+						orderBy: {
+							metric: 'ast',
+							direction: 'desc'
+						},
+						limit: 10,
+						outputMode: 'table'
+					}
+				};
+			},
+			executeSemanticQuery
+		});
 
-		const response = await GET(createTraceEvent(chat.traceId));
+		const queryResponse = await queryPost(createQueryPostEvent('Who averaged the most assists in 2023-24?'));
+		const query = (await queryResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(query.traceId));
 		const payload = (await parseJson(response)) as {
 			traceId: string;
 			normalizedQuestion: string;
@@ -89,7 +118,7 @@ describe('GET /api/query-trace/:traceId', () => {
 		};
 
 		assert.equal(response.status, 200);
-		assert.equal(payload.traceId, chat.traceId);
+		assert.equal(payload.traceId, query.traceId);
 		assert.equal(payload.normalizedQuestion.length > 0, true);
 		assert.equal(payload.status, 'ok');
 		assert.equal(payload.resolvedQuery.operation, 'rank');
@@ -109,19 +138,25 @@ describe('GET /api/query-trace/:traceId', () => {
 	});
 
 	test('returns migrated rich trace payload for unsupported query traces', async () => {
-		const chatResponse = await chatPost({
-			request: new Request('http://localhost/api/chat/query', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					sessionId: 'session-1',
-					message: 'Who wins the championship this year?'
-				})
-			})
-		} as Parameters<typeof chatPost>[0]);
-		const chat = (await chatResponse.json()) as { traceId: string };
+		_setQueryRouteDependenciesForTests({
+			async planQuestion() {
+				return {
+					type: 'coverage_gap',
+					warning: {
+						code: 'unsupported_query_shape',
+						message: 'Predictions are not supported in this slice.'
+					}
+				};
+			},
+			async executeSemanticQuery() {
+				throw new Error('Executor should not be called.');
+			}
+		});
 
-		const response = await GET(createTraceEvent(chat.traceId));
+		const queryResponse = await queryPost(createQueryPostEvent('Who wins the championship this year?'));
+		const query = (await queryResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(query.traceId));
 		const payload = (await parseJson(response)) as {
 			status: string;
 			resolvedQuery: unknown;
@@ -223,20 +258,41 @@ describe('GET /api/query-trace/:traceId', () => {
 		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
 	});
 
-	test('returns canonical full-directory player resolution for chat traces', async () => {
-		const chatResponse = await chatPost({
-			request: new Request('http://localhost/api/chat/query', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					sessionId: 'session-1',
-					message: 'Show Precious Achiuwa trend for points in the last 2 games'
-				})
-			})
-		} as Parameters<typeof chatPost>[0]);
-		const chat = (await chatResponse.json()) as { traceId: string };
+	test('returns canonical full-directory player resolution for planner-route traces', async () => {
+		_setQueryRouteDependenciesForTests({
+			async planQuestion() {
+				return {
+					type: 'planned',
+					query: {
+						operation: 'trend',
+						entity: 'player',
+						subject: {
+							names: ['Precious Achiuwa']
+						},
+						metrics: ['pts'],
+						filters: {
+							season: null,
+							seasonType: null,
+							window: {
+								type: 'last_n_games',
+								n: 2
+							},
+							dateFrom: null,
+							dateTo: null
+						},
+						orderBy: null,
+						limit: null,
+						outputMode: 'timeseries'
+					}
+				};
+			},
+			executeSemanticQuery
+		});
 
-		const response = await GET(createTraceEvent(chat.traceId));
+		const queryResponse = await queryPost(createQueryPostEvent('Show Precious Achiuwa trend for points in the last 2 games'));
+		const query = (await queryResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(query.traceId));
 		const payload = (await parseJson(response)) as {
 			status: string;
 			resolvedQuery: {
@@ -255,20 +311,41 @@ describe('GET /api/query-trace/:traceId', () => {
 		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
 	});
 
-	test('returns canonical curated-alias player resolution for chat traces', async () => {
-		const chatResponse = await chatPost({
-			request: new Request('http://localhost/api/chat/query', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					sessionId: 'session-1',
-					message: 'Show Jokic trend for points in the last 2 games'
-				})
-			})
-		} as Parameters<typeof chatPost>[0]);
-		const chat = (await chatResponse.json()) as { traceId: string };
+	test('returns canonical curated-alias player resolution for planner-route traces', async () => {
+		_setQueryRouteDependenciesForTests({
+			async planQuestion() {
+				return {
+					type: 'planned',
+					query: {
+						operation: 'trend',
+						entity: 'player',
+						subject: {
+							names: ['Jokic']
+						},
+						metrics: ['pts'],
+						filters: {
+							season: null,
+							seasonType: null,
+							window: {
+								type: 'last_n_games',
+								n: 2
+							},
+							dateFrom: null,
+							dateTo: null
+						},
+						orderBy: null,
+						limit: null,
+						outputMode: 'timeseries'
+					}
+				};
+			},
+			executeSemanticQuery
+		});
 
-		const response = await GET(createTraceEvent(chat.traceId));
+		const queryResponse = await queryPost(createQueryPostEvent('Show Jokic trend for points in the last 2 games'));
+		const query = (await queryResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(query.traceId));
 		const payload = (await parseJson(response)) as {
 			status: string;
 			resolvedQuery: {

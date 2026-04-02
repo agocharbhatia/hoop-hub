@@ -10,6 +10,7 @@
 - Slice `planner_runtime_rankings` established `POST /api/query` as the new planner boundary for supported player-ranking asks, with planner output revalidated through the structured semantic contract before executor delegation.
 - Planner non-ok decisions now persist semantic traces with `resolvedQuery: null` and no source calls, so unsupported coverage stays debuggable without implying execution happened.
 - Slice `planner_player_trends` extends that boundary to player trends with safe planner-side metric clarification: scoring language can infer `pts`, explicit last-N windows stay in the planned query, and vague trend asks should stop with `clarification_needed` plus `missing_metric` instead of guessing.
+- Slice `migrate_ui_and_remove_chat_route` removes `POST /api/chat/query` as the production natural-language path, migrates route and trace coverage to `POST /api/query`, and strips UI session/follow-up cues so the app contract matches the actual planner/runtime behavior.
 ## planner_runtime_rankings
 
 - Title: Establish /api/query planner runtime for player rankings and typed unsupported gaps
@@ -42,4 +43,3 @@
 - Module scope: planner service, planner schema, query route tests, team ranking integration path
 - Interface contract: team defensive ranking asks plan into rank/team with canonical drtg metric | unsupported adjacent team asks still fail as typed coverage gaps | public response and trace semantics remain unchanged
 - Tests: add deterministic planner tests for supported and unsupported team asks | add /api/query route tests for team defensive ranking behavior
-
