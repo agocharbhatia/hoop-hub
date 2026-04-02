@@ -110,3 +110,10 @@
 - Interface contract: the bootstrap service writes current-season regular-season player trend rows for the full cohort | valid empty payloads are treated as successful nightly materialization | the public trend response contract remains unchanged
 - Tests: add bootstrap service tests for current-season trend materialization | add ingest tests for empty trend payload success handling | add integration coverage that supported trend queries return ok after bootstrap
 
+## nightly_backfill_2023_24_demo_season
+
+- Title: Backfill 2023-24 demo-season support on miss
+- Module scope: historical backfill-on-miss planning, 2023-24 nightly cache writes, skip-on-hit historical refresh policy
+- Interface contract: 2023-24 regular-season ranking, team-defense, and trend shapes are backfilled on miss only | current-season refresh behavior remains unchanged | no new public route or warning contracts are introduced
+- Tests: add bootstrap service tests for 2023-24 backfill-on-miss behavior | add regression coverage that current-season refresh policy is unchanged | add integration coverage that supported 2023-24 queries return ok after backfill
+

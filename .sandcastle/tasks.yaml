@@ -347,7 +347,7 @@ tasks:
       Add guaranteed regular-season 2023-24 demo coverage by backfilling the
       approved ranking, team-defense, and trend request shapes on miss while
       keeping current-season refresh behavior unchanged.
-    status: pending
+    status: done
     blocked_by:
       - nightly_current_season_rankings_and_team_defense
       - nightly_player_cohort_and_comparisons
