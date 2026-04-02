@@ -7,6 +7,7 @@ import {
 	planCurrentSeasonLeagueWideRequests,
 	resolveSeasonForSlateDate
 } from './current-season';
+import { planHistoricalDemoSeasonBackfillRequests } from './historical-backfill';
 
 export type NightlyBootstrapFetcher = (request: EndpointFetchRequest) => Promise<EndpointFetchResult>;
 
@@ -34,6 +35,11 @@ type BootstrapFailure = {
 	errorDetail: string;
 };
 
+type MaterializationSummary = {
+	completedRequests: number;
+	attemptedRequests: number;
+};
+
 /* Helper functions */
 
 function buildRunId(slateDate: string): string {
@@ -51,6 +57,24 @@ function buildErrorDetail(result: EndpointFetchResult): string {
 function buildAuthoritativeNightlyExpiresAt(slateDate: string): string {
 	const endOfSlateDate = new Date(`${slateDate}T23:59:59.999Z`);
 	return new Date(endOfSlateDate.getTime() + 24 * 60 * 60 * 1000).toISOString();
+}
+
+function hasStoredNightlyPayload(request: EndpointFetchRequest, snapshotDate: string): boolean {
+	const catalogEntry = getEndpointCatalogEntry(request.endpointId);
+	if (!catalogEntry) {
+		throw new Error(`Unknown endpoint id '${request.endpointId}'.`);
+	}
+
+	const normalizedParams = JSON.parse(stableStringify(request.params)) as Record<string, string>;
+
+	return (
+		getDataStore().getLatestRawEndpointCache({
+			endpointId: request.endpointId,
+			paramsJson: buildParamsJson(normalizedParams),
+			parserVersion: catalogEntry.parserVersion,
+			snapshotDate
+		}) !== null
+	);
 }
 
 function persistAuthoritativeNightlyCache(
@@ -102,11 +126,19 @@ async function materializeCohortRequests(
 	fetcher: NightlyBootstrapFetcher,
 	slateDate: string,
 	now: Date,
-	failures: BootstrapFailure[]
-): Promise<number> {
+	failures: BootstrapFailure[],
+	options?: { skipIfStored: boolean }
+): Promise<MaterializationSummary> {
 	let completedRequests = 0;
+	let attemptedRequests = 0;
 
 	for (const request of requests) {
+		if (options?.skipIfStored && hasStoredNightlyPayload(request, slateDate)) {
+			continue;
+		}
+
+		attemptedRequests += 1;
+
 		try {
 			const result = await fetcher({
 				...request,
@@ -132,7 +164,10 @@ async function materializeCohortRequests(
 		}
 	}
 
-	return completedRequests;
+	return {
+		completedRequests,
+		attemptedRequests
+	};
 }
 
 /* Public bootstrap API */
@@ -150,6 +185,7 @@ export async function bootstrapCurrentSeasonNightly(
 		startedAt: now.toISOString()
 	});
 
+	let totalRequests = requests.length;
 	let completedRequests = 0;
 	const failures: BootstrapFailure[] = [];
 	let playerStatsPayload: unknown = null;
@@ -188,15 +224,29 @@ export async function bootstrapCurrentSeasonNightly(
 		const season = resolveSeasonForSlateDate(input.slateDate);
 		const comparisonRequests = buildPlayerComparisonBootstrapRequests(cohort);
 		const trendRequests = buildPlayerTrendBootstrapRequests(cohort, season);
+		const historicalBackfillRequests = planHistoricalDemoSeasonBackfillRequests(cohort);
 
-		completedRequests += await materializeCohortRequests(comparisonRequests, fetcher, input.slateDate, now, failures);
-		completedRequests += await materializeCohortRequests(trendRequests, fetcher, input.slateDate, now, failures);
+		const comparisonSummary = await materializeCohortRequests(comparisonRequests, fetcher, input.slateDate, now, failures);
+		totalRequests += comparisonSummary.attemptedRequests;
+		completedRequests += comparisonSummary.completedRequests;
+
+		const trendSummary = await materializeCohortRequests(trendRequests, fetcher, input.slateDate, now, failures);
+		totalRequests += trendSummary.attemptedRequests;
+		completedRequests += trendSummary.completedRequests;
+
+		const historicalSummary = await materializeCohortRequests(
+			historicalBackfillRequests,
+			fetcher,
+			input.slateDate,
+			now,
+			failures,
+			{ skipIfStored: true }
+		);
+		totalRequests += historicalSummary.attemptedRequests;
+		completedRequests += historicalSummary.completedRequests;
 	}
 
 	const failedRequests = failures.length;
-	const totalRequests =
-		requests.length +
-		(playerStatsPayload === null ? 0 : deriveNightlyPlayerComparisonCohort(playerStatsPayload).length * 2);
 	const status = completedRequests === totalRequests ? 'completed' : completedRequests > 0 ? 'partial' : 'failed';
 	const completedRun =
 		getDataStore().completeNightlyRun({
