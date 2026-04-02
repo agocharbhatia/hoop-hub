@@ -36,3 +36,10 @@
 - Module scope: planner service, planner schema, query route tests, team ranking integration path
 - Interface contract: team defensive ranking asks plan into `rank/team` with canonical `drtg` and empty subject | adjacent unsupported team asks still stop as typed `coverage_gap` responses with no executor call
 - Tests: add deterministic planner tests for supported team defense planning and unsupported adjacent team asks | add `/api/query` route tests for team defense success and typed unsupported gaps
+## planner_team_defense_rankings
+
+- Title: Add team defensive ranking planning to the new runtime
+- Module scope: planner service, planner schema, query route tests, team ranking integration path
+- Interface contract: team defensive ranking asks plan into rank/team with canonical drtg metric | unsupported adjacent team asks still fail as typed coverage gaps | public response and trace semantics remain unchanged
+- Tests: add deterministic planner tests for supported and unsupported team asks | add /api/query route tests for team defensive ranking behavior
+

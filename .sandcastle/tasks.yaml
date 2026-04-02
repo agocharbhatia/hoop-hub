@@ -118,7 +118,7 @@ tasks:
     summary: >
       Complete the current supported stats domain on the planner path by adding
       team defensive-ranking planning and adjacent unsupported-gap handling.
-    status: pending
+    status: done
     blocked_by:
       - planner_runtime_rankings
     module_scope:
