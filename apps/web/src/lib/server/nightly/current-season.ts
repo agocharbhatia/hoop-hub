@@ -1,16 +1,50 @@
 import type { EndpointFetchRequest } from '$lib/server/data';
 
 export const CURRENT_SEASON_LEAGUE_WIDE_ENDPOINT_IDS = ['leaguedashplayerstats', 'leaguedashteamstats'] as const;
+export const DEMO_PLAYER_COHORT_ALLOWLIST_IDS = ['1630173'] as const;
 
 export type CurrentSeasonLeagueWideRequestPlan = {
 	endpointId: (typeof CURRENT_SEASON_LEAGUE_WIDE_ENDPOINT_IDS)[number];
 	request: EndpointFetchRequest;
 };
 
+type ResultSet = {
+	headers?: unknown;
+	rowSet?: unknown;
+};
+
 /* Helper functions */
 
 function padSeasonYear(year: number): string {
 	return String(year + 1).slice(-2);
+}
+
+function extractLeagueDashPlayerStatsResultSet(payload: unknown): { headers: string[]; rowSet: unknown[][] } {
+	if (!payload || typeof payload !== 'object') {
+		throw new Error('League-wide player stats payload is not an object.');
+	}
+
+	const candidate = payload as {
+		resultSet?: ResultSet;
+		resultSets?: ResultSet[];
+	};
+
+	const resultSet =
+		(Array.isArray(candidate.resultSets)
+			? candidate.resultSets.find((entry) => Array.isArray(entry.headers) && Array.isArray(entry.rowSet))
+			: null) ??
+		(candidate.resultSet && Array.isArray(candidate.resultSet.headers) && Array.isArray(candidate.resultSet.rowSet)
+			? candidate.resultSet
+			: null);
+
+	if (!resultSet || !Array.isArray(resultSet.headers) || !Array.isArray(resultSet.rowSet)) {
+		throw new Error('League-wide player stats payload does not contain a readable result set.');
+	}
+
+	return {
+		headers: resultSet.headers.map((value) => String(value)),
+		rowSet: resultSet.rowSet as unknown[][]
+	};
 }
 
 /* Public current-season planning */
@@ -99,6 +133,37 @@ export function buildLeagueWideTeamDefenseRequest(season: string, seasonType = '
 			TwoWay: ''
 		}
 	};
+}
+
+export function deriveNightlyPlayerComparisonCohort(
+	playerStatsPayload: unknown,
+	allowlist: readonly string[] = DEMO_PLAYER_COHORT_ALLOWLIST_IDS
+): string[] {
+	const resultSet = extractLeagueDashPlayerStatsResultSet(playerStatsPayload);
+	const playerIdIndex = resultSet.headers.indexOf('PLAYER_ID');
+	if (playerIdIndex < 0) {
+		throw new Error("League-wide player stats payload is missing the 'PLAYER_ID' column.");
+	}
+
+	return [
+		...new Set([
+			...allowlist,
+			...resultSet.rowSet
+				.map((row) => String(row[playerIdIndex] ?? '').trim())
+				.filter((playerId) => playerId.length > 0)
+		])
+	].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+}
+
+export function buildPlayerComparisonBootstrapRequests(playerIds: readonly string[]): EndpointFetchRequest[] {
+	return playerIds.map((playerId) => ({
+		endpointId: 'playercareerstats',
+		params: {
+			PerMode: 'PerGame',
+			PlayerID: playerId,
+			LeagueID: ''
+		}
+	}));
 }
 
 export function planCurrentSeasonLeagueWideRequests(slateDate: string): CurrentSeasonLeagueWideRequestPlan[] {

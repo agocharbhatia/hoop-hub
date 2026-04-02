@@ -84,3 +84,9 @@
 - Interface contract: bootstrap command accepts a required slate date | current-season league-wide ranking and team-defense request shapes are written as authoritative nightly cache rows | run status reports completed, partial, or failed honestly
 - Tests: add bootstrap service tests for completed, partial, and failed run status | add ingest tests for authoritative nightly cache writes | add end-to-end coverage that ranking and team-defense queries work after bootstrap
 
+## nightly_player_cohort_and_comparisons
+
+- Title: Derive the nightly player cohort and bootstrap regular-season comparisons
+- Module scope: nightly cohort derivation, checked-in demo allowlist, comparison-source bootstrap materialization
+- Interface contract: nightly bootstrap derives a deterministic unique player cohort from current-season league-wide player stats plus the checked-in demo allowlist | bootstrap persists `playercareerstats` source rows for that cohort without changing public comparison query contracts
+- Tests: add cohort-derivation coverage from league-wide payloads plus allowlist | add bootstrap coverage for per-player comparison materialization | verify comparison queries succeed from an empty DB after bootstrap

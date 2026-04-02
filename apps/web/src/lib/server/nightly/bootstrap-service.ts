@@ -1,6 +1,10 @@
 import { fetchStatsEndpointWithCache, getDataStore, getEndpointCatalogEntry, stableStringify, buildRawEndpointCacheKey } from '$lib/server/data';
 import type { EndpointFetchRequest, EndpointFetchResult, NightlyRunFinalizedBy, NightlyRunRecord } from '$lib/server/data';
-import { planCurrentSeasonLeagueWideRequests } from './current-season';
+import {
+	buildPlayerComparisonBootstrapRequests,
+	deriveNightlyPlayerComparisonCohort,
+	planCurrentSeasonLeagueWideRequests
+} from './current-season';
 
 export type NightlyBootstrapFetcher = (request: EndpointFetchRequest) => Promise<EndpointFetchResult>;
 
@@ -108,6 +112,7 @@ export async function bootstrapCurrentSeasonNightly(
 
 	let completedRequests = 0;
 	const failures: BootstrapFailure[] = [];
+	let playerStatsPayload: unknown = null;
 
 	for (const plannedRequest of requests) {
 		try {
@@ -120,6 +125,9 @@ export async function bootstrapCurrentSeasonNightly(
 			if (result.payload !== null && result.sourceStatus === 'ok') {
 				persistAuthoritativeNightlyCache(plannedRequest.request, result, input.slateDate, now);
 				completedRequests += 1;
+				if (plannedRequest.endpointId === 'leaguedashplayerstats') {
+					playerStatsPayload = result.payload;
+				}
 				continue;
 			}
 
@@ -135,8 +143,43 @@ export async function bootstrapCurrentSeasonNightly(
 		}
 	}
 
+	if (playerStatsPayload !== null) {
+		const comparisonRequests = buildPlayerComparisonBootstrapRequests(
+			deriveNightlyPlayerComparisonCohort(playerStatsPayload)
+		);
+
+		for (const request of comparisonRequests) {
+			try {
+				const result = await fetcher({
+					...request,
+					now,
+					allowLiveFetch: true
+				});
+
+				if (result.payload !== null && result.sourceStatus === 'ok') {
+					persistAuthoritativeNightlyCache(request, result, input.slateDate, now);
+					completedRequests += 1;
+					continue;
+				}
+
+				failures.push({
+					endpointId: request.endpointId,
+					errorDetail: buildErrorDetail(result)
+				});
+			} catch (error) {
+				failures.push({
+					endpointId: request.endpointId,
+					errorDetail: error instanceof Error ? error.message : String(error)
+				});
+			}
+		}
+	}
+
 	const failedRequests = failures.length;
-	const status = completedRequests === requests.length ? 'completed' : completedRequests > 0 ? 'partial' : 'failed';
+	const totalRequests =
+		requests.length +
+		(playerStatsPayload === null ? 0 : deriveNightlyPlayerComparisonCohort(playerStatsPayload).length);
+	const status = completedRequests === totalRequests ? 'completed' : completedRequests > 0 ? 'partial' : 'failed';
 	const completedRun =
 		getDataStore().completeNightlyRun({
 			runId: run.runId,
