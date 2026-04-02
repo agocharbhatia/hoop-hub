@@ -153,7 +153,7 @@ tasks:
       Remove the old natural-language route, point the app UI at /api/query, and
       delete fake follow-up and memory cues while preserving current results and
       trace UX.
-    status: pending
+    status: done
     blocked_by:
       - planner_player_trends
       - planner_player_comparisons

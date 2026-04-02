@@ -43,3 +43,10 @@
 - Module scope: planner service, planner schema, query route tests, team ranking integration path
 - Interface contract: team defensive ranking asks plan into rank/team with canonical drtg metric | unsupported adjacent team asks still fail as typed coverage gaps | public response and trace semantics remain unchanged
 - Tests: add deterministic planner tests for supported and unsupported team asks | add /api/query route tests for team defensive ranking behavior
+## migrate_ui_and_remove_chat_route
+
+- Title: Remove /api/chat/query and switch the app UI to /api/query
+- Module scope: natural-language route boundary, UI query flow, route and trace tests
+- Interface contract: UI posts { question } to /api/query | no sessionId remains in the public natural-language route contract | /api/chat/query is removed as a production path
+- Tests: migrate route tests from /api/chat/query to /api/query | update UI tests or smoke coverage if present | rerun the full repo verification surface after route removal
+
