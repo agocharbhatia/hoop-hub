@@ -15,7 +15,7 @@ Hoop Hub is currently a single Bun + SvelteKit app that answers grounded NBA sta
   - player comparisons
   - team defensive rankings
 - Player resolution uses the shared seeded player-directory snapshot and curated aliases.
-- Retrieval is still live-fetch-first with cache fallback. Nightly-first materialization is not implemented yet.
+- Semantic query execution now reads stored endpoint payloads only. Nightly ingestion/materialization still needs to populate that cache more fully.
 - `sessionId` is validated at the chat boundary but does not yet persist conversational context.
 
 Detailed implementation context for future agents lives in [agents/current-state.md](agents/current-state.md) and [`.docs/PLAN.md`](.docs/PLAN.md).

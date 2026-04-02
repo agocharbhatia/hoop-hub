@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import { resetDataStoreForTests } from '$lib/server/data/store';
-import { ensurePlayerDirectoryAvailable } from '$lib/server/players/player-directory';
-import { installSemanticFixtureFetch } from '../helpers/semantic-fixture-fetch';
+import { seedSemanticFixtureCache } from '../helpers/seed-semantic-fixture-cache';
 import { POST } from '../../routes/api/stats/query/+server';
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
@@ -23,18 +22,15 @@ async function parseJson(response: Response): Promise<unknown> {
 }
 
 describe('POST /api/stats/query', () => {
-	let restoreFetch: (() => void) | null = null;
-
 	beforeEach(() => {
 		process.env.HOOP_HUB_DB_PATH = ':memory:';
-		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '0';
 		resetDataStoreForTests();
-		restoreFetch = installSemanticFixtureFetch();
+		seedSemanticFixtureCache();
+		seedSemanticFixtureCache(new Date('2026-03-25T12:00:00.000Z'));
 	});
 
 	afterEach(() => {
-		restoreFetch?.();
-		restoreFetch = null;
 		resetDataStoreForTests();
 	});
 
@@ -137,9 +133,7 @@ describe('POST /api/stats/query', () => {
 		assert.equal(payload.traceId.length > 0, true);
 	});
 
-	test('returns 200 coverage_gap when request policy disallows live fallback and no stored query data exists', async () => {
-		assert.equal(ensurePlayerDirectoryAvailable().ok, true);
-
+	test('returns 200 coverage_gap when no stored query data exists', async () => {
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
@@ -147,13 +141,10 @@ describe('POST /api/stats/query', () => {
 						operation: 'trend',
 						entity: 'player',
 						subject: {
-							ids: ['203999']
+							ids: ['201939']
 						},
 						metrics: ['pts'],
 						filters: {}
-					},
-					options: {
-						allowLiveFallback: false
 					}
 				})
 			)
@@ -167,10 +158,10 @@ describe('POST /api/stats/query', () => {
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'coverage_gap');
 		assert.equal(payload.result, null);
-		assert.equal(payload.warnings[0]?.code, 'live_fallback_disabled');
+		assert.equal(payload.warnings[0]?.code, 'nightly_data_unavailable');
 	});
 
-	test('returns 200 coverage_gap when request policy disallows directory refresh and no stored directory exists', async () => {
+	test('returns 200 ok when the seeded player directory is loaded on demand', async () => {
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
@@ -182,6 +173,37 @@ describe('POST /api/stats/query', () => {
 						},
 						metrics: ['pts'],
 						filters: {}
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+				};
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['203999'],
+			names: ['Nikola Jokic']
+		});
+	});
+
+	test('returns 400 when callers send deprecated allowLiveFallback options', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'rank',
+						entity: 'player',
+						subject: {},
+						metrics: ['ast'],
+						filters: {}
 					},
 					options: {
 						allowLiveFallback: false
@@ -189,16 +211,10 @@ describe('POST /api/stats/query', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as {
-			status: string;
-			result: unknown;
-			warnings: { code: string }[];
-		};
+		const payload = (await parseJson(response)) as { error: string };
 
-		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'coverage_gap');
-		assert.equal(payload.result, null);
-		assert.equal(payload.warnings[0]?.code, 'player_directory_unavailable');
+		assert.equal(response.status, 400);
+		assert.match(payload.error, /allowLiveFallback has been removed/i);
 	});
 
 	test('returns 400 for conflicting structured player ids and names', async () => {

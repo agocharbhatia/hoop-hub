@@ -40,14 +40,9 @@ export type SemanticQuery = {
 	outputMode?: SemanticQueryOutputMode | null;
 };
 
-export type SemanticQueryOptions = {
-	allowLiveFallback?: boolean;
-};
-
 export type SemanticQueryRequest = {
 	question?: string;
 	query: SemanticQuery;
-	options?: SemanticQueryOptions;
 };
 
 export type StatsQueryStatus = 'ok' | 'clarification_needed' | 'coverage_gap';

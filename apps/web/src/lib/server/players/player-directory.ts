@@ -142,16 +142,9 @@ export function refreshPlayerDirectorySnapshot(): PlayerDirectoryAvailabilityRes
 	}
 }
 
-export function ensurePlayerDirectoryAvailable(options: { allowRefresh?: boolean } = {}): PlayerDirectoryAvailabilityResult {
+export function ensurePlayerDirectoryAvailable(): PlayerDirectoryAvailabilityResult {
 	if (getDataStore().countPlayerDirectoryEntries() > 0) {
 		return { ok: true, source: 'stored' };
-	}
-
-	if (options.allowRefresh === false) {
-		return {
-			ok: false,
-			message: 'Player directory refresh is disabled by request policy and no stored snapshot is available.'
-		};
 	}
 
 	return refreshPlayerDirectorySnapshot();
