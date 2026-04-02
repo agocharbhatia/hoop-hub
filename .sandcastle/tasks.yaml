@@ -83,7 +83,7 @@ tasks:
       Extend the planner runtime to support player-comparison asks, safe default
       metrics, preserved subject order, and planner-side clarification when two
       subjects are not present.
-    status: pending
+    status: done
     blocked_by:
       - planner_runtime_rankings
     module_scope:

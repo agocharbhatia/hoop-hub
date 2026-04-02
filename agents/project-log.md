@@ -23,3 +23,10 @@
 - Interface contract: player trend questions plan into canonical metric ids and supported semantic filters | vague trend asks return clarification_needed with no executor call | executor remains the canonical grounding authority
 - Tests: add deterministic planner tests for scoring inference and missing_metric | add /api/query route tests for supported and clarification-needed trend asks
 
+## planner_player_comparisons
+
+- Title: Add player comparison planning with subject-order guarantees
+- Module scope: planner service, planner schema, query route tests, comparison integration path
+- Interface contract: comparison asks preserve subject order from the user question | compare-without-metric defaults safely to pts | incomplete comparison asks return clarification_needed with no executor call
+- Tests: add deterministic planner tests for compare planning and subject order | add /api/query route tests for compare success and compare_requires_two_subjects
+
