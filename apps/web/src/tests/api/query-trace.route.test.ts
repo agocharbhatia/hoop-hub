@@ -3,6 +3,7 @@ import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import { resetDataStoreForTests } from '$lib/server/data/store';
 import { installSemanticFixtureFetch } from '../helpers/semantic-fixture-fetch';
 import { POST as chatPost } from '../../routes/api/chat/query/+server';
+import { POST as queryPost, _setQueryRouteDependenciesForTests } from '../../routes/api/query/+server';
 import { POST as statsPost } from '../../routes/api/stats/query/+server';
 import { GET } from '../../routes/api/query-trace/[traceId]/+server';
 
@@ -32,6 +33,7 @@ describe('GET /api/query-trace/:traceId', () => {
 	});
 
 	afterEach(() => {
+		_setQueryRouteDependenciesForTests(null);
 		restoreFetch?.();
 		restoreFetch = null;
 		resetDataStoreForTests();
@@ -138,6 +140,48 @@ describe('GET /api/query-trace/:traceId', () => {
 		assert.deepEqual(payload.executedSources, []);
 		assert.equal(payload.warnings[0]?.code, 'unsupported_query_shape');
 		assert.deepEqual(payload.computations, []);
+	});
+
+	test('returns planner non-ok traces with no resolved query or source calls for /api/query', async () => {
+		_setQueryRouteDependenciesForTests({
+			async planQuestion() {
+				return {
+					type: 'coverage_gap',
+					warning: {
+						code: 'unsupported_query_shape',
+						message: 'Predictions are not supported in this slice.'
+					}
+				};
+			},
+			async executeSemanticQuery() {
+				throw new Error('Executor should not be called.');
+			}
+		});
+
+		const queryResponse = await queryPost({
+			request: new Request('http://localhost/api/query', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					question: 'Who wins the championship this year?'
+				})
+			})
+		} as Parameters<typeof queryPost>[0]);
+		const query = (await queryResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(query.traceId));
+		const payload = (await parseJson(response)) as {
+			status: string;
+			resolvedQuery: unknown;
+			sourceCalls: unknown[];
+			warnings: { code: string }[];
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'coverage_gap');
+		assert.equal(payload.resolvedQuery, null);
+		assert.deepEqual(payload.sourceCalls, []);
+		assert.equal(payload.warnings[0]?.code, 'unsupported_query_shape');
 	});
 
 	test('returns canonical resolvedQuery names, ids, and defaulted filters for structured traces', async () => {

@@ -26,5 +26,8 @@
 		"test": "HOOP_HUB_DB_PATH=:memory: HOOP_HUB_ENABLE_LIVE_NBA=0 bun test ./src",
 		"test:live-smoke": "bun test ./smoke/live-player-resolution.smoke.test.ts"
 	},
-	"type": "module"
+	"type": "module",
+	"dependencies": {
+		"openai": "^6.33.0"
+	}
 }
