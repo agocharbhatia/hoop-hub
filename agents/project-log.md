@@ -117,3 +117,10 @@
 - Module scope: historical backfill-on-miss planning, 2023-24 nightly cache writes, skip-on-hit historical refresh policy
 - Interface contract: 2023-24 regular-season ranking, team-defense, and trend shapes are backfilled on miss only | current-season refresh behavior remains unchanged | no new public route or warning contracts are introduced
 - Tests: add bootstrap service tests for 2023-24 backfill-on-miss behavior | add regression coverage that current-season refresh policy is unchanged | add integration coverage that supported 2023-24 queries return ok after backfill
+## nightly_bootstrap_e2e_and_docs_refresh
+
+- Title: Lock end-to-end nightly bootstrap coverage and refresh docs
+- Module scope: empty-DB integration coverage, cross-day snapshot regression coverage, runtime and bootstrap documentation
+- Interface contract: an empty DB returns the existing nightly coverage gap before bootstrap | supported current routes return ok after bootstrap | docs and planning mirrors match the shipped runtime and nightly bootstrap workflow
+- Tests: add empty-DB integration tests for before-and-after bootstrap behavior | add cross-day snapshot reuse regression coverage | rerun the full repo verification surface after doc updates
+

@@ -386,7 +386,7 @@ tasks:
       Lock the empty-DB-to-working-runtime contract with end-to-end nightly
       bootstrap coverage and refresh repo docs so the shipped runtime and
       bootstrap workflow are described accurately.
-    status: pending
+    status: done
     blocked_by:
       - nightly_backfill_2023_24_demo_season
     module_scope:
