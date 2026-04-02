@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
 	DEMO_PLAYER_COHORT_ALLOWLIST_IDS,
+	buildPlayerTrendBootstrapRequests,
 	deriveNightlyPlayerComparisonCohort,
 	resolveSeasonForSlateDate
 } from './current-season';
@@ -31,5 +32,32 @@ describe('current-season nightly planning', () => {
 
 	test('resolves the current season from a slate date', () => {
 		assert.equal(resolveSeasonForSlateDate('2026-04-01'), '2025-26');
+	});
+
+	test('builds regular-season player trend bootstrap requests for the full cohort', () => {
+		assert.deepEqual(buildPlayerTrendBootstrapRequests(['201939', '203999'], '2025-26'), [
+			{
+				endpointId: 'playergamelog',
+				params: {
+					PlayerID: '201939',
+					Season: '2025-26',
+					SeasonType: 'Regular Season',
+					LeagueID: '',
+					DateFrom: '',
+					DateTo: ''
+				}
+			},
+			{
+				endpointId: 'playergamelog',
+				params: {
+					PlayerID: '203999',
+					Season: '2025-26',
+					SeasonType: 'Regular Season',
+					LeagueID: '',
+					DateFrom: '',
+					DateTo: ''
+				}
+			}
+		]);
 	});
 });

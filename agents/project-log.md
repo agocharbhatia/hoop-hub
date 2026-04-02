@@ -97,3 +97,9 @@
 - Interface contract: the cohort derives from current-season league-wide player stats plus a deterministic allowlist | comparison bootstrap remains regular-season-only | public comparison query contracts remain unchanged
 - Tests: add tests for cohort derivation from league-wide player stats plus the demo allowlist | add bootstrap service tests for comparison materialization | add integration coverage that supported comparison queries return ok after bootstrap
 
+## nightly_current_season_player_trends
+
+- Title: Bootstrap current-season player trends for the derived cohort
+- Module scope: current-season player trend materialization, trend-oriented nightly request planning, empty-payload success handling
+- Interface contract: nightly bootstrap now persists current-season regular-season `playergamelog` rows for every player in the already-derived cohort alongside comparison rows | valid empty trend payloads still count as successful materialization | public trend query contracts remain unchanged
+- Tests: add current-season request-planning coverage for cohort trend requests | add bootstrap service coverage for full-cohort trend materialization and empty trend payloads | verify supported trend queries return ok from an empty DB after bootstrap

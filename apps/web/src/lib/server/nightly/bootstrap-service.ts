@@ -2,8 +2,10 @@ import { fetchStatsEndpointWithCache, getDataStore, getEndpointCatalogEntry, sta
 import type { EndpointFetchRequest, EndpointFetchResult, NightlyRunFinalizedBy, NightlyRunRecord } from '$lib/server/data';
 import {
 	buildPlayerComparisonBootstrapRequests,
+	buildPlayerTrendBootstrapRequests,
 	deriveNightlyPlayerComparisonCohort,
-	planCurrentSeasonLeagueWideRequests
+	planCurrentSeasonLeagueWideRequests,
+	resolveSeasonForSlateDate
 } from './current-season';
 
 export type NightlyBootstrapFetcher = (request: EndpointFetchRequest) => Promise<EndpointFetchResult>;
@@ -95,6 +97,44 @@ function summarizeFailures(failures: BootstrapFailure[]): string | null {
 	return failures.map((failure) => `${failure.endpointId}: ${failure.errorDetail}`).join('; ');
 }
 
+async function materializeCohortRequests(
+	requests: EndpointFetchRequest[],
+	fetcher: NightlyBootstrapFetcher,
+	slateDate: string,
+	now: Date,
+	failures: BootstrapFailure[]
+): Promise<number> {
+	let completedRequests = 0;
+
+	for (const request of requests) {
+		try {
+			const result = await fetcher({
+				...request,
+				now,
+				allowLiveFetch: true
+			});
+
+			if (result.payload !== null && result.sourceStatus === 'ok') {
+				persistAuthoritativeNightlyCache(request, result, slateDate, now);
+				completedRequests += 1;
+				continue;
+			}
+
+			failures.push({
+				endpointId: request.endpointId,
+				errorDetail: buildErrorDetail(result)
+			});
+		} catch (error) {
+			failures.push({
+				endpointId: request.endpointId,
+				errorDetail: error instanceof Error ? error.message : String(error)
+			});
+		}
+	}
+
+	return completedRequests;
+}
+
 /* Public bootstrap API */
 
 export async function bootstrapCurrentSeasonNightly(
@@ -144,41 +184,19 @@ export async function bootstrapCurrentSeasonNightly(
 	}
 
 	if (playerStatsPayload !== null) {
-		const comparisonRequests = buildPlayerComparisonBootstrapRequests(
-			deriveNightlyPlayerComparisonCohort(playerStatsPayload)
-		);
+		const cohort = deriveNightlyPlayerComparisonCohort(playerStatsPayload);
+		const season = resolveSeasonForSlateDate(input.slateDate);
+		const comparisonRequests = buildPlayerComparisonBootstrapRequests(cohort);
+		const trendRequests = buildPlayerTrendBootstrapRequests(cohort, season);
 
-		for (const request of comparisonRequests) {
-			try {
-				const result = await fetcher({
-					...request,
-					now,
-					allowLiveFetch: true
-				});
-
-				if (result.payload !== null && result.sourceStatus === 'ok') {
-					persistAuthoritativeNightlyCache(request, result, input.slateDate, now);
-					completedRequests += 1;
-					continue;
-				}
-
-				failures.push({
-					endpointId: request.endpointId,
-					errorDetail: buildErrorDetail(result)
-				});
-			} catch (error) {
-				failures.push({
-					endpointId: request.endpointId,
-					errorDetail: error instanceof Error ? error.message : String(error)
-				});
-			}
-		}
+		completedRequests += await materializeCohortRequests(comparisonRequests, fetcher, input.slateDate, now, failures);
+		completedRequests += await materializeCohortRequests(trendRequests, fetcher, input.slateDate, now, failures);
 	}
 
 	const failedRequests = failures.length;
 	const totalRequests =
 		requests.length +
-		(playerStatsPayload === null ? 0 : deriveNightlyPlayerComparisonCohort(playerStatsPayload).length);
+		(playerStatsPayload === null ? 0 : deriveNightlyPlayerComparisonCohort(playerStatsPayload).length * 2);
 	const status = completedRequests === totalRequests ? 'completed' : completedRequests > 0 ? 'partial' : 'failed';
 	const completedRun =
 		getDataStore().completeNightlyRun({

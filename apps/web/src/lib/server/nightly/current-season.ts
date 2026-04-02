@@ -166,6 +166,20 @@ export function buildPlayerComparisonBootstrapRequests(playerIds: readonly strin
 	}));
 }
 
+export function buildPlayerTrendBootstrapRequests(playerIds: readonly string[], season: string): EndpointFetchRequest[] {
+	return playerIds.map((playerId) => ({
+		endpointId: 'playergamelog',
+		params: {
+			PlayerID: playerId,
+			Season: season,
+			SeasonType: 'Regular Season',
+			LeagueID: '',
+			DateFrom: '',
+			DateTo: ''
+		}
+	}));
+}
+
 export function planCurrentSeasonLeagueWideRequests(slateDate: string): CurrentSeasonLeagueWideRequestPlan[] {
 	const season = resolveSeasonForSlateDate(slateDate);
 
