@@ -6,7 +6,7 @@ tasks:
       Add the new primary natural-language route and planner boundary, but land
       only the supported player-ranking flow plus typed planner-side
       unsupported-gap behavior.
-    status: pending
+    status: done
     blocked_by: []
     module_scope:
       - planner contracts and schema
