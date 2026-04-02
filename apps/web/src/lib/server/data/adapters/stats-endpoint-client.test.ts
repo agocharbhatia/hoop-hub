@@ -137,7 +137,7 @@ describe('stats-endpoint-client', () => {
 		assert.notEqual(result.payload, null);
 	});
 
-	test('request policy can disable live fetch even when environment fallback is enabled', async () => {
+	test('caller can disable live fetch even when environment fallback is enabled', async () => {
 		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
 
 		const now = new Date('2026-02-25T08:00:00.000Z');
@@ -158,7 +158,7 @@ describe('stats-endpoint-client', () => {
 
 		assert.equal(result.cacheStatus, 'miss');
 		assert.equal(result.sourceStatus, 'error');
-		assert.match(result.errorDetail ?? '', /request policy/i);
+		assert.match(result.errorDetail ?? '', /disabled by caller/i);
 	});
 
 	test('throws for missing required parameters', async () => {

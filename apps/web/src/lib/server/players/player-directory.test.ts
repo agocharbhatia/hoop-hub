@@ -94,11 +94,11 @@ describe('player-directory', () => {
 		assert.match(error ?? '', /same canonical player/i);
 	});
 
-	test('returns an explicit availability failure when refresh is disallowed and no stored snapshot exists', () => {
-		const result = ensurePlayerDirectoryAvailable({ allowRefresh: false });
+	test('loads the seeded snapshot when no stored directory exists yet', () => {
+		const result = ensurePlayerDirectoryAvailable();
 
-		assert.equal(result.ok, false);
-		assert.match(result.message ?? '', /disabled by request policy/i);
+		assert.equal(result.ok, true);
+		assert.equal(result.source, 'refreshed');
 	});
 
 	test('falls back to the stored snapshot when refresh fails after a prior successful load', () => {

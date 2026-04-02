@@ -172,7 +172,7 @@ export async function fetchStatsEndpointWithCache(request: EndpointFetchRequest)
 					parserVersion: entry.parserVersion,
 					errorDetail:
 						request.allowLiveFetch === false
-							? 'Live fetch disabled by request policy.'
+							? 'Live fetch disabled by caller.'
 							: 'Live fetch disabled by HOOP_HUB_ENABLE_LIVE_NBA.'
 				};
 			}
@@ -189,7 +189,7 @@ export async function fetchStatsEndpointWithCache(request: EndpointFetchRequest)
 			parserVersion: entry.parserVersion,
 			errorDetail:
 				request.allowLiveFetch === false
-					? 'Live fetch disabled by request policy.'
+					? 'Live fetch disabled by caller.'
 					: 'Live fetch disabled by HOOP_HUB_ENABLE_LIVE_NBA.'
 		};
 	}

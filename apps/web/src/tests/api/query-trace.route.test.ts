@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import { resetDataStoreForTests } from '$lib/server/data/store';
 import { executeSemanticQuery } from '$lib/server/semantic/query-service';
-import { installSemanticFixtureFetch } from '../helpers/semantic-fixture-fetch';
 import { POST as queryPost, _setQueryRouteDependenciesForTests } from '../../routes/api/query/+server';
+import { seedSemanticFixtureCache } from '../helpers/seed-semantic-fixture-cache';
 import { POST as statsPost } from '../../routes/api/stats/query/+server';
 import { GET } from '../../routes/api/query-trace/[traceId]/+server';
 
@@ -33,19 +33,16 @@ function createQueryPostEvent(question: string): Parameters<typeof queryPost>[0]
 }
 
 describe('GET /api/query-trace/:traceId', () => {
-	let restoreFetch: (() => void) | null = null;
-
 	beforeEach(() => {
 		process.env.HOOP_HUB_DB_PATH = ':memory:';
-		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '0';
 		resetDataStoreForTests();
-		restoreFetch = installSemanticFixtureFetch();
+		seedSemanticFixtureCache();
+		seedSemanticFixtureCache(new Date('2026-03-25T12:00:00.000Z'));
 	});
 
 	afterEach(() => {
 		_setQueryRouteDependenciesForTests(null);
-		restoreFetch?.();
-		restoreFetch = null;
 		resetDataStoreForTests();
 	});
 
@@ -124,7 +121,7 @@ describe('GET /api/query-trace/:traceId', () => {
 		assert.equal(payload.resolvedQuery.operation, 'rank');
 		assert.equal(payload.resolvedQuery.entity, 'player');
 		assert.deepEqual(payload.resolvedQuery.metrics, ['ast']);
-		assert.equal(payload.dataFreshnessMode, 'provisional_live');
+		assert.equal(payload.dataFreshnessMode, 'nightly');
 		assert.equal(payload.sourceCalls.length > 0, true);
 		assert.equal(payload.sourceCalls.some((source) => source.endpointId === 'leaguedashplayerstats'), true);
 		assert.equal(payload.executedSources.length > 0, true);

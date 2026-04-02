@@ -1,25 +1,22 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import { resetDataStoreForTests } from '$lib/server/data/store';
-import { installSemanticFixtureFetch } from '../../../tests/helpers/semantic-fixture-fetch';
+import { seedSemanticFixtureCache } from '../../../tests/helpers/seed-semantic-fixture-cache';
 import { executeSemanticQuery } from './query-service';
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
 const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;
 
 describe('executeSemanticQuery comparison canonicalization', () => {
-	let restoreFetch: (() => void) | null = null;
-
 	beforeEach(() => {
 		process.env.HOOP_HUB_DB_PATH = ':memory:';
-		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '0';
 		resetDataStoreForTests();
-		restoreFetch = installSemanticFixtureFetch();
+		seedSemanticFixtureCache();
+		seedSemanticFixtureCache(new Date('2026-03-25T12:00:00.000Z'));
 	});
 
 	afterEach(() => {
-		restoreFetch?.();
-		restoreFetch = null;
 		resetDataStoreForTests();
 	});
 

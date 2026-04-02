@@ -59,3 +59,9 @@
 - The repo now has two parallel query paths: the active semantic executor and a legacy mock planner/query-engine path. Future engine work should consolidate around one production query-runtime boundary rather than extending both.
 - Planning context should now be read in this order: `agents/current-state.md` first for the concise engine snapshot, then `README.md` / `apps/web/README.md` for roadmap and operational details, and `agents/memory.md` for deeper historical breadcrumbs.
 - The old in-repo Codex Sandcastle package and `.sandcastle/` runner assets were removed. Future agent workflow tooling for this repo should come from the standalone external `codex-sandcastle` tool plus `.superset/`, not from reviving repo-local sandbox code.
+
+## 2026-04-01
+
+- `options.allowLiveFallback` was removed from the structured semantic query contract. Callers should not decide request-time live fetch policy anymore.
+- The semantic executor now reads stored endpoint cache rows only and returns a typed `nightly_data_unavailable` coverage gap when the nightly-backed cache is empty.
+- Tests for the semantic executor and API routes should seed stored endpoint fixtures directly instead of stubbing live network fetch, so regressions in nightly-only behavior stay visible.

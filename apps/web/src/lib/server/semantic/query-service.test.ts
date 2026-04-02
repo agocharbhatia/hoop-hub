@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import { resetDataStoreForTests } from '$lib/server/data/store';
 import { ensurePlayerDirectoryAvailable, setPlayerDirectoryRefreshLoaderForTests } from '$lib/server/players/player-directory';
-import { installSemanticFixtureFetch } from '../../../tests/helpers/semantic-fixture-fetch';
+import { seedSemanticFixtureCache } from '../../../tests/helpers/seed-semantic-fixture-cache';
 import { executeSemanticQuery, validateSemanticQueryRequest } from './query-service';
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
@@ -63,21 +63,36 @@ describe('validateSemanticQueryRequest', () => {
 		assert.equal(result.ok, false);
 		assert.match(result.error, /same canonical player/i);
 	});
+
+	test('rejects deprecated allowLiveFallback request options', () => {
+		const result = validateSemanticQueryRequest({
+			query: {
+				operation: 'rank',
+				entity: 'player',
+				subject: {},
+				metrics: ['ast'],
+				filters: {}
+			},
+			options: {
+				allowLiveFallback: false
+			}
+		});
+
+		assert.equal(result.ok, false);
+		assert.match(result.error, /allowLiveFallback has been removed/i);
+	});
 });
 
 describe('executeSemanticQuery', () => {
-	let restoreFetch: (() => void) | null = null;
-
 	beforeEach(() => {
 		process.env.HOOP_HUB_DB_PATH = ':memory:';
-		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '0';
 		resetDataStoreForTests();
-		restoreFetch = installSemanticFixtureFetch();
+		seedSemanticFixtureCache();
+		seedSemanticFixtureCache(new Date('2026-03-25T12:00:00.000Z'));
 	});
 
 	afterEach(() => {
-		restoreFetch?.();
-		restoreFetch = null;
 		setPlayerDirectoryRefreshLoaderForTests(null);
 		resetDataStoreForTests();
 	});
@@ -158,7 +173,7 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
 	});
 
-	test('returns coverage_gap when request policy disallows live endpoint fallback and no cached query data exists', async () => {
+	test('returns coverage_gap when no stored query data exists for a required endpoint', async () => {
 		assert.equal(ensurePlayerDirectoryAvailable().ok, true);
 
 		const response = await executeSemanticQuery({
@@ -166,19 +181,17 @@ describe('executeSemanticQuery', () => {
 				operation: 'trend',
 				entity: 'player',
 				subject: {
-					ids: ['203999']
+					ids: ['201939']
 				},
 				metrics: ['pts'],
 				filters: {}
-			},
-			options: {
-				allowLiveFallback: false
 			}
 		});
 
 		assert.equal(response.status, 'coverage_gap');
 		assert.equal(response.result, null);
-		assert.equal(response.warnings[0]?.code, 'live_fallback_disabled');
+		assert.equal(response.warnings[0]?.code, 'nightly_data_unavailable');
+		assert.equal(response.provenance.dataFreshnessMode, 'nightly');
 		assert.equal(response.provenance.sourceCalls[0]?.cacheStatus, 'miss');
 	});
 
@@ -252,7 +265,7 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.provenance.resolvedQuery, null);
 	});
 
-	test('returns coverage_gap when request policy disallows directory refresh and no stored snapshot exists', async () => {
+	test('uses the local seeded player directory snapshot when no stored directory exists', async () => {
 		const response = await executeSemanticQuery({
 			query: {
 				operation: 'trend',
@@ -262,15 +275,14 @@ describe('executeSemanticQuery', () => {
 				},
 				metrics: ['pts'],
 				filters: {}
-			},
-			options: {
-				allowLiveFallback: false
 			}
 		});
 
-		assert.equal(response.status, 'coverage_gap');
-		assert.equal(response.result, null);
-		assert.equal(response.warnings[0]?.code, 'player_directory_unavailable');
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['203999'],
+			names: ['Nikola Jokic']
+		});
 	});
 
 	test('falls back to the stored player directory snapshot when refresh fails', async () => {

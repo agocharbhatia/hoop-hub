@@ -4,7 +4,7 @@ import type { PlannerDecision } from '$lib/contracts/planner';
 import type { StatsQueryResponse } from '$lib/contracts/semantic-query';
 import { resetDataStoreForTests } from '$lib/server/data/store';
 import { executeSemanticQuery } from '$lib/server/semantic/query-service';
-import { installSemanticFixtureFetch } from '../helpers/semantic-fixture-fetch';
+import { seedSemanticFixtureCache } from '../helpers/seed-semantic-fixture-cache';
 import { POST, _setQueryRouteDependenciesForTests } from '../../routes/api/query/+server';
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
@@ -36,19 +36,16 @@ function usePlannerDecision(decision: PlannerDecision): void {
 }
 
 describe('POST /api/query integration', () => {
-	let restoreFetch: (() => void) | null = null;
-
 	beforeEach(() => {
 		process.env.HOOP_HUB_DB_PATH = ':memory:';
-		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '0';
 		resetDataStoreForTests();
-		restoreFetch = installSemanticFixtureFetch();
+		seedSemanticFixtureCache();
+		seedSemanticFixtureCache(new Date('2026-03-25T12:00:00.000Z'));
 	});
 
 	afterEach(() => {
 		_setQueryRouteDependenciesForTests(null);
-		restoreFetch?.();
-		restoreFetch = null;
 		resetDataStoreForTests();
 	});
 
