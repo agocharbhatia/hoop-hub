@@ -310,7 +310,7 @@ tasks:
       Materialize current-season regular-season player trend source data for the
       already-derived nightly cohort so supported trend asks work from stored
       nightly data.
-    status: pending
+    status: done
     blocked_by:
       - nightly_player_cohort_and_comparisons
     module_scope:

@@ -103,3 +103,10 @@
 - Module scope: current-season player trend materialization, trend-oriented nightly request planning, empty-payload success handling
 - Interface contract: nightly bootstrap now persists current-season regular-season `playergamelog` rows for every player in the already-derived cohort alongside comparison rows | valid empty trend payloads still count as successful materialization | public trend query contracts remain unchanged
 - Tests: add current-season request-planning coverage for cohort trend requests | add bootstrap service coverage for full-cohort trend materialization and empty trend payloads | verify supported trend queries return ok from an empty DB after bootstrap
+## nightly_current_season_player_trends
+
+- Title: Bootstrap current-season player trends for the derived cohort
+- Module scope: current-season player trend materialization, trend-oriented nightly request planning, empty-payload success handling
+- Interface contract: the bootstrap service writes current-season regular-season player trend rows for the full cohort | valid empty payloads are treated as successful nightly materialization | the public trend response contract remains unchanged
+- Tests: add bootstrap service tests for current-season trend materialization | add ingest tests for empty trend payload success handling | add integration coverage that supported trend queries return ok after bootstrap
+
