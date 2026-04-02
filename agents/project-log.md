@@ -64,6 +64,7 @@
   - raw stored endpoint reads now select the latest snapshot whose `snapshot_date` is less than or equal to the query-time date, so previous-night materializations can satisfy next-day reads without changing public query contracts.
   - `POST /api/query` now loads the default OpenAI planner adapter lazily behind the route dependency boundary, so route imports and injected tests do not depend on eager planner-module loading.
 - Slice `nightly_current_season_rankings_and_team_defense` adds a nightly bootstrap CLI/service for the two current-season league-wide ranking shapes, and its authoritative raw-cache writes are keyed to the requested `slateDate` rather than wall-clock ingest time so run bookkeeping and snapshot semantics stay aligned.
+- Slice `nightly_bootstrap_e2e_and_docs_refresh` locks the shipped empty-DB bootstrap contract at the public route layer: supported queries return `nightly_data_unavailable` before bootstrap, both public query routes recover to `ok` after bootstrap, and prior-day snapshots remain readable on later days.
 ## nightly_snapshot_reads_and_lazy_planner_cleanup
 
 - Title: Make nightly snapshots readable across days and lazily isolate the planner route
@@ -116,4 +117,3 @@
 - Module scope: historical backfill-on-miss planning, 2023-24 nightly cache writes, skip-on-hit historical refresh policy
 - Interface contract: 2023-24 regular-season ranking, team-defense, and trend shapes are backfilled on miss only | current-season refresh behavior remains unchanged | no new public route or warning contracts are introduced
 - Tests: add bootstrap service tests for 2023-24 backfill-on-miss behavior | add regression coverage that current-season refresh policy is unchanged | add integration coverage that supported 2023-24 queries return ok after backfill
-
