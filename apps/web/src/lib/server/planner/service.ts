@@ -113,7 +113,7 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 		return false;
 	}
 
-	if (query.entity !== 'player') {
+	if (query.entity !== 'player' && query.entity !== 'team') {
 		return false;
 	}
 
@@ -129,7 +129,11 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 		return false;
 	}
 
-	if (
+	if (query.entity === 'team') {
+		if (query.operation !== 'rank' || !validateSubject(query.subject, 'empty')) {
+			return false;
+		}
+	} else if (
 		(query.operation === 'rank' && !validateSubject(query.subject, 'empty')) ||
 		(query.operation === 'trend' && !validateSubject(query.subject, 'non_empty')) ||
 		(query.operation === 'compare' && !validateSubject(query.subject, 'exactly_two'))
@@ -167,7 +171,19 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 		return false;
 	}
 
+	if (query.entity === 'team' && query.operation === 'rank' && query.metrics.length !== 1) {
+		return false;
+	}
+
+	if (query.entity === 'team' && query.operation === 'rank' && query.orderBy?.metric !== query.metrics[0]) {
+		return false;
+	}
+
 	if (query.operation === 'compare' && query.outputMode !== 'comparison') {
+		return false;
+	}
+
+	if (query.entity === 'team' && query.operation !== 'rank') {
 		return false;
 	}
 

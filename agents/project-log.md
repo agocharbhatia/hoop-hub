@@ -30,3 +30,9 @@
 - Interface contract: comparison asks preserve subject order from the user question | compare-without-metric defaults safely to pts | incomplete comparison asks return clarification_needed with no executor call
 - Tests: add deterministic planner tests for compare planning and subject order | add /api/query route tests for compare success and compare_requires_two_subjects
 
+## planner_team_defense_rankings
+
+- Title: Add team defensive ranking planning to the new runtime
+- Module scope: planner service, planner schema, query route tests, team ranking integration path
+- Interface contract: team defensive ranking asks plan into `rank/team` with canonical `drtg` and empty subject | adjacent unsupported team asks still stop as typed `coverage_gap` responses with no executor call
+- Tests: add deterministic planner tests for supported team defense planning and unsupported adjacent team asks | add `/api/query` route tests for team defense success and typed unsupported gaps

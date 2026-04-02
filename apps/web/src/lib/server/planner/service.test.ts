@@ -72,6 +72,28 @@ function buildComparisonQuery(subjectNames: string[], metric: string): SemanticQ
 	};
 }
 
+function buildTeamRankingQuery(metric: string): SemanticQuery {
+	return {
+		operation: 'rank',
+		entity: 'team',
+		subject: {},
+		metrics: [metric],
+		filters: {
+			season: '2023-24',
+			seasonType: null,
+			window: null,
+			dateFrom: null,
+			dateTo: null
+		},
+		orderBy: {
+			metric,
+			direction: 'asc'
+		},
+		limit: 10,
+		outputMode: 'table'
+	};
+}
+
 function createAdapter(output: unknown): PlannerAdapter {
 	return {
 		async planQuestion() {
@@ -161,6 +183,29 @@ describe('createPlannerService', () => {
 		assert.deepEqual(decision.query.metrics, ['pts']);
 	});
 
+	test('returns planned decisions for supported team defensive rankings with canonical drtg metric', async () => {
+		const planner = createPlannerService(
+			createAdapter({
+				type: 'planned',
+				query: buildTeamRankingQuery('drtg')
+			})
+		);
+
+		const decision = await planner.planQuestion('Which team has the best defensive rating in 2023-24?');
+
+		assert.equal(decision.type, 'planned');
+		if (decision.type !== 'planned') {
+			throw new Error('Expected planned decision.');
+		}
+		assert.equal(decision.query.operation, 'rank');
+		assert.equal(decision.query.entity, 'team');
+		assert.deepEqual(decision.query.metrics, ['drtg']);
+		assert.deepEqual(decision.query.orderBy, {
+			metric: 'drtg',
+			direction: 'asc'
+		});
+	});
+
 	test('returns typed clarification_needed decisions for vague trend asks with no metric', async () => {
 		const planner = createPlannerService(
 			createAdapter({
@@ -219,6 +264,26 @@ describe('createPlannerService', () => {
 			throw new Error('Expected coverage_gap decision.');
 		}
 		assert.equal(decision.warning.code, 'unsupported_query_shape');
+	});
+
+	test('returns typed coverage gaps for adjacent unsupported team asks', async () => {
+		const planner = createPlannerService(
+			createAdapter({
+				type: 'coverage_gap',
+				warning: {
+					code: 'unsupported_metric',
+					message: 'Team offensive rankings are not supported in this slice.'
+				}
+			})
+		);
+
+		const decision = await planner.planQuestion('Which team has the best offensive rating in 2023-24?');
+
+		assert.equal(decision.type, 'coverage_gap');
+		if (decision.type !== 'coverage_gap') {
+			throw new Error('Expected coverage_gap decision.');
+		}
+		assert.equal(decision.warning.code, 'unsupported_metric');
 	});
 
 	test('throws for invalid structured planner output', async () => {
