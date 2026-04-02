@@ -183,3 +183,240 @@ tasks:
     notes: []
     github_issue: 14
     type: afk
+  - id: nightly_snapshot_reads_and_lazy_planner_cleanup
+    title: Make nightly snapshots readable across days and lazily isolate the
+      planner route
+    summary: >
+      Add the storage/read contract that selects the latest stored nightly
+      snapshot up to the query date, and lazily instantiate the default planner
+      so route tests and tooling stop depending on eager OpenAI imports.
+    status: pending
+    blocked_by: []
+    module_scope:
+      - raw endpoint cache read semantics
+      - data store latest-row lookup
+      - query-time endpoint adapter reads
+      - query route dependency wiring
+    interface_contract:
+      - query-time stored reads select the latest matching snapshot where
+        snapshot date is less than or equal to the query date
+      - public query and trace contracts remain unchanged
+      - test dependency injection for /api/query does not eagerly instantiate
+        the default planner adapter
+    acceptance_criteria:
+      - previous-day nightly snapshots can satisfy next-day queries through the
+        existing runtime
+      - the data store owns latest-snapshot selection semantics for raw cache
+        reads
+      - /api/query can be imported in tests without eager OpenAI planner
+        instantiation
+    test_plan:
+      - add data-store tests for latest-row lookup across snapshot dates
+      - add integration or route-level regression coverage for previous-day
+        snapshot reuse
+      - add route import or dependency-injection coverage for lazy planner
+        creation
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 17
+    type: afk
+  - id: nightly_current_season_rankings_and_team_defense
+    title: Bootstrap current-season league-wide nightly data for rankings and
+      team defense
+    summary: >
+      Add the nightly bootstrap CLI and service path for the current-season
+      league-wide request shapes needed by player rankings and team defensive
+      rankings, including honest nightly run bookkeeping.
+    status: pending
+    blocked_by:
+      - nightly_snapshot_reads_and_lazy_planner_cleanup
+    module_scope:
+      - nightly bootstrap service
+      - bootstrap CLI entrypoint
+      - nightly run bookkeeping
+      - current-season league-wide request planning
+    interface_contract:
+      - bootstrap command accepts a required slate date
+      - current-season league-wide ranking and team-defense request shapes are
+        written as authoritative nightly cache rows
+      - run status reports completed, partial, or failed honestly
+    acceptance_criteria:
+      - an empty DB can be bootstrapped into working current-season player
+        ranking queries
+      - an empty DB can be bootstrapped into working current-season team
+        defensive ranking queries
+      - current-season league-wide writes are marked as authoritative nightly
+        data
+    test_plan:
+      - add bootstrap service tests for completed, partial, and failed run
+        status
+      - add ingest tests for authoritative nightly cache writes
+      - add end-to-end coverage that ranking and team-defense queries work after
+        bootstrap
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 18
+    type: afk
+  - id: nightly_player_cohort_and_comparisons
+    title: Derive the nightly player cohort and bootstrap regular-season
+      comparisons
+    summary: >
+      Derive the nightly player cohort from current-season league-wide player
+      stats plus a checked-in demo allowlist, then materialize regular-season
+      comparison source data for that cohort.
+    status: pending
+    blocked_by:
+      - nightly_current_season_rankings_and_team_defense
+    module_scope:
+      - player cohort derivation
+      - checked-in demo allowlist
+      - player comparison nightly materialization
+    interface_contract:
+      - the cohort derives from current-season league-wide player stats plus a
+        deterministic allowlist
+      - comparison bootstrap remains regular-season-only
+      - public comparison query contracts remain unchanged
+    acceptance_criteria:
+      - the bootstrap service derives a deterministic player cohort
+      - regular-season comparison source rows are materialized for the full
+        cohort
+      - comparison asks work from an empty DB after bootstrap
+    test_plan:
+      - add tests for cohort derivation from league-wide player stats plus the
+        demo allowlist
+      - add bootstrap service tests for comparison materialization
+      - add integration coverage that supported comparison queries return ok
+        after bootstrap
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 19
+    type: afk
+  - id: nightly_current_season_player_trends
+    title: Bootstrap current-season player trends for the derived cohort
+    summary: >
+      Materialize current-season regular-season player trend source data for the
+      already-derived nightly cohort so supported trend asks work from stored
+      nightly data.
+    status: pending
+    blocked_by:
+      - nightly_player_cohort_and_comparisons
+    module_scope:
+      - current-season player trend materialization
+      - trend-oriented nightly request planning
+      - empty-payload success handling
+    interface_contract:
+      - the bootstrap service writes current-season regular-season player trend
+        rows for the full cohort
+      - valid empty payloads are treated as successful nightly materialization
+      - the public trend response contract remains unchanged
+    acceptance_criteria:
+      - supported current-season trend asks work from an empty DB after
+        bootstrap
+      - trend materialization covers the full derived cohort
+      - empty but valid trend payloads do not mark the overall run as failed by
+        themselves
+    test_plan:
+      - add bootstrap service tests for current-season trend materialization
+      - add ingest tests for empty trend payload success handling
+      - add integration coverage that supported trend queries return ok after
+        bootstrap
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 20
+    type: afk
+  - id: nightly_backfill_2023_24_demo_season
+    title: Backfill 2023-24 demo-season support on miss
+    summary: >
+      Add guaranteed regular-season 2023-24 demo coverage by backfilling the
+      approved ranking, team-defense, and trend request shapes on miss while
+      keeping current-season refresh behavior unchanged.
+    status: pending
+    blocked_by:
+      - nightly_current_season_rankings_and_team_defense
+      - nightly_player_cohort_and_comparisons
+      - nightly_current_season_player_trends
+    module_scope:
+      - historical backfill-on-miss planning
+      - 2023-24 nightly cache writes
+      - skip-on-hit historical refresh policy
+    interface_contract:
+      - 2023-24 regular-season ranking, team-defense, and trend shapes are
+        backfilled on miss only
+      - current-season refresh behavior remains unchanged
+      - no new public route or warning contracts are introduced
+    acceptance_criteria:
+      - supported 2023-24 ranking, team-defense, and trend asks work after
+        backfill
+      - valid historical rows are skipped rather than refetched on every run
+      - the historical path remains regular-season-only
+    test_plan:
+      - add bootstrap service tests for 2023-24 backfill-on-miss behavior
+      - add regression coverage that current-season refresh policy is unchanged
+      - add integration coverage that supported 2023-24 queries return ok after
+        backfill
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 21
+    type: afk
+  - id: nightly_bootstrap_e2e_and_docs_refresh
+    title: Lock end-to-end nightly bootstrap coverage and refresh docs
+    summary: >
+      Lock the empty-DB-to-working-runtime contract with end-to-end nightly
+      bootstrap coverage and refresh repo docs so the shipped runtime and
+      bootstrap workflow are described accurately.
+    status: pending
+    blocked_by:
+      - nightly_backfill_2023_24_demo_season
+    module_scope:
+      - empty-DB integration coverage
+      - cross-day snapshot regression coverage
+      - runtime and bootstrap documentation
+    interface_contract:
+      - an empty DB returns the existing nightly coverage gap before bootstrap
+      - supported current routes return ok after bootstrap
+      - docs and planning mirrors match the shipped runtime and nightly
+        bootstrap workflow
+    acceptance_criteria:
+      - end-to-end tests prove bootstrap turns supported queries from
+        nightly_data_unavailable into ok responses
+      - regressions prove previous-day snapshots remain readable on later days
+      - repo docs are consistent with the current runtime and nightly bootstrap
+        path
+    test_plan:
+      - add empty-DB integration tests for before-and-after bootstrap behavior
+      - add cross-day snapshot reuse regression coverage
+      - rerun the full repo verification surface after doc updates
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 22
+    type: afk
