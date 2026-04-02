@@ -131,15 +131,24 @@ export async function fetchStatsEndpointWithCache(request: EndpointFetchRequest)
 
 	const now = request.now ?? new Date();
 	const normalizedParams = normalizeParams(request.endpointId, request.params, entry.requiredParams, entry.optionalParams);
+	const paramsJson = JSON.stringify(JSON.parse(stableStringify(normalizedParams)));
+	const snapshotDate = toSnapshotDateIso(now);
 	const cacheKey = buildRawEndpointCacheKey({
 		endpointId: request.endpointId,
 		params: JSON.parse(stableStringify(normalizedParams)),
 		parserVersion: entry.parserVersion,
-		snapshotDate: toSnapshotDateIso(now)
+		snapshotDate
 	});
 
 	const dataStore = getDataStore();
-	const cached = dataStore.getRawEndpointCache(cacheKey);
+	const cached =
+		dataStore.getRawEndpointCache(cacheKey) ??
+		dataStore.getLatestRawEndpointCache({
+			endpointId: request.endpointId,
+			paramsJson,
+			parserVersion: entry.parserVersion,
+			snapshotDate
+		});
 	if (cached) {
 		const payload = parseCachedPayload(cached.payloadJson);
 		if (payload !== null && parseIsoMs(cached.expiresAt) > now.getTime()) {
@@ -222,11 +231,11 @@ export async function fetchStatsEndpointWithCache(request: EndpointFetchRequest)
 		dataStore.putRawEndpointCache({
 			cacheKey,
 			endpointId: request.endpointId,
-			paramsJson: JSON.stringify(normalizedParams),
+			paramsJson,
 			payloadJson: rawText,
 			fetchedAt: now.toISOString(),
 			expiresAt: toExpiresAtIso(now, entry.ttlMinutes),
-			snapshotDate: toSnapshotDateIso(now),
+			snapshotDate,
 			parserVersion: entry.parserVersion,
 			isProvisional: true
 		});

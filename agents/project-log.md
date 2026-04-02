@@ -57,3 +57,9 @@
 - Verified with deterministic regressions and a live local `/api/query` smoke pass:
   - `Compare Curry and Dame in 2023-24` returns `ok` with canonical resolved subjects `Stephen Curry` and `Damian Lillard`.
   - `Which teams have the best defensive rating this season?` returns `ok` and defaults season through the executor instead of 500ing on planner validation.
+
+## 2026-04-02
+
+- Slice `nightly_snapshot_reads_and_lazy_planner_cleanup` locked two runtime assumptions:
+  - raw stored endpoint reads now select the latest snapshot whose `snapshot_date` is less than or equal to the query-time date, so previous-night materializations can satisfy next-day reads without changing public query contracts.
+  - `POST /api/query` now loads the default OpenAI planner adapter lazily behind the route dependency boundary, so route imports and injected tests do not depend on eager planner-module loading.

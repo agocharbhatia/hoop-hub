@@ -9,6 +9,7 @@ export {
 	type NightlyRunStatus,
 	type PlayerDirectoryEntryRecord,
 	type PutRawEndpointCacheInput,
+	type RawEndpointCacheLookup,
 	type ReplacePlayerDirectoryEntryInput,
 	type RawEndpointCacheRecord,
 	type StartNightlyRunInput

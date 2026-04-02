@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import type { SemanticQueryRequest, StatsQueryResponse } from '$lib/contracts/semantic-query';
 import type { PlannerDecision } from '$lib/contracts/planner';
-import { POST, _setQueryRouteDependenciesForTests } from '../../routes/api/query/+server';
+import {
+	POST,
+	_setDefaultPlannerFactoryForTests,
+	_setQueryRouteDependenciesForTests
+} from '../../routes/api/query/+server';
 
 function createPostEvent(body: BodyInit): Parameters<typeof POST>[0] {
 	return {
@@ -28,6 +32,7 @@ describe('POST /api/query', () => {
 	afterEach(() => {
 		console.error = originalConsoleError;
 		_setQueryRouteDependenciesForTests(null);
+		_setDefaultPlannerFactoryForTests(null);
 	});
 
 	test('returns 200 for supported player ranking questions', async () => {
@@ -93,6 +98,42 @@ describe('POST /api/query', () => {
 		assert.notEqual(executedRequest, null);
 		assert.equal(executedRequest!.question, 'Who averaged the most assists in 2023-24?');
 		assert.deepEqual(executedRequest!.query.metrics, ['ast']);
+	});
+
+	test('does not instantiate the default planner when route tests inject dependencies', async () => {
+		let defaultPlannerFactoryCalls = 0;
+		_setDefaultPlannerFactoryForTests(() => {
+			defaultPlannerFactoryCalls += 1;
+			throw new Error('default planner should not be created');
+		});
+
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<PlannerDecision> {
+				return {
+					type: 'coverage_gap',
+					warning: {
+						code: 'unsupported_query_shape',
+						message: 'Predictions are not supported in this slice.'
+					}
+				};
+			},
+			async executeSemanticQuery(): Promise<StatsQueryResponse> {
+				throw new Error('Executor should not be called.');
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'Who wins the title this year?'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as StatsQueryResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'coverage_gap');
+		assert.equal(defaultPlannerFactoryCalls, 0);
 	});
 
 	test('returns typed coverage gaps without calling the executor', async () => {

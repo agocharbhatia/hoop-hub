@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { DataFreshnessMode, TraceSourceCall } from '$lib/contracts/chat';
-import { computePayloadChecksum } from './cache-key';
+import { computePayloadChecksum, stableStringify } from './cache-key';
 
 const DEFAULT_DB_FILE = resolve(process.cwd(), '.data', 'hoop-hub.sqlite');
 
@@ -137,6 +137,13 @@ export type RawEndpointCacheRecord = {
 
 export type PutRawEndpointCacheInput = Omit<RawEndpointCacheRecord, 'checksum'> & {
 	checksum?: string;
+};
+
+export type RawEndpointCacheLookup = {
+	endpointId: string;
+	paramsJson: string;
+	parserVersion: string;
+	snapshotDate: string;
 };
 
 export type NightlyRunStatus = 'running' | 'completed' | 'failed' | 'partial';
@@ -281,6 +288,14 @@ function mapPlayerDirectoryEntryRow(row: PlayerDirectoryEntryRow): PlayerDirecto
 	};
 }
 
+function canonicalizeParamsJson(paramsJson: string): string {
+	try {
+		return stableStringify(JSON.parse(paramsJson));
+	} catch {
+		return paramsJson;
+	}
+}
+
 export class DataStore {
 	private readonly sqlite: SqliteDatabase | null;
 	private readonly rawCacheMemory = new Map<string, RawEndpointCacheRecord>();
@@ -397,6 +412,41 @@ export class DataStore {
 			'SELECT * FROM raw_endpoint_cache WHERE cache_key = ? LIMIT 1'
 		);
 		const row = statement.get(cacheKey);
+		if (!row) {
+			return null;
+		}
+		return mapRawEndpointCacheRow(row);
+	}
+
+	getLatestRawEndpointCache(lookup: RawEndpointCacheLookup): RawEndpointCacheRecord | null {
+		const canonicalParamsJson = canonicalizeParamsJson(lookup.paramsJson);
+
+		if (!this.sqlite) {
+			const records = Array.from(this.rawCacheMemory.values()).filter(
+				(record) =>
+					record.endpointId === lookup.endpointId &&
+					canonicalizeParamsJson(record.paramsJson) === canonicalParamsJson &&
+					record.parserVersion === lookup.parserVersion &&
+					record.snapshotDate <= lookup.snapshotDate
+			);
+
+			if (records.length === 0) {
+				return null;
+			}
+
+			return records.sort(
+				(a, b) => b.snapshotDate.localeCompare(a.snapshotDate) || b.fetchedAt.localeCompare(a.fetchedAt)
+			)[0];
+		}
+
+		const statement = this.sqlite.query<RawEndpointCacheRow, [string, string, string]>(
+			`SELECT * FROM raw_endpoint_cache
+			WHERE endpoint_id = ? AND parser_version = ? AND snapshot_date <= ?
+			ORDER BY snapshot_date DESC, fetched_at DESC`
+		);
+		const row = statement
+			.all([lookup.endpointId, lookup.parserVersion, lookup.snapshotDate])
+			.find((candidate) => canonicalizeParamsJson(candidate.params_json) === canonicalParamsJson);
 		if (!row) {
 			return null;
 		}

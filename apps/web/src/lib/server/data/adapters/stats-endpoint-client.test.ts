@@ -137,6 +137,54 @@ describe('stats-endpoint-client', () => {
 		assert.notEqual(result.payload, null);
 	});
 
+	test('reuses the latest prior-day snapshot when the query date has no same-day row', async () => {
+		const queryNow = new Date('2026-02-26T08:00:00.000Z');
+		const params = {
+			LeagueID: '00',
+			PerMode: 'PerGame',
+			Scope: 'S',
+			Season: '2023-24',
+			SeasonType: 'Regular Season',
+			StatCategory: 'AST',
+			ActiveFlag: ''
+		};
+
+		const previousDayCacheKey = buildRawEndpointCacheKey({
+			endpointId: 'leagueleaders',
+			params: JSON.parse(JSON.stringify(params)),
+			parserVersion: 'v1',
+			snapshotDate: '2026-02-25'
+		});
+
+		getDataStore().putRawEndpointCache({
+			cacheKey: previousDayCacheKey,
+			endpointId: 'leagueleaders',
+			paramsJson: JSON.stringify(params),
+			payloadJson: JSON.stringify({
+				resultSet: {
+					headers: ['PLAYER', 'AST'],
+					rowSet: [['Tyrese Haliburton', 10.9]]
+				}
+			}),
+			fetchedAt: '2026-02-25T07:45:00.000Z',
+			expiresAt: '2026-02-26T23:59:59.000Z',
+			snapshotDate: '2026-02-25',
+			parserVersion: 'v1',
+			isProvisional: false
+		});
+
+		const result = await fetchStatsEndpointWithCache({
+			endpointId: 'leagueleaders',
+			now: queryNow,
+			params
+		});
+
+		assert.equal(result.cacheStatus, 'hit');
+		assert.equal(result.sourceStatus, 'ok');
+		assert.equal(result.isProvisional, false);
+		assert.notEqual(result.payload, null);
+	});
+
 	test('caller can disable live fetch even when environment fallback is enabled', async () => {
 		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
 

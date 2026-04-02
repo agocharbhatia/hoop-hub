@@ -36,6 +36,80 @@ describe('data-store', () => {
 		}
 	});
 
+	test('selects the latest raw endpoint cache record at or before the requested snapshot date', () => {
+		const store = new DataStore({ dbPath: ':memory:' });
+		try {
+			const params = { season: '2024-25', seasonType: 'Regular Season' };
+
+			for (const snapshotDate of ['2026-02-24', '2026-02-25']) {
+				store.putRawEndpointCache({
+					cacheKey: buildRawEndpointCacheKey({
+						endpointId: 'leagueleaders',
+						params,
+						parserVersion: 'v1',
+						snapshotDate
+					}),
+					endpointId: 'leagueleaders',
+					paramsJson: JSON.stringify(params),
+					payloadJson: JSON.stringify({ snapshotDate }),
+					fetchedAt: `${snapshotDate}T05:00:00.000Z`,
+					expiresAt: `${snapshotDate}T23:59:59.000Z`,
+					snapshotDate,
+					parserVersion: 'v1',
+					isProvisional: false
+				});
+			}
+
+			const cached = store.getLatestRawEndpointCache({
+				endpointId: 'leagueleaders',
+				paramsJson: JSON.stringify(params),
+				parserVersion: 'v1',
+				snapshotDate: '2026-02-26'
+			});
+
+			assert.notEqual(cached, null);
+			assert.equal(cached?.snapshotDate, '2026-02-25');
+			assert.equal(cached?.payloadJson, JSON.stringify({ snapshotDate: '2026-02-25' }));
+		} finally {
+			store.close();
+		}
+	});
+
+	test('does not select raw endpoint cache rows after the requested snapshot date', () => {
+		const store = new DataStore({ dbPath: ':memory:' });
+		try {
+			const params = { season: '2024-25', seasonType: 'Regular Season' };
+
+			store.putRawEndpointCache({
+				cacheKey: buildRawEndpointCacheKey({
+					endpointId: 'leagueleaders',
+					params,
+					parserVersion: 'v1',
+					snapshotDate: '2026-02-27'
+				}),
+				endpointId: 'leagueleaders',
+				paramsJson: JSON.stringify(params),
+				payloadJson: JSON.stringify({ snapshotDate: '2026-02-27' }),
+				fetchedAt: '2026-02-27T05:00:00.000Z',
+				expiresAt: '2026-02-27T23:59:59.000Z',
+				snapshotDate: '2026-02-27',
+				parserVersion: 'v1',
+				isProvisional: false
+			});
+
+			const cached = store.getLatestRawEndpointCache({
+				endpointId: 'leagueleaders',
+				paramsJson: JSON.stringify(params),
+				parserVersion: 'v1',
+				snapshotDate: '2026-02-26'
+			});
+
+			assert.equal(cached, null);
+		} finally {
+			store.close();
+		}
+	});
+
 	test('starts and completes nightly runs', () => {
 		const store = new DataStore({ dbPath: ':memory:' });
 		try {

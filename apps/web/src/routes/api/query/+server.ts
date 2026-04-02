@@ -1,7 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { PlannerService } from '$lib/server/planner/service';
 import { createPlannerService } from '$lib/server/planner/service';
-import { createOpenAIPlannerAdapter } from '$lib/server/planner/openai-adapter';
 import {
 	buildSemanticNonOkResponse,
 	executeSemanticQuery,
@@ -18,6 +17,7 @@ type QueryRouteDependencies = {
 
 let testDependencies: QueryRouteDependencies | null = null;
 let defaultPlannerService: PlannerService | null = null;
+let testDefaultPlannerFactory: (() => Promise<PlannerService>) | null = null;
 
 /**
  * Allows route tests to isolate planner and executor behavior without relying on live model calls.
@@ -43,6 +43,14 @@ export function _setQueryRouteDependenciesForTests(
 		validateSemanticQueryRequest,
 		buildSemanticNonOkResponse
 	};
+}
+
+/**
+ * Allows route tests to prove injected dependencies bypass default planner creation.
+ */
+export function _setDefaultPlannerFactoryForTests(factory: (() => Promise<PlannerService>) | null): void {
+	testDefaultPlannerFactory = factory;
+	defaultPlannerService = null;
 }
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -98,16 +106,32 @@ function getDependencies(): QueryRouteDependencies {
 		return testDependencies;
 	}
 
-	if (!defaultPlannerService) {
-		defaultPlannerService = createPlannerService(createOpenAIPlannerAdapter());
-	}
-
 	return {
-		planner: defaultPlannerService,
+		planner: {
+			planQuestion: async (question) => {
+				const planner = await getDefaultPlannerService();
+				return planner.planQuestion(question);
+			}
+		},
 		executeSemanticQuery,
 		validateSemanticQueryRequest,
 		buildSemanticNonOkResponse
 	};
+}
+
+async function getDefaultPlannerService(): Promise<PlannerService> {
+	if (defaultPlannerService) {
+		return defaultPlannerService;
+	}
+
+	if (testDefaultPlannerFactory) {
+		defaultPlannerService = await testDefaultPlannerFactory();
+		return defaultPlannerService;
+	}
+
+	const { createOpenAIPlannerAdapter } = await import('$lib/server/planner/openai-adapter');
+	defaultPlannerService = createPlannerService(createOpenAIPlannerAdapter());
+	return defaultPlannerService;
 }
 
 function validateQueryQuestionRequest(input: unknown): { ok: true; value: { question: string } } | { ok: false; error: string } {
