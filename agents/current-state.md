@@ -4,9 +4,9 @@ This file is the short source of truth for future agents. Use it before relying 
 
 ## Shipped Engine State
 
-- The production query boundary is the semantic executor in `apps/web/src/lib/server/semantic/query-service.ts`.
+- The production query runtime is `POST /api/query` in front of the semantic executor in `apps/web/src/lib/server/semantic/query-service.ts`.
 - `POST /api/stats/query` is the primary structured tool contract.
-- `POST /api/chat/query` is a natural-language wrapper over the same semantic executor.
+- `POST /api/query` is the primary natural-language planner route.
 - `GET /api/query-trace/:traceId` returns semantic trace payloads with canonical `resolvedQuery`, cache/freshness data, warnings, and source calls.
 - Supported semantic query families today:
   - player rankings
@@ -14,6 +14,7 @@ This file is the short source of truth for future agents. Use it before relying 
   - player comparisons
   - team defensive rankings
 - Structured responses should be treated as the core artifact. Summaries are secondary to canonical rows.
+- The planner is intentionally closed to the same four supported stats shapes as the executor.
 
 ## Data and Resolution State
 
@@ -21,12 +22,12 @@ This file is the short source of truth for future agents. Use it before relying 
 - Finalized nightly ingestion/materialization is still not implemented yet, so missing stored endpoint data currently returns typed `coverage_gap` responses.
 - Player resolution now goes through the shared seeded player-directory snapshot in `apps/web/src/lib/server/players/player-directory.ts`.
 - Curated aliases sit on top of canonical player identity; do not reintroduce ad hoc player name maps in new execution code.
+- Slice 2 planning is now locked around a nightly bootstrap CLI/service that writes authoritative nightly raw-cache rows and teaches reads to use the latest stored snapshot at or before the query date.
 
 ## Trace and Session State
 
 - Traces should expose canonicalized execution state through `resolvedQuery`, not raw caller input when normalization/resolution changed it.
-- `sessionId` is currently validated at the chat boundary, but the app does not yet persist or reload conversational state from it.
-- Follow-up chips in the UI are a convenience affordance, not evidence of real multi-turn engine memory.
+- The production natural-language route no longer uses `sessionId`; the UI should not imply real conversational memory.
 
 ## Legacy Boundary
 
@@ -36,8 +37,8 @@ This file is the short source of truth for future agents. Use it before relying 
 
 ## Near-Term Gaps
 
-- broader NL planning beyond the current supported query families
 - nightly-first materialization and stored-data-first reads
+- broader NL planning beyond the current supported query families
 - derived/computed metric execution
 - persisted session grounding
 - richer answer/artifact composition on top of structured rows

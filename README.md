@@ -2,12 +2,12 @@
 
 AI-powered NBA natural-language search engine.
 
-Hoop Hub is currently a single Bun + SvelteKit app that answers grounded NBA stats questions through a semantic executor, backed by official NBA endpoint retrieval, SQLite caching, and semantic traces.
+Hoop Hub is currently a single Bun + SvelteKit app that answers grounded NBA stats questions through an OpenAI planner plus semantic executor runtime, backed by official NBA endpoint retrieval, SQLite caching, and semantic traces.
 
 ## Current Scope
 
 - Primary structured route: `POST /api/stats/query`
-- Natural-language wrapper: `POST /api/chat/query`
+- Primary natural-language route: `POST /api/query`
 - Trace route: `GET /api/query-trace/:traceId`
 - Supported semantic query families:
   - player rankings
@@ -16,9 +16,10 @@ Hoop Hub is currently a single Bun + SvelteKit app that answers grounded NBA sta
   - team defensive rankings
 - Player resolution uses the shared seeded player-directory snapshot and curated aliases.
 - Semantic query execution now reads stored endpoint payloads only. Nightly ingestion/materialization still needs to populate that cache more fully.
-- `sessionId` is validated at the chat boundary but does not yet persist conversational context.
+- The planner currently stays closed to the same four supported stats shapes as the semantic executor.
 
 Detailed implementation context for future agents lives in [agents/current-state.md](agents/current-state.md) and [`.docs/PLAN.md`](.docs/PLAN.md).
+The current slice-2 PRD lives in [`.docs/prds/nightly-stats-materialization-bootstrap-slice-2.md`](.docs/prds/nightly-stats-materialization-bootstrap-slice-2.md).
 
 ## TODO
 
