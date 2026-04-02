@@ -1,6 +1,10 @@
 import type { SemanticQuery, StatsQueryWarning } from './semantic-query';
 
-export type PlannerWarningCode = 'unsupported_query_shape' | 'unsupported_metric' | 'clarification_needed';
+export type PlannerWarningCode =
+	| 'unsupported_query_shape'
+	| 'unsupported_metric'
+	| 'clarification_needed'
+	| 'missing_metric';
 
 export type PlannerDecision =
 	| {

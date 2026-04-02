@@ -36,26 +36,84 @@ function isStringArray(value: unknown): value is string[] {
 	return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
+function validateSubject(
+	subject: unknown,
+	requirement: 'empty' | 'non_empty'
+): subject is SemanticQuery['subject'] {
+	if (!isPlainObject(subject)) {
+		return false;
+	}
+
+	const names = subject.names;
+	const ids = subject.ids;
+	if ((names !== undefined && !isStringArray(names)) || (ids !== undefined && !isStringArray(ids))) {
+		return false;
+	}
+
+	const subjectCount = (names?.length ?? 0) + (ids?.length ?? 0);
+	if (requirement === 'empty') {
+		return subjectCount === 0;
+	}
+
+	return subjectCount > 0;
+}
+
+function validateWindow(window: unknown): boolean {
+	if (window === null || window === undefined) {
+		return true;
+	}
+
+	if (!isPlainObject(window)) {
+		return false;
+	}
+
+	if (window.type !== 'last_n_games') {
+		return false;
+	}
+
+	const n = typeof window.n === 'number' ? window.n : Number.NaN;
+	return Number.isInteger(n) && n > 0;
+}
+
+function validateFilters(filters: unknown): filters is SemanticQuery['filters'] {
+	if (!isPlainObject(filters)) {
+		return false;
+	}
+
+	const season = filters.season;
+	if (season !== null && season !== undefined && typeof season !== 'string') {
+		return false;
+	}
+
+	if (!validateWindow(filters.window)) {
+		return false;
+	}
+
+	if (filters.dateFrom !== null && filters.dateFrom !== undefined) {
+		return false;
+	}
+
+	if (filters.dateTo !== null && filters.dateTo !== undefined) {
+		return false;
+	}
+
+	if (filters.seasonType !== null && filters.seasonType !== undefined && typeof filters.seasonType !== 'string') {
+		return false;
+	}
+
+	return true;
+}
+
 function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 	if (!isPlainObject(query)) {
 		return false;
 	}
 
-	if (query.operation !== 'rank' || query.entity !== 'player') {
+	if (query.entity !== 'player') {
 		return false;
 	}
 
-	if (!isPlainObject(query.subject)) {
-		return false;
-	}
-
-	const names = query.subject.names;
-	const ids = query.subject.ids;
-	if ((names !== undefined && !isStringArray(names)) || (ids !== undefined && !isStringArray(ids))) {
-		return false;
-	}
-
-	if ((names?.length ?? 0) > 0 || (ids?.length ?? 0) > 0) {
+	if (query.operation !== 'rank' && query.operation !== 'trend') {
 		return false;
 	}
 
@@ -63,28 +121,14 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 		return false;
 	}
 
-	if (!isPlainObject(query.filters)) {
+	if (!validateFilters(query.filters)) {
 		return false;
 	}
 
-	const season = query.filters.season;
-	if (season !== null && season !== undefined && typeof season !== 'string') {
-		return false;
-	}
-
-	if (query.filters.window !== null && query.filters.window !== undefined) {
-		return false;
-	}
-
-	if (query.filters.dateFrom !== null && query.filters.dateFrom !== undefined) {
-		return false;
-	}
-
-	if (query.filters.dateTo !== null && query.filters.dateTo !== undefined) {
-		return false;
-	}
-
-	if (query.filters.seasonType !== null && query.filters.seasonType !== undefined && typeof query.filters.seasonType !== 'string') {
+	if (
+		(query.operation === 'rank' && !validateSubject(query.subject, 'empty')) ||
+		(query.operation === 'trend' && !validateSubject(query.subject, 'non_empty'))
+	) {
 		return false;
 	}
 
@@ -156,7 +200,8 @@ function validatePlannerDecision(input: unknown): { ok: true; value: PlannerDeci
 		if (
 			input.warning.code !== 'unsupported_query_shape' &&
 			input.warning.code !== 'unsupported_metric' &&
-			input.warning.code !== 'clarification_needed'
+			input.warning.code !== 'clarification_needed' &&
+			input.warning.code !== 'missing_metric'
 		) {
 			return { ok: false, error: 'Planner warning code is not supported.' };
 		}

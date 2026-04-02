@@ -9,10 +9,10 @@
 - PRD sliced into implementation issues `#10` through `#14`, and the approved execution graph was mirrored into `.sandcastle/tasks.yaml`.
 - Slice `planner_runtime_rankings` established `POST /api/query` as the new planner boundary for supported player-ranking asks, with planner output revalidated through the structured semantic contract before executor delegation.
 - Planner non-ok decisions now persist semantic traces with `resolvedQuery: null` and no source calls, so unsupported coverage stays debuggable without implying execution happened.
+- Slice `planner_player_trends` extends that boundary to player trends with safe planner-side metric clarification: scoring language can infer `pts`, explicit last-N windows stay in the planned query, and vague trend asks should stop with `clarification_needed` plus `missing_metric` instead of guessing.
 ## planner_runtime_rankings
 
 - Title: Establish /api/query planner runtime for player rankings and typed unsupported gaps
 - Module scope: planner contracts and schema, OpenAI planner adapter, planner service, query route orchestration, trace persistence for planner non-ok responses
 - Interface contract: POST /api/query accepts { question: string } | public response remains StatsQueryResponse | POST /api/stats/query remains the direct structured executor route | planner outputs a closed validated decision contract before executor delegation
 - Tests: add deterministic planner service tests for planned and coverage-gap decisions | add /api/query route tests for rankings, unsupported asks, and server-error behavior | keep existing executor tests green
-

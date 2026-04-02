@@ -19,7 +19,7 @@ const PLANNER_OUTPUT_SCHEMA = {
 				properties: {
 					operation: {
 						type: 'string',
-						enum: ['rank']
+						enum: ['rank', 'trend']
 					},
 					entity: {
 						type: 'string',
@@ -56,7 +56,19 @@ const PLANNER_OUTPUT_SCHEMA = {
 								type: ['string', 'null']
 							},
 							window: {
-								type: 'null'
+								type: ['object', 'null'],
+								additionalProperties: false,
+								properties: {
+									type: {
+										type: 'string',
+										enum: ['last_n_games']
+									},
+									n: {
+										type: 'integer',
+										minimum: 1
+									}
+								},
+								required: ['type', 'n']
 							},
 							dateFrom: {
 								type: 'null'
@@ -96,7 +108,7 @@ const PLANNER_OUTPUT_SCHEMA = {
 				properties: {
 					code: {
 						type: 'string',
-						enum: ['unsupported_query_shape', 'unsupported_metric', 'clarification_needed']
+						enum: ['unsupported_query_shape', 'unsupported_metric', 'clarification_needed', 'missing_metric']
 					},
 					message: { type: 'string' }
 				},
@@ -182,12 +194,17 @@ function buildPlannerMessages(question: string): ChatCompletionMessageParam[] {
 		{
 			role: 'system',
 			content:
-				'You plan NBA stats questions into a closed contract. Only support player ranking questions. Do not resolve player identity. If the question is unsupported, return coverage_gap.'
+				'You plan NBA stats questions into a closed contract. Only support player ranking and player trend questions in this slice. Do not resolve player identity into canonical ids. If the question is unsupported, return coverage_gap.'
 		},
 		{
 			role: 'system',
 			content:
-				"Allowed metrics for rankings in this slice are canonical metric ids already used by the executor, such as pts, ast, reb, stl, blk. Use rank/player only, keep subject empty, and set orderBy to the same metric descending."
+				"Allowed metric ids in this slice are canonical executor ids such as pts, ast, and reb. For rankings, use rank/player, keep subject empty, and set orderBy to the same metric descending. For player trends, use trend/player, include exactly one raw player name in subject.names, preserve explicit rolling windows like last 5 as filters.window, and use outputMode timeseries."
+		},
+		{
+			role: 'system',
+			content:
+				"If a trend question uses scoring language like scored or scoring, infer metric pts. If a trend question names a player and window but does not safely imply a metric, return clarification_needed with warning code missing_metric. The executor remains the grounding authority."
 		},
 		{
 			role: 'user',

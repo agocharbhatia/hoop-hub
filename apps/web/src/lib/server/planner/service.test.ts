@@ -3,6 +3,8 @@ import { describe, test } from 'node:test';
 import type { SemanticQuery } from '$lib/contracts/semantic-query';
 import { createPlannerService, type PlannerAdapter } from './service';
 
+/* Helper functions */
+
 function buildRankingQuery(metric: string): SemanticQuery {
 	return {
 		operation: 'rank',
@@ -22,6 +24,30 @@ function buildRankingQuery(metric: string): SemanticQuery {
 		},
 		limit: 10,
 		outputMode: 'table'
+	};
+}
+
+function buildTrendQuery(metric: string, n: number): SemanticQuery {
+	return {
+		operation: 'trend',
+		entity: 'player',
+		subject: {
+			names: ['Jokic']
+		},
+		metrics: [metric],
+		filters: {
+			season: null,
+			seasonType: null,
+			window: {
+				type: 'last_n_games',
+				n
+			},
+			dateFrom: null,
+			dateTo: null
+		},
+		orderBy: null,
+		limit: null,
+		outputMode: 'timeseries'
 	};
 }
 
@@ -51,6 +77,49 @@ describe('createPlannerService', () => {
 		assert.equal(decision.query.operation, 'rank');
 		assert.equal(decision.query.entity, 'player');
 		assert.deepEqual(decision.query.metrics, ['ast']);
+	});
+
+	test('returns planned decisions for scoring-language player trends and preserves rolling windows', async () => {
+		const planner = createPlannerService(
+			createAdapter({
+				type: 'planned',
+				query: buildTrendQuery('pts', 5)
+			})
+		);
+
+		const decision = await planner.planQuestion('How has Jokic scored over his last 5?');
+
+		assert.equal(decision.type, 'planned');
+		if (decision.type !== 'planned') {
+			throw new Error('Expected planned decision.');
+		}
+		assert.equal(decision.query.operation, 'trend');
+		assert.equal(decision.query.entity, 'player');
+		assert.deepEqual(decision.query.metrics, ['pts']);
+		assert.deepEqual(decision.query.filters.window, {
+			type: 'last_n_games',
+			n: 5
+		});
+	});
+
+	test('returns typed clarification_needed decisions for vague trend asks with no metric', async () => {
+		const planner = createPlannerService(
+			createAdapter({
+				type: 'clarification_needed',
+				warning: {
+					code: 'missing_metric',
+					message: 'Player trend questions need a metric like points, assists, or rebounds.'
+				}
+			})
+		);
+
+		const decision = await planner.planQuestion('Show me Jokic over his last 5');
+
+		assert.equal(decision.type, 'clarification_needed');
+		if (decision.type !== 'clarification_needed') {
+			throw new Error('Expected clarification_needed decision.');
+		}
+		assert.equal(decision.warning.code, 'missing_metric');
 	});
 
 	test('returns typed coverage gaps for unsupported asks', async () => {

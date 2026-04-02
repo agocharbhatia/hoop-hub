@@ -129,6 +129,110 @@ describe('POST /api/query', () => {
 		assert.deepEqual(payload.provenance.sourceCalls, []);
 	});
 
+	test('executes supported scoring-language player trend questions through the planner route', async () => {
+		let executedRequest: SemanticQueryRequest | null = null;
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<PlannerDecision> {
+				return {
+					type: 'planned',
+					query: {
+						operation: 'trend',
+						entity: 'player',
+						subject: {
+							names: ['Jokic']
+						},
+						metrics: ['pts'],
+						filters: {
+							season: null,
+							seasonType: null,
+							window: {
+								type: 'last_n_games',
+								n: 5
+							},
+							dateFrom: null,
+							dateTo: null
+						},
+						orderBy: null,
+						limit: null,
+						outputMode: 'timeseries'
+					}
+				};
+			},
+			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
+				executedRequest = request;
+				return {
+					status: 'ok',
+					result: {
+						shape: 'timeseries',
+						columns: ['gameDate', 'metric', 'value'],
+						rows: [{ gameDate: '2024-03-01', metric: 'pts', value: 32 }]
+					},
+					citations: [],
+					provenance: {
+						executor: 'semantic_executor',
+						resolvedQuery: request.query,
+						dataFreshnessMode: 'nightly',
+						sourceCalls: []
+					},
+					warnings: [],
+					traceId: 'trace-trend'
+				};
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'How has Jokic scored over his last 5?'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as StatsQueryResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.notEqual(executedRequest, null);
+		assert.deepEqual(executedRequest!.query.metrics, ['pts']);
+		assert.deepEqual(executedRequest!.query.filters.window, {
+			type: 'last_n_games',
+			n: 5
+		});
+	});
+
+	test('returns clarification_needed for vague trend questions without calling the executor', async () => {
+		let executorCalls = 0;
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<PlannerDecision> {
+				return {
+					type: 'clarification_needed',
+					warning: {
+						code: 'missing_metric',
+						message: 'Player trend questions need a metric like points, assists, or rebounds.'
+					}
+				};
+			},
+			async executeSemanticQuery(): Promise<StatsQueryResponse> {
+				executorCalls += 1;
+				throw new Error('Executor should not be called.');
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'Show me Jokic over his last 5'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as StatsQueryResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'clarification_needed');
+		assert.equal(executorCalls, 0);
+		assert.equal(payload.warnings[0]?.code, 'missing_metric');
+		assert.equal(payload.provenance.resolvedQuery, null);
+	});
+
 	test('returns 500 when the planner fails or returns invalid output', async () => {
 		let executorCalls = 0;
 		_setQueryRouteDependenciesForTests({
