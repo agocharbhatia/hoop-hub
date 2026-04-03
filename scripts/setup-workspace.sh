@@ -14,7 +14,8 @@ print_usage() {
   cat <<'EOF'
 Usage: ./scripts/setup-workspace.sh [--dry-run]
 
-Installs workspace dependencies and seeds local environment files when missing.
+Installs workspace dependencies, seeds local environment files when missing,
+and bootstraps fixture-backed nightly data for local development.
 EOF
 }
 
@@ -45,6 +46,10 @@ require_command() {
 
   echo "[setup-workspace] ERROR: required command not found: $command_name" >&2
   exit 1
+}
+
+resolve_default_db_path() {
+  node -e "const {createHash}=require('crypto'); const {resolve}=require('path'); const {homedir}=require('os'); const cwd=process.cwd(); const hash=createHash('sha256').update(cwd).digest('hex').slice(0, 12); console.log(resolve(homedir(), '.hoop-hub', 'data', hash, 'hoop-hub.sqlite'));"
 }
 
 install_bun_dependencies() {
@@ -78,6 +83,25 @@ seed_env_file() {
   run_step "creating $target_rel_path from $example_rel_path" cp "$example_path" "$target_path"
 }
 
+bootstrap_fixture_data() {
+  local abs_dir="$ROOT_DIR/apps/web"
+
+  if [[ ! -d "$abs_dir" ]]; then
+    echo "[setup-workspace] skipping fixture bootstrap because apps/web is missing"
+    return
+  fi
+
+  local bootstrap_slate_date
+  bootstrap_slate_date="$(date +%F)"
+  local db_path
+  db_path="$(cd "$abs_dir" && resolve_default_db_path)"
+
+  echo "[setup-workspace] using fixture bootstrap DB: $db_path"
+  run_step \
+    "bootstrapping fixture nightly data for slate $bootstrap_slate_date" \
+    bash -lc "cd \"$abs_dir\" && bun run nightly:bootstrap -- --fixture-data --slate-date \"$bootstrap_slate_date\""
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run)
@@ -105,5 +129,7 @@ seed_env_file ".env.example" ".env"
 for app_dir in "${APP_DIRS[@]}"; do
   install_bun_dependencies "$app_dir"
 done
+
+bootstrap_fixture_data
 
 echo "[setup-workspace] Workspace setup complete."

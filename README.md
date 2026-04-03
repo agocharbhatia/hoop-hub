@@ -75,8 +75,13 @@ Repo helpers:
 ```bash
 ./scripts/run-all.sh
 ./scripts/setup-workspace.sh
+./scripts/bootstrap-live-data.sh 2026-04-01
 ./scripts/teardown-workspace.sh
 ```
+
+`./scripts/setup-workspace.sh` now installs dependencies, seeds missing env files, and bootstraps fixture-backed nightly data for the current date so new workspaces can answer supported demo queries immediately.
+
+`./scripts/bootstrap-live-data.sh YYYY-MM-DD` deletes the current workspace DB if it exists and then runs a fresh live nightly bootstrap for that slate date.
 
 ### Verify
 

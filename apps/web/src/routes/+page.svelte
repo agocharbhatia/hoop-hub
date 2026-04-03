@@ -1,10 +1,12 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { IconSend2, IconBallBasketball } from '@tabler/icons-svelte';
 	import type { ErrorResponse } from '$lib/contracts/chat';
 	import type { StatsQueryResponse } from '$lib/contracts/semantic-query';
+	import { getAssistantMessageContent } from '$lib/presentation/query-response';
 
 	interface Message {
 		id: string;
@@ -32,7 +34,7 @@
 	}
 
 	async function sendMessage(content: string) {
-		if (!content.trim() || isLoading) return;
+		if (!browser || !content.trim() || isLoading) return;
 
 		const userMessage: Message = {
 			id: crypto.randomUUID(),
@@ -48,7 +50,7 @@
 		setTimeout(scrollToBottom, 0);
 
 		try {
-			const result = await fetch('/api/query', {
+			const result = await window.fetch('/api/query', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ question: content.trim() })
@@ -59,11 +61,7 @@
 			const assistantMessage: Message = {
 				id: crypto.randomUUID(),
 				role: 'assistant',
-				content: result.ok
-					? (data as StatsQueryResponse).result?.summary ?? 'No results found for this query.'
-					: 'error' in data
-						? data.error
-						: 'Unable to process this query.',
+				content: getAssistantMessageContent(result.ok, data),
 				data: result.ok ? (data as StatsQueryResponse) : undefined,
 				timestamp: new Date()
 			};
