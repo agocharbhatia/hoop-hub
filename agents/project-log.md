@@ -141,3 +141,4 @@
 - Nightly run bookkeeping now records a real completion timestamp instead of echoing the run start time into `completedAt`, so long-running live passes no longer look instantaneous in persisted diagnostics.
 - Workspace bootstrap now seeds fixture-backed nightly data from `scripts/setup-workspace.sh`, so a fresh worktree starts with a usable local supported-query surface instead of immediate `nightly_data_unavailable` gaps.
 - A dedicated `scripts/bootstrap-live-data.sh` helper now deletes the current workspace DB and reruns the live nightly bootstrap for a chosen slate date, keeping fixture-seeded local setup and real-data refresh paths separate.
+- Workspace setup now copies `.env` and `apps/web/.env` from `SUPERSET_ROOT_PATH` when Superset provides a root-repo path, and only falls back to local `.env.example` files when the workspace does not already have a local env file to preserve.

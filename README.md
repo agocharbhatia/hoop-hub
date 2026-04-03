@@ -79,7 +79,7 @@ Repo helpers:
 ./scripts/teardown-workspace.sh
 ```
 
-`./scripts/setup-workspace.sh` now installs dependencies, seeds missing env files, and bootstraps fixture-backed nightly data for the current date so new workspaces can answer supported demo queries immediately.
+`./scripts/setup-workspace.sh` now installs dependencies, copies matching repo env files such as `.env` and `apps/web/.env` from `SUPERSET_ROOT_PATH` when available, otherwise seeds missing env files from local examples, and bootstraps fixture-backed nightly data for the current date so new workspaces can answer supported demo queries immediately.
 
 `./scripts/bootstrap-live-data.sh YYYY-MM-DD` deletes the current workspace DB if it exists and then runs a fresh live nightly bootstrap for that slate date.
 

@@ -15,7 +15,8 @@ print_usage() {
 Usage: ./scripts/setup-workspace.sh [--dry-run]
 
 Installs workspace dependencies, seeds local environment files when missing,
-and bootstraps fixture-backed nightly data for local development.
+copies root env files into the workspace when available, and bootstraps
+fixture-backed nightly data for local development.
 EOF
 }
 
@@ -71,7 +72,7 @@ seed_env_file() {
   local target_path="$ROOT_DIR/$target_rel_path"
 
   if [[ -f "$target_path" ]]; then
-    echo "[setup-workspace] keeping existing $(basename "$target_rel_path")"
+    echo "[setup-workspace] keeping existing $target_rel_path"
     return
   fi
 
@@ -81,6 +82,43 @@ seed_env_file() {
   fi
 
   run_step "creating $target_rel_path from $example_rel_path" cp "$example_path" "$target_path"
+}
+
+copy_root_env_file() {
+  local workspace_rel_path="$1"
+  local workspace_path="$ROOT_DIR/$workspace_rel_path"
+  local root_repo_path="${SUPERSET_ROOT_PATH:-}"
+  local root_env_path
+
+  if [[ -f "$workspace_path" ]]; then
+    return
+  fi
+
+  if [[ -z "$root_repo_path" ]]; then
+    return
+  fi
+
+  root_env_path="$root_repo_path/$workspace_rel_path"
+  if [[ ! -f "$root_env_path" ]]; then
+    echo "[setup-workspace] skipping missing root env file: $root_env_path"
+    return
+  fi
+
+  run_step "copying $workspace_rel_path from SUPERSET_ROOT_PATH" cp "$root_env_path" "$workspace_path"
+}
+
+ensure_workspace_env_file() {
+  local workspace_rel_path="$1"
+  local example_rel_path="$2"
+  local workspace_path="$ROOT_DIR/$workspace_rel_path"
+
+  if [[ -f "$workspace_path" ]]; then
+    echo "[setup-workspace] keeping existing $workspace_rel_path"
+    return
+  fi
+
+  copy_root_env_file "$workspace_rel_path"
+  seed_env_file "$example_rel_path" "$workspace_rel_path"
 }
 
 bootstrap_fixture_data() {
@@ -124,7 +162,8 @@ echo "[setup-workspace] Preparing workspace at $ROOT_DIR"
 
 require_command bun
 
-seed_env_file ".env.example" ".env"
+ensure_workspace_env_file ".env" ".env.example"
+ensure_workspace_env_file "apps/web/.env" "apps/web/.env.example"
 
 for app_dir in "${APP_DIRS[@]}"; do
   install_bun_dependencies "$app_dir"

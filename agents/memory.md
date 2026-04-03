@@ -70,3 +70,4 @@
 
 - New workspaces should be bootstrapped with fixture-backed nightly data during setup so the supported local demo surface works immediately after install.
 - Fresh live validation should use a separate reset-and-bootstrap flow that deletes the current workspace DB first, rather than layering live ingest on top of fixture-seeded local state.
+- Workspace setup should prefer copying repo env files from `SUPERSET_ROOT_PATH` into the worktree, including app-local envs like `apps/web/.env`, while still preserving any env files that already exist in the workspace.
