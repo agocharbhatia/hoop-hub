@@ -124,6 +124,61 @@ describe('POST /api/query integration', () => {
 		assert.equal(payload.traceId.length > 0, true);
 	});
 
+	test('reuses the latest prior nightly snapshot when the query runs the next day', async () => {
+		process.env.HOOP_HUB_DB_PATH = ':memory:';
+		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '0';
+		resetDataStoreForTests();
+		seedSemanticFixtureCache(new Date('2026-03-24T12:00:00.000Z'));
+
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<PlannerDecision> {
+				return {
+					type: 'planned',
+					query: {
+						operation: 'rank',
+						entity: 'player',
+						subject: {},
+						metrics: ['ast'],
+						filters: {
+							season: '2023-24',
+							seasonType: null,
+							window: null,
+							dateFrom: null,
+							dateTo: null
+						},
+						orderBy: {
+							metric: 'ast',
+							direction: 'desc'
+						},
+						limit: 10,
+						outputMode: 'table'
+					}
+				};
+			},
+			executeSemanticQuery(request) {
+				return executeSemanticQuery(request, new Date('2026-03-25T12:00:00.000Z'));
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'Who averaged the most assists in 2023-24?'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as StatsQueryResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.provenance.dataFreshnessMode, 'nightly');
+		assert.equal(payload.provenance.sourceCalls[0]?.cacheStatus, 'stale_hit');
+		if (payload.result === null) {
+			throw new Error('Expected ranking result for next-day nightly snapshot reuse.');
+		}
+		assert.equal(payload.result.shape, 'ranking');
+	});
+
 	test('resolves arbitrary exact-name player trends through the shared full-directory resolver', async () => {
 		usePlannerDecision({
 			type: 'planned',

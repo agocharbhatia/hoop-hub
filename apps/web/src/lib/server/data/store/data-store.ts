@@ -1,9 +1,18 @@
 import { mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import type { DataFreshnessMode, TraceSourceCall } from '$lib/contracts/chat';
-import { computePayloadChecksum } from './cache-key';
+import { computePayloadChecksum, stableStringify } from './cache-key';
 
-const DEFAULT_DB_FILE = resolve(process.cwd(), '.data', 'hoop-hub.sqlite');
+function buildDefaultDbFile(): string {
+	const cwd = process.cwd();
+	const cwdHash = createHash('sha256').update(cwd).digest('hex').slice(0, 12);
+	return resolve(homedir(), '.hoop-hub', 'data', cwdHash, 'hoop-hub.sqlite');
+}
+
+const DEFAULT_DB_FILE = buildDefaultDbFile();
 
 const SCHEMA_STATEMENTS = [
 	`CREATE TABLE IF NOT EXISTS raw_endpoint_cache (
@@ -29,6 +38,24 @@ const SCHEMA_STATEMENTS = [
 		error_summary TEXT
 	)`,
 	'CREATE INDEX IF NOT EXISTS idx_nightly_runs_slate_status ON nightly_runs (slate_date, status)',
+	`CREATE TABLE IF NOT EXISTS nightly_run_requests (
+		slate_date TEXT NOT NULL,
+		request_key TEXT NOT NULL,
+		endpoint_id TEXT NOT NULL,
+		params_json TEXT NOT NULL,
+		phase TEXT NOT NULL CHECK (phase IN ('league_wide', 'comparison', 'trend', 'historical')),
+		status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed')),
+		attempt_count INTEGER NOT NULL DEFAULT 0,
+		last_run_id TEXT NOT NULL,
+		last_error TEXT,
+		satisfied_from_cache INTEGER NOT NULL CHECK (satisfied_from_cache IN (0, 1)),
+		created_at TEXT NOT NULL,
+		started_at TEXT,
+		completed_at TEXT,
+		updated_at TEXT NOT NULL,
+		PRIMARY KEY (slate_date, request_key)
+	)`,
+	'CREATE INDEX IF NOT EXISTS idx_nightly_run_requests_slate_status ON nightly_run_requests (slate_date, status, phase)',
 	`CREATE TABLE IF NOT EXISTS query_trace_source_calls (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		trace_id TEXT NOT NULL,
@@ -102,6 +129,23 @@ type NightlyRunRow = {
 	error_summary: string | null;
 };
 
+type NightlyRunRequestRow = {
+	slate_date: string;
+	request_key: string;
+	endpoint_id: string;
+	params_json: string;
+	phase: NightlyRunRequestPhase;
+	status: NightlyRunRequestStatus;
+	attempt_count: number;
+	last_run_id: string;
+	last_error: string | null;
+	satisfied_from_cache: 0 | 1;
+	created_at: string;
+	started_at: string | null;
+	completed_at: string | null;
+	updated_at: string;
+};
+
 type TraceSourceCallRow = {
 	endpoint_id: string;
 	cache_status: TraceSourceCall['cacheStatus'];
@@ -139,9 +183,20 @@ export type PutRawEndpointCacheInput = Omit<RawEndpointCacheRecord, 'checksum'> 
 	checksum?: string;
 };
 
+export type RawEndpointCacheLookup = {
+	endpointId: string;
+	paramsJson: string;
+	parserVersion: string;
+	snapshotDate: string;
+};
+
 export type NightlyRunStatus = 'running' | 'completed' | 'failed' | 'partial';
 
 export type NightlyRunFinalizedBy = 'game_complete_aware' | 'cutoff_fallback';
+
+export type NightlyRunRequestPhase = 'league_wide' | 'comparison' | 'trend' | 'historical';
+
+export type NightlyRunRequestStatus = 'pending' | 'running' | 'succeeded' | 'failed';
 
 export type NightlyRunRecord = {
 	runId: string;
@@ -151,6 +206,23 @@ export type NightlyRunRecord = {
 	status: NightlyRunStatus;
 	finalizedBy: NightlyRunFinalizedBy | null;
 	errorSummary: string | null;
+};
+
+export type NightlyRunRequestRecord = {
+	slateDate: string;
+	requestKey: string;
+	endpointId: string;
+	paramsJson: string;
+	phase: NightlyRunRequestPhase;
+	status: NightlyRunRequestStatus;
+	attemptCount: number;
+	lastRunId: string;
+	lastError: string | null;
+	satisfiedFromCache: boolean;
+	createdAt: string;
+	startedAt: string | null;
+	completedAt: string | null;
+	updatedAt: string;
 };
 
 export type PlayerDirectoryEntryRecord = {
@@ -183,6 +255,41 @@ export type CompleteNightlyRunInput = {
 	errorSummary?: string | null;
 };
 
+export type UpsertNightlyRunRequestsInput = {
+	runId: string;
+	slateDate: string;
+	createdAt: string;
+	requests: Array<{
+		requestKey: string;
+		endpointId: string;
+		paramsJson: string;
+		phase: NightlyRunRequestPhase;
+	}>;
+};
+
+export type MarkNightlyRunRequestRunningInput = {
+	runId: string;
+	slateDate: string;
+	requestKey: string;
+	startedAt: string;
+};
+
+export type MarkNightlyRunRequestSucceededInput = {
+	runId: string;
+	slateDate: string;
+	requestKey: string;
+	completedAt: string;
+	satisfiedFromCache: boolean;
+};
+
+export type MarkNightlyRunRequestFailedInput = {
+	runId: string;
+	slateDate: string;
+	requestKey: string;
+	completedAt: string;
+	errorDetail: string;
+};
+
 export type DataStoreOptions = {
 	dbPath?: string;
 };
@@ -198,7 +305,7 @@ function resolveDbPath(pathOverride?: string): string {
 
 function loadSqliteConstructor(): SqliteDatabaseConstructor | null {
 	try {
-		const requireFn = new Function('moduleName', 'return require(moduleName);') as (moduleName: string) => unknown;
+		const requireFn = createRequire(import.meta.url);
 		const moduleValue = requireFn('bun:sqlite') as
 			| { Database?: SqliteDatabaseConstructor; default?: { Database?: SqliteDatabaseConstructor } }
 			| undefined;
@@ -248,6 +355,25 @@ function mapNightlyRunRow(row: NightlyRunRow): NightlyRunRecord {
 	};
 }
 
+function mapNightlyRunRequestRow(row: NightlyRunRequestRow): NightlyRunRequestRecord {
+	return {
+		slateDate: row.slate_date,
+		requestKey: row.request_key,
+		endpointId: row.endpoint_id,
+		paramsJson: row.params_json,
+		phase: row.phase,
+		status: row.status,
+		attemptCount: row.attempt_count,
+		lastRunId: row.last_run_id,
+		lastError: row.last_error,
+		satisfiedFromCache: toBoolean(row.satisfied_from_cache),
+		createdAt: row.created_at,
+		startedAt: row.started_at,
+		completedAt: row.completed_at,
+		updatedAt: row.updated_at
+	};
+}
+
 function mapTraceSourceRows(rows: TraceSourceCallRow[]): TraceSourceBundle {
 	if (rows.length === 0) {
 		return {
@@ -281,10 +407,19 @@ function mapPlayerDirectoryEntryRow(row: PlayerDirectoryEntryRow): PlayerDirecto
 	};
 }
 
+function canonicalizeParamsJson(paramsJson: string): string {
+	try {
+		return stableStringify(JSON.parse(paramsJson));
+	} catch {
+		return paramsJson;
+	}
+}
+
 export class DataStore {
 	private readonly sqlite: SqliteDatabase | null;
 	private readonly rawCacheMemory = new Map<string, RawEndpointCacheRecord>();
 	private readonly nightlyRunsMemory = new Map<string, NightlyRunRecord>();
+	private readonly nightlyRunRequestsMemory = new Map<string, NightlyRunRequestRecord>();
 	private readonly traceSourceCallsMemory = new Map<string, TraceSourceBundle>();
 	private readonly playerDirectoryByIdMemory = new Map<string, PlayerDirectoryEntryRecord>();
 	private readonly playerDirectoryByNormalizedNameMemory = new Map<string, PlayerDirectoryEntryRecord[]>();
@@ -403,6 +538,41 @@ export class DataStore {
 		return mapRawEndpointCacheRow(row);
 	}
 
+	getLatestRawEndpointCache(lookup: RawEndpointCacheLookup): RawEndpointCacheRecord | null {
+		const canonicalParamsJson = canonicalizeParamsJson(lookup.paramsJson);
+
+		if (!this.sqlite) {
+			const records = Array.from(this.rawCacheMemory.values()).filter(
+				(record) =>
+					record.endpointId === lookup.endpointId &&
+					canonicalizeParamsJson(record.paramsJson) === canonicalParamsJson &&
+					record.parserVersion === lookup.parserVersion &&
+					record.snapshotDate <= lookup.snapshotDate
+			);
+
+			if (records.length === 0) {
+				return null;
+			}
+
+			return records.sort(
+				(a, b) => b.snapshotDate.localeCompare(a.snapshotDate) || b.fetchedAt.localeCompare(a.fetchedAt)
+			)[0];
+		}
+
+		const statement = this.sqlite.query<RawEndpointCacheRow, [string, string, string]>(
+			`SELECT * FROM raw_endpoint_cache
+			WHERE endpoint_id = ? AND parser_version = ? AND snapshot_date <= ?
+			ORDER BY snapshot_date DESC, fetched_at DESC`
+		);
+		const row = statement
+			.all([lookup.endpointId, lookup.parserVersion, lookup.snapshotDate])
+			.find((candidate) => canonicalizeParamsJson(candidate.params_json) === canonicalParamsJson);
+		if (!row) {
+			return null;
+		}
+		return mapRawEndpointCacheRow(row);
+	}
+
 	startNightlyRun(input: StartNightlyRunInput): NightlyRunRecord {
 		const record: NightlyRunRecord = {
 			runId: input.runId,
@@ -512,6 +682,257 @@ export class DataStore {
 			return null;
 		}
 		return mapNightlyRunRow(row);
+	}
+
+	upsertNightlyRunRequests(input: UpsertNightlyRunRequestsInput): NightlyRunRequestRecord[] {
+		if (!this.sqlite) {
+			for (const request of input.requests) {
+				const memoryKey = `${input.slateDate}:${request.requestKey}`;
+				const existing = this.nightlyRunRequestsMemory.get(memoryKey);
+				if (existing) {
+					this.nightlyRunRequestsMemory.set(memoryKey, {
+						...existing,
+						endpointId: request.endpointId,
+						paramsJson: request.paramsJson,
+						phase: request.phase,
+						updatedAt: existing.updatedAt
+					});
+					continue;
+				}
+
+				this.nightlyRunRequestsMemory.set(memoryKey, {
+					slateDate: input.slateDate,
+					requestKey: request.requestKey,
+					endpointId: request.endpointId,
+					paramsJson: request.paramsJson,
+					phase: request.phase,
+					status: 'pending',
+					attemptCount: 0,
+					lastRunId: input.runId,
+					lastError: null,
+					satisfiedFromCache: false,
+					createdAt: input.createdAt,
+					startedAt: null,
+					completedAt: null,
+					updatedAt: input.createdAt
+				});
+			}
+
+			return this.listNightlyRunRequestsForSlate(input.slateDate);
+		}
+
+		const statement = this.sqlite.query<unknown, Record<string, string>>(`
+			INSERT INTO nightly_run_requests (
+				slate_date,
+				request_key,
+				endpoint_id,
+				params_json,
+				phase,
+				status,
+				attempt_count,
+				last_run_id,
+				last_error,
+				satisfied_from_cache,
+				created_at,
+				started_at,
+				completed_at,
+				updated_at
+			) VALUES (
+				@slateDate,
+				@requestKey,
+				@endpointId,
+				@paramsJson,
+				@phase,
+				'pending',
+				0,
+				@runId,
+				NULL,
+				0,
+				@createdAt,
+				NULL,
+				NULL,
+				@createdAt
+			)
+			ON CONFLICT(slate_date, request_key) DO UPDATE SET
+				endpoint_id = excluded.endpoint_id,
+				params_json = excluded.params_json,
+				phase = excluded.phase
+		`);
+
+		const tx = this.sqlite.transaction((requests: UpsertNightlyRunRequestsInput['requests']) => {
+			for (const request of requests) {
+				statement.run({
+					slateDate: input.slateDate,
+					requestKey: request.requestKey,
+					endpointId: request.endpointId,
+					paramsJson: request.paramsJson,
+					phase: request.phase,
+					runId: input.runId,
+					createdAt: input.createdAt
+				});
+			}
+		});
+
+		tx(input.requests);
+		return this.listNightlyRunRequestsForSlate(input.slateDate);
+	}
+
+	markNightlyRunRequestRunning(input: MarkNightlyRunRequestRunningInput): NightlyRunRequestRecord | null {
+		if (!this.sqlite) {
+			const memoryKey = `${input.slateDate}:${input.requestKey}`;
+			const existing = this.nightlyRunRequestsMemory.get(memoryKey);
+			if (!existing) {
+				return null;
+			}
+
+			const updated: NightlyRunRequestRecord = {
+				...existing,
+				status: 'running',
+				attemptCount: existing.attemptCount + 1,
+				lastRunId: input.runId,
+				lastError: null,
+				startedAt: input.startedAt,
+				completedAt: null,
+				updatedAt: input.startedAt
+			};
+			this.nightlyRunRequestsMemory.set(memoryKey, updated);
+			return updated;
+		}
+
+		const statement = this.sqlite.query<unknown, Record<string, string>>(`
+			UPDATE nightly_run_requests
+			SET
+				status = 'running',
+				attempt_count = attempt_count + 1,
+				last_run_id = @runId,
+				last_error = NULL,
+				started_at = @startedAt,
+				completed_at = NULL,
+				updated_at = @startedAt
+			WHERE slate_date = @slateDate AND request_key = @requestKey
+		`);
+
+		statement.run({
+			runId: input.runId,
+			slateDate: input.slateDate,
+			requestKey: input.requestKey,
+			startedAt: input.startedAt
+		});
+
+		return this.getNightlyRunRequest(input.slateDate, input.requestKey);
+	}
+
+	markNightlyRunRequestSucceeded(input: MarkNightlyRunRequestSucceededInput): NightlyRunRequestRecord | null {
+		if (!this.sqlite) {
+			const memoryKey = `${input.slateDate}:${input.requestKey}`;
+			const existing = this.nightlyRunRequestsMemory.get(memoryKey);
+			if (!existing) {
+				return null;
+			}
+
+			const updated: NightlyRunRequestRecord = {
+				...existing,
+				status: 'succeeded',
+				lastRunId: input.runId,
+				lastError: null,
+				satisfiedFromCache: input.satisfiedFromCache,
+				completedAt: input.completedAt,
+				updatedAt: input.completedAt
+			};
+			this.nightlyRunRequestsMemory.set(memoryKey, updated);
+			return updated;
+		}
+
+		const statement = this.sqlite.query<unknown, Record<string, string | number>>(`
+			UPDATE nightly_run_requests
+			SET
+				status = 'succeeded',
+				last_run_id = @runId,
+				last_error = NULL,
+				satisfied_from_cache = @satisfiedFromCache,
+				completed_at = @completedAt,
+				updated_at = @completedAt
+			WHERE slate_date = @slateDate AND request_key = @requestKey
+		`);
+
+		statement.run({
+			runId: input.runId,
+			slateDate: input.slateDate,
+			requestKey: input.requestKey,
+			satisfiedFromCache: input.satisfiedFromCache ? 1 : 0,
+			completedAt: input.completedAt
+		});
+
+		return this.getNightlyRunRequest(input.slateDate, input.requestKey);
+	}
+
+	markNightlyRunRequestFailed(input: MarkNightlyRunRequestFailedInput): NightlyRunRequestRecord | null {
+		if (!this.sqlite) {
+			const memoryKey = `${input.slateDate}:${input.requestKey}`;
+			const existing = this.nightlyRunRequestsMemory.get(memoryKey);
+			if (!existing) {
+				return null;
+			}
+
+			const updated: NightlyRunRequestRecord = {
+				...existing,
+				status: 'failed',
+				lastRunId: input.runId,
+				lastError: input.errorDetail,
+				satisfiedFromCache: false,
+				completedAt: input.completedAt,
+				updatedAt: input.completedAt
+			};
+			this.nightlyRunRequestsMemory.set(memoryKey, updated);
+			return updated;
+		}
+
+		const statement = this.sqlite.query<unknown, Record<string, string | number>>(`
+			UPDATE nightly_run_requests
+			SET
+				status = 'failed',
+				last_run_id = @runId,
+				last_error = @errorDetail,
+				satisfied_from_cache = 0,
+				completed_at = @completedAt,
+				updated_at = @completedAt
+			WHERE slate_date = @slateDate AND request_key = @requestKey
+		`);
+
+		statement.run({
+			runId: input.runId,
+			slateDate: input.slateDate,
+			requestKey: input.requestKey,
+			errorDetail: input.errorDetail,
+			completedAt: input.completedAt
+		});
+
+		return this.getNightlyRunRequest(input.slateDate, input.requestKey);
+	}
+
+	getNightlyRunRequest(slateDate: string, requestKey: string): NightlyRunRequestRecord | null {
+		if (!this.sqlite) {
+			return this.nightlyRunRequestsMemory.get(`${slateDate}:${requestKey}`) ?? null;
+		}
+
+		const statement = this.sqlite.query<NightlyRunRequestRow, [string, string]>(
+			'SELECT * FROM nightly_run_requests WHERE slate_date = ? AND request_key = ? LIMIT 1'
+		);
+		const row = statement.get([slateDate, requestKey]);
+		return row ? mapNightlyRunRequestRow(row) : null;
+	}
+
+	listNightlyRunRequestsForSlate(slateDate: string): NightlyRunRequestRecord[] {
+		if (!this.sqlite) {
+			return Array.from(this.nightlyRunRequestsMemory.values())
+				.filter((request) => request.slateDate === slateDate)
+				.sort((left, right) => left.requestKey.localeCompare(right.requestKey));
+		}
+
+		const statement = this.sqlite.query<NightlyRunRequestRow, string>(
+			'SELECT * FROM nightly_run_requests WHERE slate_date = ? ORDER BY request_key ASC'
+		);
+		return statement.all(slateDate).map(mapNightlyRunRequestRow);
 	}
 
 	replaceTraceSourceCalls(traceId: string, dataFreshnessMode: DataFreshnessMode, sourceCalls: TraceSourceCall[]): void {
@@ -696,6 +1117,15 @@ export function resetDataStoreForTests(): void {
 	if (!singleton) {
 		return;
 	}
+	singleton.close();
+	singleton = null;
+}
+
+export function closeDataStore(): void {
+	if (!singleton) {
+		return;
+	}
+
 	singleton.close();
 	singleton = null;
 }

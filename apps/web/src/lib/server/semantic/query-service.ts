@@ -18,6 +18,10 @@ import { fetchStatsEndpointWithCache, type EndpointFetchRequest, type EndpointFe
 import { getEndpointCatalogEntry } from '$lib/server/data';
 import { normalizeMetricQuery, resolveMetrics, validateMetricsForIntent } from '$lib/server/metrics/resolve-metrics';
 import {
+	buildLeagueWidePlayerRankingRequest,
+	buildLeagueWideTeamDefenseRequest
+} from '$lib/server/nightly/current-season';
+import {
 	extractPlayerDirectoryExactNameMentions,
 	ensurePlayerDirectoryAvailable,
 	findPlayerDirectoryEntriesByNameOrAlias,
@@ -796,41 +800,7 @@ function determineSupportedPlan(
 }
 
 function buildPlayerRankingRequest(plan: RankingPlan): EndpointFetchRequest {
-	return {
-		endpointId: 'leaguedashplayerstats',
-		params: {
-			DateFrom: '',
-			DateTo: '',
-			GameScope: '',
-			GameSegment: '',
-			LastNGames: '0',
-			Location: '',
-			MeasureType: 'Base',
-			Month: '0',
-			OpponentTeamID: '0',
-			Outcome: '',
-			PaceAdjust: 'N',
-			PerMode: 'PerGame',
-			Period: '0',
-			PlayerExperience: '',
-			PlayerPosition: '',
-			PlusMinus: 'N',
-			Rank: 'N',
-			Season: plan.season,
-			SeasonSegment: '',
-			SeasonType: plan.query.filters.seasonType ?? 'Regular Season',
-			StarterBench: '',
-			VsConference: '',
-			VsDivision: '',
-			Conference: '',
-			Division: '',
-			LeagueID: '',
-			PORound: '',
-			ShotClockRange: '',
-			TeamID: '',
-			TwoWay: ''
-		}
-	};
+	return buildLeagueWidePlayerRankingRequest(plan.season, plan.query.filters.seasonType ?? 'Regular Season');
 }
 
 function buildPlayerTrendRequest(plan: TrendPlan): EndpointFetchRequest {
@@ -859,41 +829,7 @@ function buildPlayerComparisonRequests(plan: ComparisonPlan): EndpointFetchReque
 }
 
 function buildTeamRankingRequest(plan: TeamRankingPlan): EndpointFetchRequest {
-	return {
-		endpointId: 'leaguedashteamstats',
-		params: {
-			DateFrom: '',
-			DateTo: '',
-			GameSegment: '',
-			LastNGames: '0',
-			Location: '',
-			MeasureType: 'Advanced',
-			Month: '0',
-			OpponentTeamID: '0',
-			Outcome: '',
-			PaceAdjust: 'N',
-			PerMode: 'PerGame',
-			Period: '0',
-			PlusMinus: 'N',
-			Rank: 'N',
-			Season: plan.season,
-			SeasonSegment: '',
-			SeasonType: plan.query.filters.seasonType ?? 'Regular Season',
-			VsConference: '',
-			VsDivision: '',
-			Conference: '',
-			Division: '',
-			GameScope: '',
-			LeagueID: '',
-			PORound: '',
-			PlayerExperience: '',
-			PlayerPosition: '',
-			ShotClockRange: '',
-			StarterBench: '',
-			TeamID: '',
-			TwoWay: ''
-		}
-	};
+	return buildLeagueWideTeamDefenseRequest(plan.season, plan.query.filters.seasonType ?? 'Regular Season');
 }
 
 function buildEndpointRequests(plan: ExecutionPlan): EndpointFetchRequest[] {

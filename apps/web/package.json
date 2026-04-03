@@ -20,9 +20,10 @@
 	},
 	"private": true,
 	"scripts": {
-		"dev": "vite dev",
-		"build": "vite build",
-		"preview": "vite preview",
+		"dev": "bun --bun vite dev",
+		"build": "bun --bun vite build",
+		"preview": "bun --bun vite preview",
+		"nightly:bootstrap": "bun ./scripts/nightly-bootstrap.ts",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:endpoint-catalog-contracts": "bun ./scripts/check-endpoint-catalog-contracts.ts",

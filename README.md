@@ -15,11 +15,11 @@ Hoop Hub is currently a single Bun + SvelteKit app that answers grounded NBA sta
   - player comparisons
   - team defensive rankings
 - Player resolution uses the shared seeded player-directory snapshot and curated aliases.
-- Semantic query execution now reads stored endpoint payloads only. Nightly ingestion/materialization still needs to populate that cache more fully.
+- Semantic query execution reads stored endpoint payloads only. An empty DB returns typed `nightly_data_unavailable` coverage gaps until nightly bootstrap materializes the supported runtime cache.
+- Nightly reads reuse the latest stored snapshot at or before the query date, so prior-day materializations remain readable on later days.
 - The planner currently stays closed to the same four supported stats shapes as the semantic executor.
 
-Detailed implementation context for future agents lives in [agents/current-state.md](agents/current-state.md) and [`.docs/PLAN.md`](.docs/PLAN.md).
-The current slice-2 PRD lives in [`.docs/prds/nightly-stats-materialization-bootstrap-slice-2.md`](.docs/prds/nightly-stats-materialization-bootstrap-slice-2.md).
+Detailed implementation context for future agents lives in [agents/current-state.md](agents/current-state.md), [agents/project-log.md](agents/project-log.md), and [`.docs/PLAN.md`](.docs/PLAN.md).
 
 ## TODO
 
@@ -51,6 +51,24 @@ cd apps/web
 bun install
 bun run dev
 ```
+
+Bootstrap the supported nightly runtime cache from an empty DB:
+
+```bash
+cd apps/web
+bun run nightly:bootstrap -- --slate-date 2026-04-01
+```
+
+When live access to `stats.nba.com` is unavailable, bootstrap the same supported runtime surface from checked-in fixtures for local verification:
+
+```bash
+cd apps/web
+bun run nightly:bootstrap -- --fixture-data --slate-date 2026-04-01
+```
+
+The bootstrap path writes authoritative nightly rows for the current-season supported query surface, including league-wide rankings, team defensive rankings, the derived player comparison cohort, current-season player trends, and supported demo-season backfill rows when missing.
+
+By default, persisted nightly data now lives in a per-worktree SQLite file under `~/.hoop-hub/data/<hash>/hoop-hub.sqlite`. Override it with `HOOP_HUB_DB_PATH` when you need a custom location.
 
 Repo helpers:
 
