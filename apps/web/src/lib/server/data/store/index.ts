@@ -1,4 +1,5 @@
 export {
+	closeDataStore,
 	DataStore,
 	getDataStore,
 	resetDataStoreForTests,
@@ -6,12 +7,19 @@ export {
 	type DataStoreOptions,
 	type NightlyRunFinalizedBy,
 	type NightlyRunRecord,
+	type NightlyRunRequestPhase,
+	type NightlyRunRequestRecord,
+	type NightlyRunRequestStatus,
 	type NightlyRunStatus,
+	type MarkNightlyRunRequestFailedInput,
+	type MarkNightlyRunRequestRunningInput,
+	type MarkNightlyRunRequestSucceededInput,
 	type PlayerDirectoryEntryRecord,
 	type PutRawEndpointCacheInput,
 	type RawEndpointCacheLookup,
 	type ReplacePlayerDirectoryEntryInput,
 	type RawEndpointCacheRecord,
-	type StartNightlyRunInput
+	type StartNightlyRunInput,
+	type UpsertNightlyRunRequestsInput
 } from './data-store';
 export { buildRawEndpointCacheKey, computePayloadChecksum, stableStringify } from './cache-key';

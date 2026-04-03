@@ -3,11 +3,11 @@ import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import type { PlannerDecision } from '$lib/contracts/planner';
 import type { StatsQueryResponse } from '$lib/contracts/semantic-query';
 import { resetDataStoreForTests } from '$lib/server/data/store';
+import { createNightlyBootstrapFixtureFetcher } from '$lib/server/nightly/bootstrap-fixtures';
 import { bootstrapCurrentSeasonNightly } from '$lib/server/nightly/bootstrap-service';
 import { executeSemanticQuery } from '$lib/server/semantic/query-service';
 import { POST as queryPost, _setQueryRouteDependenciesForTests } from '../../routes/api/query/+server';
 import { POST as statsPost } from '../../routes/api/stats/query/+server';
-import { createNightlyBootstrapFixtureFetcher } from '../helpers/nightly-bootstrap-fixtures';
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
 const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;

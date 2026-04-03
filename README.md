@@ -59,7 +59,16 @@ cd apps/web
 bun run nightly:bootstrap -- --slate-date 2026-04-01
 ```
 
+When live access to `stats.nba.com` is unavailable, bootstrap the same supported runtime surface from checked-in fixtures for local verification:
+
+```bash
+cd apps/web
+bun run nightly:bootstrap -- --fixture-data --slate-date 2026-04-01
+```
+
 The bootstrap path writes authoritative nightly rows for the current-season supported query surface, including league-wide rankings, team defensive rankings, the derived player comparison cohort, current-season player trends, and supported demo-season backfill rows when missing.
+
+By default, persisted nightly data now lives in a per-worktree SQLite file under `~/.hoop-hub/data/<hash>/hoop-hub.sqlite`. Override it with `HOOP_HUB_DB_PATH` when you need a custom location.
 
 Repo helpers:
 

@@ -1,10 +1,18 @@
 import { fetchStatsEndpointWithCache, getDataStore, getEndpointCatalogEntry, stableStringify, buildRawEndpointCacheKey } from '$lib/server/data';
-import type { EndpointFetchRequest, EndpointFetchResult, NightlyRunFinalizedBy, NightlyRunRecord } from '$lib/server/data';
+import type {
+	EndpointFetchRequest,
+	EndpointFetchResult,
+	NightlyRunFinalizedBy,
+	NightlyRunRecord,
+	NightlyRunRequestPhase
+} from '$lib/server/data';
 import {
+	NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS,
 	buildPlayerComparisonBootstrapRequests,
 	buildPlayerTrendBootstrapRequests,
 	deriveNightlyPlayerComparisonCohort,
 	planCurrentSeasonLeagueWideRequests,
+	prioritizeNightlyPlayerBootstrapOrder,
 	resolveSeasonForSlateDate
 } from './current-season';
 import { planHistoricalDemoSeasonBackfillRequests } from './historical-backfill';
@@ -35,9 +43,31 @@ type BootstrapFailure = {
 	errorDetail: string;
 };
 
+type PlannedBootstrapRequest = {
+	requestKey: string;
+	phase: NightlyRunRequestPhase;
+	request: EndpointFetchRequest;
+	exactSnapshotDate: boolean;
+};
+
 type MaterializationSummary = {
 	completedRequests: number;
 	attemptedRequests: number;
+	resolvedPayloads: Map<string, unknown>;
+};
+
+const DEFAULT_BOOTSTRAP_CONCURRENCY = 8;
+const DEFAULT_PHASE_CONCURRENCY: Record<NightlyRunRequestPhase, number> = {
+	league_wide: 1,
+	comparison: 2,
+	trend: 2,
+	historical: 2
+};
+const DEFAULT_PHASE_DELAY_MS: Record<NightlyRunRequestPhase, number> = {
+	league_wide: 250,
+	comparison: 100,
+	trend: 150,
+	historical: 100
 };
 
 /* Helper functions */
@@ -50,6 +80,35 @@ function buildParamsJson(params: Record<string, string>): string {
 	return JSON.stringify(JSON.parse(stableStringify(params)));
 }
 
+function buildRequestKey(request: EndpointFetchRequest, slateDate: string): string {
+	const catalogEntry = getEndpointCatalogEntry(request.endpointId);
+	if (!catalogEntry) {
+		throw new Error(`Unknown endpoint id '${request.endpointId}'.`);
+	}
+
+	const normalizedParams = JSON.parse(stableStringify(request.params)) as Record<string, string>;
+	return buildRawEndpointCacheKey({
+		endpointId: request.endpointId,
+		params: normalizedParams,
+		parserVersion: catalogEntry.parserVersion,
+		snapshotDate: slateDate
+	});
+}
+
+function buildPlannedRequests(
+	requests: EndpointFetchRequest[],
+	slateDate: string,
+	phase: NightlyRunRequestPhase,
+	exactSnapshotDate: boolean
+): PlannedBootstrapRequest[] {
+	return requests.map((request) => ({
+		requestKey: buildRequestKey(request, slateDate),
+		phase,
+		request,
+		exactSnapshotDate
+	}));
+}
+
 function buildErrorDetail(result: EndpointFetchResult): string {
 	return result.errorDetail?.trim() || `source_status=${result.sourceStatus}`;
 }
@@ -59,22 +118,71 @@ function buildAuthoritativeNightlyExpiresAt(slateDate: string): string {
 	return new Date(endOfSlateDate.getTime() + 24 * 60 * 60 * 1000).toISOString();
 }
 
-function hasStoredNightlyPayload(request: EndpointFetchRequest, snapshotDate: string): boolean {
+function resolveBootstrapConcurrency(): number {
+	const raw = process.env.HOOP_HUB_BOOTSTRAP_CONCURRENCY;
+	if (!raw) {
+		return DEFAULT_BOOTSTRAP_CONCURRENCY;
+	}
+
+	const parsed = Number.parseInt(raw, 10);
+	if (!Number.isFinite(parsed) || parsed <= 0) {
+		return DEFAULT_BOOTSTRAP_CONCURRENCY;
+	}
+
+	return parsed;
+}
+
+function resolvePhaseConcurrency(phase: NightlyRunRequestPhase, requestCount: number): number {
+	return Math.min(resolveBootstrapConcurrency(), DEFAULT_PHASE_CONCURRENCY[phase], Math.max(1, requestCount));
+}
+
+function resolvePhaseDelayMs(phase: NightlyRunRequestPhase): number {
+	return DEFAULT_PHASE_DELAY_MS[phase];
+}
+
+function wait(ms: number): Promise<void> {
+	if (ms <= 0) {
+		return Promise.resolve();
+	}
+
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function loadStoredNightlyPayload(
+	request: EndpointFetchRequest,
+	snapshotDate: string,
+	options?: { exactSnapshotDate?: boolean }
+): unknown | null {
 	const catalogEntry = getEndpointCatalogEntry(request.endpointId);
 	if (!catalogEntry) {
 		throw new Error(`Unknown endpoint id '${request.endpointId}'.`);
 	}
 
 	const normalizedParams = JSON.parse(stableStringify(request.params)) as Record<string, string>;
+	const row = options?.exactSnapshotDate
+		? getDataStore().getRawEndpointCache(
+				buildRawEndpointCacheKey({
+					endpointId: request.endpointId,
+					params: normalizedParams,
+					parserVersion: catalogEntry.parserVersion,
+					snapshotDate
+				})
+			)
+		: getDataStore().getLatestRawEndpointCache({
+				endpointId: request.endpointId,
+				paramsJson: buildParamsJson(normalizedParams),
+				parserVersion: catalogEntry.parserVersion,
+				snapshotDate
+			});
+	if (!row) {
+		return null;
+	}
 
-	return (
-		getDataStore().getLatestRawEndpointCache({
-			endpointId: request.endpointId,
-			paramsJson: buildParamsJson(normalizedParams),
-			parserVersion: catalogEntry.parserVersion,
-			snapshotDate
-		}) !== null
-	);
+	try {
+		return JSON.parse(row.payloadJson) as unknown;
+	} catch {
+		return null;
+	}
 }
 
 function persistAuthoritativeNightlyCache(
@@ -121,52 +229,153 @@ function summarizeFailures(failures: BootstrapFailure[]): string | null {
 	return failures.map((failure) => `${failure.endpointId}: ${failure.errorDetail}`).join('; ');
 }
 
-async function materializeCohortRequests(
-	requests: EndpointFetchRequest[],
+async function materializePlannedRequests(
+	runId: string,
+	requests: PlannedBootstrapRequest[],
 	fetcher: NightlyBootstrapFetcher,
 	slateDate: string,
-	now: Date,
-	failures: BootstrapFailure[],
-	options?: { skipIfStored: boolean }
+	runStartedAt: Date,
+	failures: BootstrapFailure[]
 ): Promise<MaterializationSummary> {
+	if (requests.length === 0) {
+		return {
+			completedRequests: 0,
+			attemptedRequests: 0,
+			resolvedPayloads: new Map()
+		};
+	}
+
+	const store = getDataStore();
+	const createdAt = new Date().toISOString();
+	store.upsertNightlyRunRequests({
+		runId,
+		slateDate,
+		createdAt,
+		requests: requests.map((request) => ({
+			requestKey: request.requestKey,
+			endpointId: request.request.endpointId,
+			paramsJson: buildParamsJson(JSON.parse(stableStringify(request.request.params)) as Record<string, string>),
+			phase: request.phase
+		}))
+	});
+
+	const progressByKey = new Map(
+		store.listNightlyRunRequestsForSlate(slateDate).map((request) => [request.requestKey, request])
+	);
+	const resolvedPayloads = new Map<string, unknown>();
 	let completedRequests = 0;
-	let attemptedRequests = 0;
+	const attemptedRequests = requests.length;
+	const pendingRequests: PlannedBootstrapRequest[] = [];
 
 	for (const request of requests) {
-		if (options?.skipIfStored && hasStoredNightlyPayload(request, slateDate)) {
+		const storedPayload = loadStoredNightlyPayload(request.request, slateDate, {
+			exactSnapshotDate: request.exactSnapshotDate
+		});
+		if (progressByKey.get(request.requestKey)?.status === 'succeeded' && storedPayload !== null) {
+			completedRequests += 1;
+			resolvedPayloads.set(request.requestKey, storedPayload);
 			continue;
 		}
 
-		attemptedRequests += 1;
-
-		try {
-			const result = await fetcher({
-				...request,
-				now,
-				allowLiveFetch: true
+		if (storedPayload !== null) {
+			const completedAt = new Date().toISOString();
+			store.markNightlyRunRequestSucceeded({
+				runId,
+				slateDate,
+				requestKey: request.requestKey,
+				completedAt,
+				satisfiedFromCache: true
 			});
+			completedRequests += 1;
+			resolvedPayloads.set(request.requestKey, storedPayload);
+			continue;
+		}
 
-			if (result.payload !== null && result.sourceStatus === 'ok') {
-				persistAuthoritativeNightlyCache(request, result, slateDate, now);
-				completedRequests += 1;
-				continue;
+		pendingRequests.push(request);
+	}
+
+	const phase = requests[0].phase;
+	const concurrency = Math.min(resolvePhaseConcurrency(phase, pendingRequests.length), Math.max(1, pendingRequests.length));
+	const delayMs = resolvePhaseDelayMs(phase);
+	let nextIndex = 0;
+
+	const workers = Array.from({ length: concurrency }, async () => {
+		while (true) {
+			const request = pendingRequests[nextIndex];
+			nextIndex += 1;
+			if (!request) {
+				return;
 			}
 
-			failures.push({
-				endpointId: request.endpointId,
-				errorDetail: buildErrorDetail(result)
+			const startedAt = new Date().toISOString();
+			store.markNightlyRunRequestRunning({
+				runId,
+				slateDate,
+				requestKey: request.requestKey,
+				startedAt
 			});
-		} catch (error) {
-			failures.push({
-				endpointId: request.endpointId,
-				errorDetail: error instanceof Error ? error.message : String(error)
-			});
+
+			try {
+				const result = await fetcher({
+					...request.request,
+					now: runStartedAt,
+					allowLiveFetch: true
+				});
+
+				if (result.payload !== null && result.sourceStatus === 'ok') {
+					const completedAt = new Date();
+					persistAuthoritativeNightlyCache(request.request, result, slateDate, completedAt);
+					store.markNightlyRunRequestSucceeded({
+						runId,
+						slateDate,
+						requestKey: request.requestKey,
+						completedAt: completedAt.toISOString(),
+						satisfiedFromCache: false
+					});
+					completedRequests += 1;
+					resolvedPayloads.set(request.requestKey, result.payload);
+					continue;
+				}
+
+				const errorDetail = buildErrorDetail(result);
+				store.markNightlyRunRequestFailed({
+					runId,
+					slateDate,
+					requestKey: request.requestKey,
+					completedAt: new Date().toISOString(),
+					errorDetail
+				});
+				failures.push({
+					endpointId: request.request.endpointId,
+					errorDetail
+				});
+			} catch (error) {
+				const errorDetail = error instanceof Error ? error.message : String(error);
+				store.markNightlyRunRequestFailed({
+					runId,
+					slateDate,
+					requestKey: request.requestKey,
+					completedAt: new Date().toISOString(),
+					errorDetail
+				});
+				failures.push({
+					endpointId: request.request.endpointId,
+					errorDetail
+				});
+			} finally {
+				if (delayMs > 0) {
+					await wait(delayMs);
+				}
+			}
 		}
-	}
+	});
+
+	await Promise.all(workers);
 
 	return {
 		completedRequests,
-		attemptedRequests
+		attemptedRequests,
+		resolvedPayloads
 	};
 }
 
@@ -179,6 +388,12 @@ export async function bootstrapCurrentSeasonNightly(
 	const fetcher = input.fetcher ?? fetchStatsEndpointWithCache;
 	const finalizedBy = input.finalizedBy ?? 'cutoff_fallback';
 	const requests = planCurrentSeasonLeagueWideRequests(input.slateDate);
+	const leagueWideRequests = requests.map((request) => ({
+		requestKey: buildRequestKey(request.request, input.slateDate),
+		phase: 'league_wide' as const,
+		request: request.request,
+		exactSnapshotDate: true
+	}));
 	const run = getDataStore().startNightlyRun({
 		runId: buildRunId(input.slateDate),
 		slateDate: input.slateDate,
@@ -189,58 +404,84 @@ export async function bootstrapCurrentSeasonNightly(
 	let completedRequests = 0;
 	const failures: BootstrapFailure[] = [];
 	let playerStatsPayload: unknown = null;
-
-	for (const plannedRequest of requests) {
-		try {
-			const result = await fetcher({
-				...plannedRequest.request,
-				now,
-				allowLiveFetch: true
-			});
-
-			if (result.payload !== null && result.sourceStatus === 'ok') {
-				persistAuthoritativeNightlyCache(plannedRequest.request, result, input.slateDate, now);
-				completedRequests += 1;
-				if (plannedRequest.endpointId === 'leaguedashplayerstats') {
-					playerStatsPayload = result.payload;
-				}
-				continue;
-			}
-
-			failures.push({
-				endpointId: plannedRequest.endpointId,
-				errorDetail: buildErrorDetail(result)
-			});
-		} catch (error) {
-			failures.push({
-				endpointId: plannedRequest.endpointId,
-				errorDetail: error instanceof Error ? error.message : String(error)
-			});
-		}
-	}
+	const leagueWideSummary = await materializePlannedRequests(
+		run.runId,
+		leagueWideRequests,
+		fetcher,
+		input.slateDate,
+		now,
+		failures
+	);
+	completedRequests += leagueWideSummary.completedRequests;
+	playerStatsPayload =
+		leagueWideSummary.resolvedPayloads.get(
+			leagueWideRequests.find((request) => request.request.endpointId === 'leaguedashplayerstats')?.requestKey ?? ''
+		) ?? null;
 
 	if (playerStatsPayload !== null) {
 		const cohort = deriveNightlyPlayerComparisonCohort(playerStatsPayload);
+		const prioritizedCohort = prioritizeNightlyPlayerBootstrapOrder(cohort, NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS);
+		const priorityPlayerIdSet = new Set<string>(NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS);
+		const priorityPlayerIds = prioritizedCohort.filter((playerId) => priorityPlayerIdSet.has(playerId));
+		const remainingPlayerIds = prioritizedCohort.filter((playerId) => !priorityPlayerIdSet.has(playerId));
 		const season = resolveSeasonForSlateDate(input.slateDate);
-		const comparisonRequests = buildPlayerComparisonBootstrapRequests(cohort);
-		const trendRequests = buildPlayerTrendBootstrapRequests(cohort, season);
-		const historicalBackfillRequests = planHistoricalDemoSeasonBackfillRequests(cohort);
+		const priorityComparisonRequests = buildPlayerComparisonBootstrapRequests(priorityPlayerIds);
+		const priorityTrendRequests = buildPlayerTrendBootstrapRequests(priorityPlayerIds, season);
+		const comparisonRequests = buildPlayerComparisonBootstrapRequests(remainingPlayerIds);
+		const trendRequests = buildPlayerTrendBootstrapRequests(remainingPlayerIds, season);
+		const historicalBackfillRequests = planHistoricalDemoSeasonBackfillRequests(prioritizedCohort);
 
-		const comparisonSummary = await materializeCohortRequests(comparisonRequests, fetcher, input.slateDate, now, failures);
-		totalRequests += comparisonSummary.attemptedRequests;
-		completedRequests += comparisonSummary.completedRequests;
-
-		const trendSummary = await materializeCohortRequests(trendRequests, fetcher, input.slateDate, now, failures);
-		totalRequests += trendSummary.attemptedRequests;
-		completedRequests += trendSummary.completedRequests;
-
-		const historicalSummary = await materializeCohortRequests(
-			historicalBackfillRequests,
+		const priorityComparisonSummary = await materializePlannedRequests(
+			run.runId,
+			buildPlannedRequests(priorityComparisonRequests, input.slateDate, 'comparison', true),
 			fetcher,
 			input.slateDate,
 			now,
-			failures,
-			{ skipIfStored: true }
+			failures
+		);
+		totalRequests += priorityComparisonSummary.attemptedRequests;
+		completedRequests += priorityComparisonSummary.completedRequests;
+
+		const priorityTrendSummary = await materializePlannedRequests(
+			run.runId,
+			buildPlannedRequests(priorityTrendRequests, input.slateDate, 'trend', true),
+			fetcher,
+			input.slateDate,
+			now,
+			failures
+		);
+		totalRequests += priorityTrendSummary.attemptedRequests;
+		completedRequests += priorityTrendSummary.completedRequests;
+
+		const comparisonSummary = await materializePlannedRequests(
+			run.runId,
+			buildPlannedRequests(comparisonRequests, input.slateDate, 'comparison', true),
+			fetcher,
+			input.slateDate,
+			now,
+			failures
+		);
+		totalRequests += comparisonSummary.attemptedRequests;
+		completedRequests += comparisonSummary.completedRequests;
+
+		const trendSummary = await materializePlannedRequests(
+			run.runId,
+			buildPlannedRequests(trendRequests, input.slateDate, 'trend', true),
+			fetcher,
+			input.slateDate,
+			now,
+			failures
+		);
+		totalRequests += trendSummary.attemptedRequests;
+		completedRequests += trendSummary.completedRequests;
+
+		const historicalSummary = await materializePlannedRequests(
+			run.runId,
+			buildPlannedRequests(historicalBackfillRequests, input.slateDate, 'historical', false),
+			fetcher,
+			input.slateDate,
+			now,
+			failures
 		);
 		totalRequests += historicalSummary.attemptedRequests;
 		completedRequests += historicalSummary.completedRequests;
@@ -248,10 +489,11 @@ export async function bootstrapCurrentSeasonNightly(
 
 	const failedRequests = failures.length;
 	const status = completedRequests === totalRequests ? 'completed' : completedRequests > 0 ? 'partial' : 'failed';
+	const completedAt = new Date().toISOString();
 	const completedRun =
 		getDataStore().completeNightlyRun({
 			runId: run.runId,
-			completedAt: now.toISOString(),
+			completedAt,
 			status,
 			finalizedBy,
 			errorSummary: summarizeFailures(failures)

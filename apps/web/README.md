@@ -10,6 +10,7 @@ bun run check
 bun run test
 bun run test:live-smoke
 bun run nightly:bootstrap -- --slate-date 2026-04-01
+bun run nightly:bootstrap -- --fixture-data --slate-date 2026-04-01
 bun run build
 ```
 
@@ -19,6 +20,13 @@ bun run build
 - Required planner variables:
   - `OPENAI_API_KEY`
   - `OPENAI_PLANNER_MODEL`
+- Optional live NBA fetch variables:
+  - `HOOP_HUB_NBA_TIMEOUT_MS`
+  - `HOOP_HUB_NBA_PROXY_URL`
+  - standard `HTTPS_PROXY` / `HTTP_PROXY` are also supported, with `HOOP_HUB_NBA_PROXY_URL` taking precedence
+  - proxy values may be full URLs like `http://user:pass@proxy.example:8080` or raw `host:port:user:pass` entries
+  - `HOOP_HUB_NBA_PROXY_URL` also accepts newline-delimited proxy lists and tries them in order
+- By default, persistent cache data is stored in a per-worktree SQLite file under `~/.hoop-hub/data/<hash>/hoop-hub.sqlite`. Set `HOOP_HUB_DB_PATH` to override it.
 
 ## Current API Routes
 
@@ -39,6 +47,7 @@ bun run build
 - Player resolution uses the shared seeded player-directory snapshot plus curated aliases; future engine work should reuse that path instead of embedding local name maps.
 - Semantic query execution reads stored endpoint payloads only. On an empty DB, supported queries return typed `nightly_data_unavailable` coverage gaps until nightly bootstrap materializes the required rows.
 - `bun run nightly:bootstrap -- --slate-date YYYY-MM-DD` is the supported path for writing authoritative nightly cache rows for the current-season runtime, plus supported demo-season backfill rows when they are still missing.
+- `bun run nightly:bootstrap -- --fixture-data --slate-date YYYY-MM-DD` is the offline local-dev fallback when `stats.nba.com` is unreachable from the current machine or network.
 - Stored reads select the latest snapshot at or before the query date, so previous-night materializations remain usable on later days.
 - The legacy mock planner/query-engine remains in the repo for compatibility tests, but new execution behavior should be added to the semantic executor path, not the legacy path.
 - The live smoke path is isolated from default PR CI and runs through `.github/workflows/live-smoke.yml`.

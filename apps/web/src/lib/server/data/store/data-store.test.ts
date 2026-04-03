@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { buildRawEndpointCacheKey } from './cache-key';
 import { DataStore } from './data-store';
@@ -33,6 +36,20 @@ describe('data-store', () => {
 			assert.equal((cached?.checksum.length ?? 0) > 0, true);
 		} finally {
 			store.close();
+		}
+	});
+
+	test('uses the Bun SQLite backend for persistent stores when available', () => {
+		const tempDir = mkdtempSync(join(tmpdir(), 'hoop-hub-data-store-'));
+		const dbPath = join(tempDir, 'data-store.sqlite');
+		const store = new DataStore({ dbPath });
+
+		try {
+			assert.equal(Boolean((store as unknown as { sqlite: unknown }).sqlite), true);
+			assert.equal(existsSync(dbPath), true);
+		} finally {
+			store.close();
+			rmSync(tempDir, { recursive: true, force: true });
 		}
 	});
 
@@ -133,6 +150,128 @@ describe('data-store', () => {
 			assert.equal(completed?.status, 'completed');
 			assert.equal(completed?.finalizedBy, 'game_complete_aware');
 			assert.equal(store.getLatestNightlyRunForSlate('2026-02-24')?.runId, 'run-1');
+		} finally {
+			store.close();
+		}
+	});
+
+	test('tracks nightly request progress across retries for the same slate', () => {
+		const store = new DataStore({ dbPath: ':memory:' });
+		try {
+			store.upsertNightlyRunRequests({
+				runId: 'run-1',
+				slateDate: '2026-04-02',
+				createdAt: '2026-04-02T05:00:00.000Z',
+				requests: [
+					{
+						requestKey: 'req-player-stats',
+						endpointId: 'leaguedashplayerstats',
+						paramsJson: JSON.stringify({ Season: '2025-26' }),
+						phase: 'league_wide'
+					},
+					{
+						requestKey: 'req-player-career-201939',
+						endpointId: 'playercareerstats',
+						paramsJson: JSON.stringify({ PlayerID: '201939' }),
+						phase: 'comparison'
+					}
+				]
+			});
+
+			store.markNightlyRunRequestRunning({
+				runId: 'run-1',
+				slateDate: '2026-04-02',
+				requestKey: 'req-player-stats',
+				startedAt: '2026-04-02T05:00:01.000Z'
+			});
+			store.markNightlyRunRequestSucceeded({
+				runId: 'run-1',
+				slateDate: '2026-04-02',
+				requestKey: 'req-player-stats',
+				completedAt: '2026-04-02T05:00:03.000Z',
+				satisfiedFromCache: false
+			});
+			store.markNightlyRunRequestRunning({
+				runId: 'run-1',
+				slateDate: '2026-04-02',
+				requestKey: 'req-player-career-201939',
+				startedAt: '2026-04-02T05:00:04.000Z'
+			});
+			store.markNightlyRunRequestFailed({
+				runId: 'run-1',
+				slateDate: '2026-04-02',
+				requestKey: 'req-player-career-201939',
+				completedAt: '2026-04-02T05:00:08.000Z',
+				errorDetail: 'timeout'
+			});
+
+			store.upsertNightlyRunRequests({
+				runId: 'run-2',
+				slateDate: '2026-04-02',
+				createdAt: '2026-04-02T05:10:00.000Z',
+				requests: [
+					{
+						requestKey: 'req-player-stats',
+						endpointId: 'leaguedashplayerstats',
+						paramsJson: JSON.stringify({ Season: '2025-26' }),
+						phase: 'league_wide'
+					},
+					{
+						requestKey: 'req-player-career-201939',
+						endpointId: 'playercareerstats',
+						paramsJson: JSON.stringify({ PlayerID: '201939' }),
+						phase: 'comparison'
+					}
+				]
+			});
+
+			store.markNightlyRunRequestRunning({
+				runId: 'run-2',
+				slateDate: '2026-04-02',
+				requestKey: 'req-player-career-201939',
+				startedAt: '2026-04-02T05:10:02.000Z'
+			});
+			store.markNightlyRunRequestSucceeded({
+				runId: 'run-2',
+				slateDate: '2026-04-02',
+				requestKey: 'req-player-career-201939',
+				completedAt: '2026-04-02T05:10:05.000Z',
+				satisfiedFromCache: true
+			});
+
+			const requests = store.listNightlyRunRequestsForSlate('2026-04-02');
+			assert.equal(requests.length, 2);
+			assert.deepEqual(
+				requests.map((request) => ({
+					requestKey: request.requestKey,
+					status: request.status,
+					attemptCount: request.attemptCount,
+					lastRunId: request.lastRunId,
+					satisfiedFromCache: request.satisfiedFromCache,
+					lastError: request.lastError,
+					phase: request.phase
+				})),
+				[
+					{
+						requestKey: 'req-player-career-201939',
+						status: 'succeeded',
+						attemptCount: 2,
+						lastRunId: 'run-2',
+						satisfiedFromCache: true,
+						lastError: null,
+						phase: 'comparison'
+					},
+					{
+						requestKey: 'req-player-stats',
+						status: 'succeeded',
+						attemptCount: 1,
+						lastRunId: 'run-1',
+						satisfiedFromCache: false,
+						lastError: null,
+						phase: 'league_wide'
+					}
+				]
+			);
 		} finally {
 			store.close();
 		}

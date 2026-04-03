@@ -11,8 +11,9 @@ import {
 import { getDataStore, resetDataStoreForTests } from '$lib/server/data/store';
 import { executeSemanticQuery } from '$lib/server/semantic/query-service';
 import {
-	DEMO_PLAYER_COHORT_ALLOWLIST_IDS,
+	NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS,
 	deriveNightlyPlayerComparisonCohort,
+	prioritizeNightlyPlayerBootstrapOrder,
 	resolveSeasonForSlateDate
 } from './current-season';
 import { bootstrapCurrentSeasonNightly, type NightlyBootstrapFetcher } from './bootstrap-service';
@@ -27,6 +28,9 @@ const TEAM_STATS_FIXTURE = JSON.parse(
 ) as unknown;
 const CURRY_CAREER_FIXTURE = JSON.parse(
 	readFileSync(new URL('../semantic/fixtures/playercareerstats-curry.json', import.meta.url), 'utf8')
+) as unknown;
+const LILLARD_CAREER_FIXTURE = JSON.parse(
+	readFileSync(new URL('../semantic/fixtures/playercareerstats-lillard.json', import.meta.url), 'utf8')
 ) as unknown;
 const ACHIUWA_CAREER_FIXTURE = JSON.parse(
 	readFileSync(new URL('../semantic/fixtures/playercareerstats-achiuwa.json', import.meta.url), 'utf8')
@@ -357,11 +361,11 @@ describe('bootstrapCurrentSeasonNightly', () => {
 			resultSets: [
 				{
 					name: 'LeagueDashPlayerStats',
-					headers: ['PLAYER_ID', 'PLAYER_NAME', 'PTS', 'AST', 'REB'],
+					headers: ['PLAYER_ID', 'PLAYER_NAME', 'MIN', 'PTS', 'AST', 'REB'],
 					rowSet: [
-						['201939', 'Stephen Curry', 26.4, 5.1, 4.5],
-						['203999', 'Nikola Jokic', 27.1, 9.0, 12.3],
-						['201939', 'Stephen Curry', 26.4, 5.1, 4.5]
+						['201939', 'Stephen Curry', 34.1, 26.4, 5.1, 4.5],
+						['203999', 'Nikola Jokic', 36.7, 27.1, 9.0, 12.3],
+						['201939', 'Stephen Curry', 34.1, 26.4, 5.1, 4.5]
 					]
 				}
 			]
@@ -369,11 +373,13 @@ describe('bootstrapCurrentSeasonNightly', () => {
 		const expectedCohort = deriveNightlyPlayerComparisonCohort(cohortSeedPayload);
 		const careerPayloadByPlayerId = new Map<string, unknown>([
 			['201939', CURRY_CAREER_FIXTURE],
+			['203081', LILLARD_CAREER_FIXTURE],
 			['203999', buildCareerStatsFixture('203999', 'Nikola Jokic', 26.4, 9.0, 12.3)],
 			['1630173', ACHIUWA_CAREER_FIXTURE]
 		]);
 		const trendPayloadByPlayerId = new Map<string, unknown>([
 			['201939', buildTrendPayloadByPlayerId(PLAYER_STATS_FIXTURE).get('201939') ?? JOKIC_TREND_FIXTURE],
+			['203081', JOKIC_TREND_FIXTURE],
 			['203999', JOKIC_TREND_FIXTURE],
 			['1630173', ACHIUWA_TREND_FIXTURE]
 		]);
@@ -413,9 +419,9 @@ describe('bootstrapCurrentSeasonNightly', () => {
 		assert.equal(run.status, 'completed');
 		assert.equal(run.completedRequests, 4 + expectedCohort.length * 3);
 		assert.equal(run.failedRequests, 0);
-		assert.deepEqual(comparisonFetches, expectedCohort);
+		assert.deepEqual(comparisonFetches, prioritizeNightlyPlayerBootstrapOrder(expectedCohort));
 		assert.equal(expectedCohort.includes('1630173'), true);
-		for (const playerId of DEMO_PLAYER_COHORT_ALLOWLIST_IDS) {
+		for (const playerId of NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS) {
 			assert.equal(expectedCohort.includes(playerId), true);
 		}
 
@@ -480,7 +486,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 		assert.equal(run.status, 'completed');
 		assert.equal(run.completedRequests, 4 + expectedCohort.length * 3);
 		assert.equal(run.failedRequests, 0);
-		assert.deepEqual(trendFetches, [...expectedCohort, ...expectedCohort]);
+		assert.deepEqual(trendFetches, [
+			...prioritizeNightlyPlayerBootstrapOrder(expectedCohort),
+			...prioritizeNightlyPlayerBootstrapOrder(expectedCohort)
+		]);
 
 		const response = await executeSemanticQuery(
 			{
@@ -574,6 +583,211 @@ describe('bootstrapCurrentSeasonNightly', () => {
 		assert.notEqual(cachedTrendRow, null);
 		assert.equal(cachedTrendRow?.snapshotDate, '2026-04-01');
 		assert.equal(cachedTrendRow?.isProvisional, false);
+	});
+
+	test('materializes cohort requests with concurrency instead of one-at-a-time serial execution', async () => {
+		process.env.HOOP_HUB_BOOTSTRAP_CONCURRENCY = '4';
+		const concurrentPlayerPayload = {
+			resource: 'leaguedashplayerstats',
+			resultSets: [
+				{
+					name: 'LeagueDashPlayerStats',
+					headers: ['PLAYER_ID', 'PLAYER_NAME', 'PTS', 'AST', 'REB'],
+					rowSet: [
+						['1', 'Player One', 10, 5, 4],
+						['2', 'Player Two', 11, 6, 5],
+						['3', 'Player Three', 12, 7, 6],
+						['4', 'Player Four', 13, 8, 7]
+					]
+				}
+			]
+		};
+
+		let activeCohortRequests = 0;
+		let maxActiveCohortRequests = 0;
+
+		const fetcher: NightlyBootstrapFetcher = async (request) => {
+			if (request.endpointId === 'leaguedashplayerstats') {
+				return buildOkResult(request, concurrentPlayerPayload);
+			}
+
+			if (request.endpointId === 'leaguedashteamstats') {
+				return buildOkResult(request, TEAM_STATS_FIXTURE);
+			}
+
+			activeCohortRequests += 1;
+			maxActiveCohortRequests = Math.max(maxActiveCohortRequests, activeCohortRequests);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			activeCohortRequests -= 1;
+
+			if (request.endpointId === 'playercareerstats') {
+				return buildOkResult(
+					request,
+					buildCareerStatsFixture(request.params.PlayerID, `Player ${request.params.PlayerID}`, 10, 5, 4)
+				);
+			}
+
+			if (request.endpointId === 'playergamelog') {
+				return buildOkResult(request, {
+					resource: 'playergamelog',
+					resultSets: [
+						{
+							name: 'PlayerGameLog',
+							headers: ['SEASON_ID', 'Player_ID', 'GAME_DATE', 'PTS', 'AST', 'REB'],
+							rowSet: [['22025', request.params.PlayerID, 'APR 01, 2026', 10, 5, 4]]
+						}
+					]
+				});
+			}
+
+			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
+		};
+
+		try {
+			const run = await bootstrapCurrentSeasonNightly({
+				slateDate: '2026-04-01',
+				now: new Date('2026-04-02T05:00:00.000Z'),
+				fetcher
+			});
+
+			assert.equal(run.status, 'completed');
+			assert.equal(maxActiveCohortRequests > 1, true);
+		} finally {
+			delete process.env.HOOP_HUB_BOOTSTRAP_CONCURRENCY;
+		}
+	});
+
+	test('prioritizes allowlist player comparison and trend requests before the rest of the cohort', async () => {
+		const cohortSeedPayload = {
+			resultSets: [
+				{
+					name: 'LeagueDashPlayerStats',
+					headers: ['PLAYER_ID', 'PLAYER_NAME', 'MIN', 'PTS', 'AST', 'REB'],
+					rowSet: [
+						['201939', 'Stephen Curry', 34, 26, 6, 4],
+						['203081', 'Damian Lillard', 33, 25, 7, 4],
+						['203999', 'Nikola Jokic', 36, 28, 10, 12],
+						['1629029', 'Luka Doncic', 35, 29, 8, 8],
+						['2544', 'LeBron James', 34, 24, 7, 7],
+						['1630173', 'Precious Achiuwa', 18, 6, 1, 5]
+					]
+				}
+			]
+		};
+		const expectedPriorityPlayerIds = prioritizeNightlyPlayerBootstrapOrder(
+			deriveNightlyPlayerComparisonCohort(cohortSeedPayload)
+		).slice(0, NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS.length);
+		const seenComparisonIds: string[] = [];
+		const seenTrendIds: string[] = [];
+
+		const fetcher: NightlyBootstrapFetcher = async (request) => {
+			if (request.endpointId === 'leaguedashplayerstats') {
+				return buildOkResult(request, cohortSeedPayload);
+			}
+
+			if (request.endpointId === 'leaguedashteamstats') {
+				return buildOkResult(request, TEAM_STATS_FIXTURE);
+			}
+
+			if (request.endpointId === 'playercareerstats') {
+				seenComparisonIds.push(request.params.PlayerID);
+				return buildOkResult(request, buildCareerStatsFixture(request.params.PlayerID, `Player ${request.params.PlayerID}`, 10, 5, 4));
+			}
+
+			if (request.endpointId === 'playergamelog') {
+				seenTrendIds.push(request.params.PlayerID);
+				return buildOkResult(request, {
+					resource: 'playergamelog',
+					resultSets: [
+						{
+							name: 'PlayerGameLog',
+							headers: ['SEASON_ID', 'Player_ID', 'GAME_DATE', 'PTS', 'AST', 'REB'],
+							rowSet: [['22025', request.params.PlayerID, 'APR 01, 2026', 10, 5, 4]]
+						}
+					]
+				});
+			}
+
+			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
+		};
+
+		await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now: new Date('2026-04-02T05:00:00.000Z'),
+			fetcher
+		});
+
+		assert.deepEqual(
+			seenComparisonIds.slice(0, expectedPriorityPlayerIds.length),
+			expectedPriorityPlayerIds
+		);
+		assert.deepEqual(
+			seenTrendIds.slice(0, expectedPriorityPlayerIds.length),
+			expectedPriorityPlayerIds
+		);
+	});
+
+	test('starts allowlist trend materialization before bulk comparison requests for the rest of the cohort', async () => {
+		const cohortSeedPayload = {
+			resultSets: [
+				{
+					name: 'LeagueDashPlayerStats',
+					headers: ['PLAYER_ID', 'PLAYER_NAME', 'MIN', 'PTS', 'AST', 'REB'],
+					rowSet: [
+						['201939', 'Stephen Curry', 34, 26, 6, 4],
+						['203081', 'Damian Lillard', 33, 25, 7, 4],
+						['203999', 'Nikola Jokic', 36, 28, 10, 12],
+						['1629029', 'Luka Doncic', 35, 29, 8, 8],
+						['2544', 'LeBron James', 34, 24, 7, 7],
+						['1630173', 'Precious Achiuwa', 18, 6, 1, 5]
+					]
+				}
+			]
+		};
+		const eventLog: string[] = [];
+
+		const fetcher: NightlyBootstrapFetcher = async (request) => {
+			if (request.endpointId === 'leaguedashplayerstats') {
+				return buildOkResult(request, cohortSeedPayload);
+			}
+
+			if (request.endpointId === 'leaguedashteamstats') {
+				return buildOkResult(request, TEAM_STATS_FIXTURE);
+			}
+
+			if (request.endpointId === 'playercareerstats') {
+				eventLog.push(`compare:${request.params.PlayerID}`);
+				return buildOkResult(request, buildCareerStatsFixture(request.params.PlayerID, `Player ${request.params.PlayerID}`, 10, 5, 4));
+			}
+
+			if (request.endpointId === 'playergamelog') {
+				eventLog.push(`trend:${request.params.PlayerID}`);
+				return buildOkResult(request, {
+					resource: 'playergamelog',
+					resultSets: [
+						{
+							name: 'PlayerGameLog',
+							headers: ['SEASON_ID', 'Player_ID', 'GAME_DATE', 'PTS', 'AST', 'REB'],
+							rowSet: [['22025', request.params.PlayerID, 'APR 01, 2026', 10, 5, 4]]
+						}
+					]
+				});
+			}
+
+			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
+		};
+
+		await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now: new Date('2026-04-02T05:00:00.000Z'),
+			fetcher
+		});
+
+		const firstNonPriorityComparisonIndex = eventLog.findIndex((entry) => entry === 'compare:1629029' || entry === 'compare:2544');
+		const firstPriorityTrendIndex = eventLog.findIndex((entry) => entry === 'trend:201939' || entry === 'trend:203081' || entry === 'trend:203999' || entry === 'trend:1630173');
+		assert.notEqual(firstPriorityTrendIndex, -1);
+		assert.notEqual(firstNonPriorityComparisonIndex, -1);
+		assert.equal(firstPriorityTrendIndex < firstNonPriorityComparisonIndex, true);
 	});
 
 	test('backfills supported 2023-24 regular-season ranking, team-defense, and trend rows on miss', async () => {
@@ -914,7 +1128,94 @@ describe('bootstrapCurrentSeasonNightly', () => {
 		);
 	});
 
+	test('reuses same-slate current-season rows on rerun so partial bootstraps can converge', async () => {
+		const now = new Date('2026-04-02T05:00:00.000Z');
+		const expectedCohort = deriveNightlyPlayerComparisonCohort(PLAYER_STATS_FIXTURE);
+		const firstRunFetcher: NightlyBootstrapFetcher = async (request) => {
+			if (request.endpointId === 'leaguedashplayerstats') {
+				return buildOkResult(request, PLAYER_STATS_FIXTURE);
+			}
+
+			if (request.endpointId === 'leaguedashteamstats') {
+				return buildOkResult(request, TEAM_STATS_FIXTURE);
+			}
+
+			return buildErrorResult(request, 'upstream timeout');
+		};
+
+		const firstRun = await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now,
+			fetcher: firstRunFetcher
+		});
+		assert.equal(firstRun.status, 'partial');
+
+		const fetchedRequests: EndpointFetchRequest[] = [];
+		const secondRunFetcher: NightlyBootstrapFetcher = async (request) => {
+			fetchedRequests.push(request);
+
+			if (request.endpointId === 'playercareerstats') {
+				return buildOkResult(request, buildCareerStatsFixture(request.params.PlayerID, `Player ${request.params.PlayerID}`, 10, 5, 4));
+			}
+
+			if (request.endpointId === 'playergamelog') {
+				return buildOkResult(request, {
+					resource: 'playergamelog',
+					resultSets: [{ name: 'PlayerGameLog', headers: ['GAME_DATE', 'PTS'], rowSet: [] }]
+				});
+			}
+
+			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
+		};
+
+		const secondRun = await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now,
+			fetcher: secondRunFetcher
+		});
+
+		assert.equal(secondRun.status, 'completed');
+		assert.equal(fetchedRequests.some((request) => request.endpointId === 'leaguedashplayerstats'), false);
+		assert.equal(fetchedRequests.some((request) => request.endpointId === 'leaguedashteamstats'), false);
+		assert.equal(fetchedRequests.some((request) => request.endpointId === 'playercareerstats'), true);
+		assert.equal(fetchedRequests.some((request) => request.endpointId === 'playergamelog'), true);
+
+		const requestProgress = getDataStore().listNightlyRunRequestsForSlate('2026-04-01');
+		assert.equal(requestProgress.length, 4 + expectedCohort.length * 3);
+		assert.equal(
+			requestProgress.find((request) => request.endpointId === 'leaguedashplayerstats')?.attemptCount,
+			1
+		);
+		assert.equal(
+			requestProgress.find((request) => request.endpointId === 'leaguedashplayerstats')?.status,
+			'succeeded'
+		);
+		assert.equal(
+			requestProgress.find((request) => request.endpointId === 'playercareerstats')?.attemptCount,
+			2
+		);
+		assert.equal(
+			requestProgress.find((request) => request.endpointId === 'playercareerstats')?.status,
+			'succeeded'
+		);
+		assert.equal(
+			requestProgress.find((request) => request.endpointId === 'playergamelog')?.attemptCount,
+			2
+		);
+		assert.equal(
+			requestProgress.find((request) => request.endpointId === 'playergamelog')?.status,
+			'succeeded'
+		);
+	});
+
 	test('marks the nightly run partial when one required request fails after another succeeds', async () => {
+		const expectedFailedRequests =
+			1 +
+			NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS.length +
+			NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS.length +
+			1 +
+			NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS.length;
+
 		const fetcher: NightlyBootstrapFetcher = async (request) => {
 			if (request.endpointId === 'leaguedashplayerstats') {
 				return buildOkResult(request, {
@@ -933,7 +1234,7 @@ describe('bootstrapCurrentSeasonNightly', () => {
 
 		assert.equal(run.status, 'partial');
 		assert.equal(run.completedRequests, 2);
-		assert.equal(run.failedRequests, 5);
+		assert.equal(run.failedRequests, expectedFailedRequests);
 		assert.match(run.errorSummary ?? '', /leaguedashteamstats/i);
 		assert.match(run.errorSummary ?? '', /playercareerstats/i);
 		assert.match(run.errorSummary ?? '', /playergamelog/i);

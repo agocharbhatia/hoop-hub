@@ -1,25 +1,25 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { EndpointFetchRequest, EndpointFetchResult } from '$lib/server/data';
-import type { NightlyBootstrapFetcher } from '$lib/server/nightly/bootstrap-service';
+import type { NightlyBootstrapFetcher } from './bootstrap-service';
 
 const PLAYER_STATS_FIXTURE = JSON.parse(
-	readFileSync(new URL('../../lib/server/semantic/fixtures/leaguedashplayerstats.json', import.meta.url), 'utf8')
+	readFileSync(new URL('../semantic/fixtures/leaguedashplayerstats.json', import.meta.url), 'utf8')
 ) as unknown;
 const TEAM_STATS_FIXTURE = JSON.parse(
-	readFileSync(new URL('../../lib/server/semantic/fixtures/leaguedashteamstats.json', import.meta.url), 'utf8')
+	readFileSync(new URL('../semantic/fixtures/leaguedashteamstats.json', import.meta.url), 'utf8')
 ) as unknown;
 const CURRY_CAREER_FIXTURE = JSON.parse(
-	readFileSync(new URL('../../lib/server/semantic/fixtures/playercareerstats-curry.json', import.meta.url), 'utf8')
+	readFileSync(new URL('../semantic/fixtures/playercareerstats-curry.json', import.meta.url), 'utf8')
 ) as unknown;
 const ACHIUWA_CAREER_FIXTURE = JSON.parse(
-	readFileSync(new URL('../../lib/server/semantic/fixtures/playercareerstats-achiuwa.json', import.meta.url), 'utf8')
+	readFileSync(new URL('../semantic/fixtures/playercareerstats-achiuwa.json', import.meta.url), 'utf8')
 ) as unknown;
 const JOKIC_TREND_FIXTURE = JSON.parse(
-	readFileSync(new URL('../../lib/server/semantic/fixtures/playergamelog-jokic.json', import.meta.url), 'utf8')
+	readFileSync(new URL('../semantic/fixtures/playergamelog-jokic.json', import.meta.url), 'utf8')
 ) as unknown;
 const ACHIUWA_TREND_FIXTURE = JSON.parse(
-	readFileSync(new URL('../../lib/server/semantic/fixtures/playergamelog-achiuwa.json', import.meta.url), 'utf8')
+	readFileSync(new URL('../semantic/fixtures/playergamelog-achiuwa.json', import.meta.url), 'utf8')
 ) as unknown;
 
 /* Helper functions */
@@ -130,6 +130,11 @@ function buildTrendPayloadByPlayerId(playerStatsPayload: unknown): Map<string, u
 	return payloadByPlayerId;
 }
 
+/* Public fixture API */
+
+/**
+ * Provides a deterministic local bootstrap path when live NBA endpoint access is unavailable.
+ */
 export function createNightlyBootstrapFixtureFetcher(): NightlyBootstrapFetcher {
 	const careerPayloadByPlayerId = buildCareerPayloadByPlayerId(PLAYER_STATS_FIXTURE);
 	const trendPayloadByPlayerId = buildTrendPayloadByPlayerId(PLAYER_STATS_FIXTURE);
