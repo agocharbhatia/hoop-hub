@@ -45,7 +45,7 @@ tasks:
       trace API records planned tool requests, executed structured trace
       references, and aggregated source-call data without pretending the whole
       answer had one resolved query.
-    status: pending
+    status: done
     blocked_by:
       - ship_answer_first_api_query_for_one_tool_result
     module_scope:

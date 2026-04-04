@@ -215,3 +215,10 @@
 - Module scope: query route orchestration, planner and renderer service boundaries, answer response contract, app query UI
 - Interface contract: POST /api/query returns an answer-first payload instead of raw StatsQueryResponse | POST /api/stats/query remains the stable single-query structured tool contract | the one-request path uses separate planning and answer-rendering steps
 - Tests: add route contract tests for one-request answer responses | add deterministic planner and renderer boundary tests for the one-tool path | update UI-facing tests or helpers to consume the new answer payload
+## add_honest_orchestration_traces_for_answer_route_requests
+
+- Title: Add Honest Orchestration Traces For Answer-Route Requests
+- Module scope: answer-route trace contract, trace persistence, trace route
+- Interface contract: answer-route traces expose plannedToolRequests and executed structured trace ids | GET /api/query-trace/:traceId returns honest orchestration traces for /api/query | answer-route traces do not expose a fake single resolvedQuery
+- Tests: add /api/query-trace tests for answer-route orchestration traces | add persistence tests for planned tool requests and executed trace ids | keep existing structured trace tests green
+
