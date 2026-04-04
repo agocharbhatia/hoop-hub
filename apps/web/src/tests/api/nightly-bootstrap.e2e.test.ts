@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
+import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
 import type { PlannerDecision } from '$lib/contracts/planner';
 import type { StatsQueryResponse } from '$lib/contracts/semantic-query';
 import { resetDataStoreForTests } from '$lib/server/data/store';
@@ -48,6 +49,15 @@ function createTraceGetEvent(traceId: string): Parameters<typeof queryTraceGet>[
 
 async function parseJson(response: Response): Promise<unknown> {
 	return response.json();
+}
+
+function getPrimaryToolResponse(payload: QueryAnswerResponse): StatsQueryResponse {
+	const response = payload.toolResults[0]?.response;
+	if (!response) {
+		throw new Error('Expected at least one grounded tool result.');
+	}
+
+	return response;
 }
 
 function buildPlannedRankingDecision(): PlannerDecision {
@@ -148,10 +158,12 @@ describe('nightly bootstrap end-to-end coverage', () => {
 				})
 			)
 		);
-		const beforeQueryPayload = (await parseJson(beforeQueryResponse)) as StatsQueryResponse;
+		const beforeQueryPayload = (await parseJson(beforeQueryResponse)) as QueryAnswerResponse;
+		const beforeQueryToolResponse = getPrimaryToolResponse(beforeQueryPayload);
 		assert.equal(beforeQueryResponse.status, 200);
 		assert.equal(beforeQueryPayload.status, 'coverage_gap');
 		assert.equal(beforeQueryPayload.warnings[0]?.code, 'nightly_data_unavailable');
+		assert.equal(beforeQueryToolResponse.warnings[0]?.code, 'nightly_data_unavailable');
 
 		const beforeStatsResponse = await statsPost(
 			createStatsPostEvent(
@@ -185,10 +197,11 @@ describe('nightly bootstrap end-to-end coverage', () => {
 				})
 			)
 		);
-		const afterQueryPayload = (await parseJson(afterQueryResponse)) as StatsQueryResponse;
+		const afterQueryPayload = (await parseJson(afterQueryResponse)) as QueryAnswerResponse;
+		const afterQueryToolResponse = getPrimaryToolResponse(afterQueryPayload);
 		assert.equal(afterQueryResponse.status, 200);
 		assert.equal(afterQueryPayload.status, 'ok');
-		assert.equal(afterQueryPayload.provenance.dataFreshnessMode, 'nightly');
+		assert.equal(afterQueryToolResponse.provenance.dataFreshnessMode, 'nightly');
 
 		const afterStatsResponse = await statsPost(
 			createStatsPostEvent(
@@ -226,11 +239,12 @@ describe('nightly bootstrap end-to-end coverage', () => {
 				})
 			)
 		);
-		const queryPayload = (await parseJson(queryResponse)) as StatsQueryResponse;
+		const queryPayload = (await parseJson(queryResponse)) as QueryAnswerResponse;
+		const queryToolResponse = getPrimaryToolResponse(queryPayload);
 		assert.equal(queryResponse.status, 200);
 		assert.equal(queryPayload.status, 'ok');
-		assert.notEqual(queryPayload.provenance.sourceCalls[0]?.cacheStatus, 'miss');
-		assert.equal(queryPayload.provenance.sourceCalls[0]?.sourceStatus, 'ok');
+		assert.notEqual(queryToolResponse.provenance.sourceCalls[0]?.cacheStatus, 'miss');
+		assert.equal(queryToolResponse.provenance.sourceCalls[0]?.sourceStatus, 'ok');
 
 		const structuredResponse = await executeSemanticQuery(
 			{
@@ -261,16 +275,17 @@ describe('nightly bootstrap end-to-end coverage', () => {
 				})
 			)
 		);
-		const beforePlannerLookupPayload = (await parseJson(beforePlannerLookupResponse)) as StatsQueryResponse;
+		const beforePlannerLookupPayload = (await parseJson(beforePlannerLookupResponse)) as QueryAnswerResponse;
+		const beforePlannerLookupToolResponse = getPrimaryToolResponse(beforePlannerLookupPayload);
 		assert.equal(beforePlannerLookupResponse.status, 200);
 		assert.equal(beforePlannerLookupPayload.status, 'coverage_gap');
 		assert.equal(beforePlannerLookupPayload.warnings[0]?.code, 'nightly_data_unavailable');
-		assert.deepEqual(beforePlannerLookupPayload.provenance.resolvedQuery?.subject, {
+		assert.deepEqual(beforePlannerLookupToolResponse.provenance.resolvedQuery?.subject, {
 			ids: ['203999'],
 			names: ['Nikola Jokic']
 		});
-		assert.equal(beforePlannerLookupPayload.provenance.resolvedQuery?.filters.season, '2025-26');
-		assert.equal(beforePlannerLookupPayload.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+		assert.equal(beforePlannerLookupToolResponse.provenance.resolvedQuery?.filters.season, '2025-26');
+		assert.equal(beforePlannerLookupToolResponse.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
 
 		const beforeStructuredLookupResponse = await statsPost(
 			createStatsPostEvent(
@@ -313,10 +328,11 @@ describe('nightly bootstrap end-to-end coverage', () => {
 				})
 			)
 		);
-		const afterPlannerLookupPayload = (await parseJson(afterPlannerLookupResponse)) as StatsQueryResponse;
+		const afterPlannerLookupPayload = (await parseJson(afterPlannerLookupResponse)) as QueryAnswerResponse;
+		const afterPlannerLookupToolResponse = getPrimaryToolResponse(afterPlannerLookupPayload);
 		assert.equal(afterPlannerLookupResponse.status, 200);
 		assert.equal(afterPlannerLookupPayload.status, 'ok');
-		assert.deepEqual(afterPlannerLookupPayload.result, {
+		assert.deepEqual(afterPlannerLookupToolResponse.result, {
 			shape: 'table',
 			columns: ['playerId', 'playerName', 'season', 'seasonType', 'pts', 'reb'],
 			rows: [
@@ -379,7 +395,7 @@ describe('nightly bootstrap end-to-end coverage', () => {
 				})
 			)
 		);
-		const beforePlannerLookupPayload = (await parseJson(beforePlannerLookupResponse)) as StatsQueryResponse;
+		const beforePlannerLookupPayload = (await parseJson(beforePlannerLookupResponse)) as QueryAnswerResponse;
 		const beforePlannerTraceResponse = await queryTraceGet(createTraceGetEvent(beforePlannerLookupPayload.traceId));
 		const beforePlannerTracePayload = (await parseJson(beforePlannerTraceResponse)) as {
 			status: string;
@@ -463,7 +479,7 @@ describe('nightly bootstrap end-to-end coverage', () => {
 				})
 			)
 		);
-		const afterPlannerLookupPayload = (await parseJson(afterPlannerLookupResponse)) as StatsQueryResponse;
+		const afterPlannerLookupPayload = (await parseJson(afterPlannerLookupResponse)) as QueryAnswerResponse;
 		const afterPlannerTraceResponse = await queryTraceGet(createTraceGetEvent(afterPlannerLookupPayload.traceId));
 		const afterPlannerTracePayload = (await parseJson(afterPlannerTraceResponse)) as {
 			status: string;

@@ -4,15 +4,15 @@
 	import { Input } from '$lib/components/ui/input';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { IconSend2, IconBallBasketball } from '@tabler/icons-svelte';
+	import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
 	import type { ErrorResponse } from '$lib/contracts/chat';
-	import type { StatsQueryResponse } from '$lib/contracts/semantic-query';
-	import { getAssistantMessageContent } from '$lib/presentation/query-response';
+	import { getAssistantMessageContent, getPrimaryTableArtifact } from '$lib/presentation/query-response';
 
 	interface Message {
 		id: string;
 		role: 'user' | 'assistant';
 		content: string;
-		data?: StatsQueryResponse;
+		data?: QueryAnswerResponse;
 		timestamp: Date;
 	}
 
@@ -56,13 +56,13 @@
 				body: JSON.stringify({ question: content.trim() })
 			});
 
-			const data = (await result.json()) as StatsQueryResponse | ErrorResponse;
+			const data = (await result.json()) as QueryAnswerResponse | ErrorResponse;
 
 			const assistantMessage: Message = {
 				id: crypto.randomUUID(),
 				role: 'assistant',
 				content: getAssistantMessageContent(result.ok, data),
-				data: result.ok ? (data as StatsQueryResponse) : undefined,
+				data: result.ok ? (data as QueryAnswerResponse) : undefined,
 				timestamp: new Date()
 			};
 
@@ -93,6 +93,10 @@
 			event.preventDefault();
 			sendMessage(input);
 		}
+	}
+
+	function getMessageTable(message: Message) {
+		return message.data ? getPrimaryTableArtifact(message.data) : null;
 	}
 </script>
 
@@ -135,20 +139,20 @@
 						>
 							<p class="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
 
-							{#if message.data?.result?.rows.length}
+							{#if getMessageTable(message)?.rows.length}
 								<div class="mt-3 overflow-x-auto">
 									<table class="w-full text-xs border-collapse">
 										<thead>
 											<tr class="border-b border-current/10">
-												{#each message.data.result.columns as column}
+												{#each getMessageTable(message)?.columns ?? [] as column}
 													<th class="px-2 py-1.5 text-left font-medium opacity-70">{column}</th>
 												{/each}
 											</tr>
 										</thead>
 										<tbody>
-											{#each message.data.result.rows as row}
+											{#each getMessageTable(message)?.rows ?? [] as row}
 												<tr class="border-b border-current/5 last:border-0">
-													{#each message.data.result.columns as column}
+													{#each getMessageTable(message)?.columns ?? [] as column}
 														<td class="px-2 py-1.5">{row[column] ?? '—'}</td>
 													{/each}
 												</tr>

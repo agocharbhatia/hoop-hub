@@ -1,6 +1,10 @@
 import { json } from '@sveltejs/kit';
+import type { QueryAnswerResponse, QueryAnswerToolResult } from '$lib/contracts/answer-response';
+import type { AnswerRendererService } from '$lib/server/answer-renderer/service';
+import { createDefaultAnswerRendererService } from '$lib/server/answer-renderer/service';
 import type { PlannerService } from '$lib/server/planner/service';
 import { createPlannerService } from '$lib/server/planner/service';
+import type { SemanticQueryRequest, StatsQueryResponse } from '$lib/contracts/semantic-query';
 import {
 	buildSemanticNonOkResponse,
 	executeSemanticQuery,
@@ -10,6 +14,7 @@ import type { RequestHandler } from './$types';
 
 type QueryRouteDependencies = {
 	planner: PlannerService;
+	renderer: AnswerRendererService;
 	executeSemanticQuery: typeof executeSemanticQuery;
 	validateSemanticQueryRequest: typeof validateSemanticQueryRequest;
 	buildSemanticNonOkResponse: typeof buildSemanticNonOkResponse;
@@ -17,6 +22,7 @@ type QueryRouteDependencies = {
 
 let testDependencies: QueryRouteDependencies | null = null;
 let defaultPlannerService: PlannerService | null = null;
+let defaultAnswerRendererService: AnswerRendererService | null = null;
 let testDefaultPlannerFactory: (() => Promise<PlannerService>) | null = null;
 
 /**
@@ -27,6 +33,7 @@ export function _setQueryRouteDependenciesForTests(
 		| {
 				planQuestion: PlannerService['planQuestion'];
 				executeSemanticQuery: typeof executeSemanticQuery;
+				renderAnswer?: AnswerRendererService['renderAnswer'];
 		  }
 		| null
 ): void {
@@ -38,6 +45,11 @@ export function _setQueryRouteDependenciesForTests(
 	testDependencies = {
 		planner: {
 			planQuestion: dependencies.planQuestion
+		},
+		renderer: {
+			renderAnswer:
+				dependencies.renderAnswer ??
+				createDefaultAnswerRendererService().renderAnswer
 		},
 		executeSemanticQuery: dependencies.executeSemanticQuery,
 		validateSemanticQueryRequest,
@@ -80,7 +92,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				null,
 				planningLatencyMs
 			);
-			return json(result, { status: 200 });
+			return json(buildAnswerResponseFromSemanticResponse([], result), { status: 200 });
 		}
 
 		const validated = dependencies.validateSemanticQueryRequest({
@@ -92,7 +104,29 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		const result = await dependencies.executeSemanticQuery(validated.value);
-		return json(result, { status: 200 });
+		const toolResult = buildToolResult(validated.value, result);
+
+		if (result.status !== 'ok' || result.result === null) {
+			return json(buildAnswerResponseFromSemanticResponse([toolResult], result), { status: 200 });
+		}
+
+		const rendered = await dependencies.renderer.renderAnswer({
+			question: parsed.value.question,
+			toolResults: [toolResult]
+		});
+
+		return json(
+			{
+				status: result.status,
+				answer: rendered.answer,
+				artifacts: rendered.artifacts,
+				toolResults: [toolResult],
+				citations: result.citations,
+				warnings: result.warnings,
+				traceId: result.traceId
+			} satisfies QueryAnswerResponse,
+			{ status: 200 }
+		);
 	} catch (error) {
 		console.error('Unexpected planner query handler error:', error);
 		return json({ error: 'Internal server error.' }, { status: 500 });
@@ -113,6 +147,7 @@ function getDependencies(): QueryRouteDependencies {
 				return planner.planQuestion(question);
 			}
 		},
+		renderer: getDefaultAnswerRendererService(),
 		executeSemanticQuery,
 		validateSemanticQueryRequest,
 		buildSemanticNonOkResponse
@@ -134,6 +169,14 @@ async function getDefaultPlannerService(): Promise<PlannerService> {
 	return defaultPlannerService;
 }
 
+function getDefaultAnswerRendererService(): AnswerRendererService {
+	if (!defaultAnswerRendererService) {
+		defaultAnswerRendererService = createDefaultAnswerRendererService();
+	}
+
+	return defaultAnswerRendererService;
+}
+
 function validateQueryQuestionRequest(input: unknown): { ok: true; value: { question: string } } | { ok: false; error: string } {
 	if (!input || typeof input !== 'object' || Array.isArray(input)) {
 		return { ok: false, error: 'Request body must be a JSON object.' };
@@ -149,5 +192,28 @@ function validateQueryQuestionRequest(input: unknown): { ok: true; value: { ques
 		value: {
 			question: question.trim()
 		}
+	};
+}
+
+function buildToolResult(request: SemanticQueryRequest, response: StatsQueryResponse): QueryAnswerToolResult {
+	return {
+		toolName: 'stats_query',
+		request,
+		response
+	};
+}
+
+function buildAnswerResponseFromSemanticResponse(
+	toolResults: QueryAnswerToolResult[],
+	response: StatsQueryResponse
+): QueryAnswerResponse {
+	return {
+		status: response.status,
+		answer: response.warnings[0]?.message ?? 'Unable to process this query.',
+		artifacts: [],
+		toolResults,
+		citations: response.citations,
+		warnings: response.warnings,
+		traceId: response.traceId
 	};
 }

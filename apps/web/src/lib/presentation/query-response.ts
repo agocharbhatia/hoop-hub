@@ -1,9 +1,9 @@
+import type { QueryAnswerResponse, QueryAnswerArtifact } from '$lib/contracts/answer-response';
 import type { ErrorResponse } from '$lib/contracts/chat';
-import type { StatsQueryResponse } from '$lib/contracts/semantic-query';
 
 export function getAssistantMessageContent(
 	responseOk: boolean,
-	payload: StatsQueryResponse | ErrorResponse
+	payload: QueryAnswerResponse | ErrorResponse
 ): string {
 	if (!responseOk) {
 		return 'error' in payload ? payload.error : 'Unable to process this query.';
@@ -13,17 +13,24 @@ export function getAssistantMessageContent(
 		return payload.error;
 	}
 
-	if (payload.status === 'ok') {
-		const summary = payload.result?.summary?.trim();
-		if (summary) {
-			return summary;
-		}
+	const answer = payload.answer.trim();
+	if (answer) {
+		return answer;
+	}
 
-		const rowCount = payload.result?.rows.length ?? 0;
+	const primaryTable = getPrimaryTableArtifact(payload);
+	if (primaryTable) {
+		const rowCount = primaryTable.rows.length;
 		return rowCount > 0
 			? `Returned ${rowCount} result${rowCount === 1 ? '' : 's'}.`
 			: 'No rows returned for this query.';
 	}
 
 	return payload.warnings[0]?.message ?? 'Unable to process this query.';
+}
+
+export function getPrimaryTableArtifact(
+	payload: QueryAnswerResponse
+): Extract<QueryAnswerArtifact, { type: 'table' }> | null {
+	return payload.artifacts.find((artifact): artifact is Extract<QueryAnswerArtifact, { type: 'table' }> => artifact.type === 'table') ?? null;
 }

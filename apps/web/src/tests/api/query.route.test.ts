@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, test } from 'node:test';
-import type { SemanticQueryRequest, StatsQueryResponse } from '$lib/contracts/semantic-query';
+import type { QueryAnswerResponse, QueryAnswerToolResult } from '$lib/contracts/answer-response';
 import type { PlannerDecision } from '$lib/contracts/planner';
+import type { SemanticQueryRequest, StatsQueryResponse } from '$lib/contracts/semantic-query';
 import {
 	POST,
 	_setDefaultPlannerFactoryForTests,
 	_setQueryRouteDependenciesForTests
 } from '../../routes/api/query/+server';
+
+/* Helper functions */
 
 function createPostEvent(body: BodyInit): Parameters<typeof POST>[0] {
 	return {
@@ -22,6 +25,48 @@ async function parseJson(response: Response): Promise<unknown> {
 	return response.json();
 }
 
+function buildStatsResponse(request: SemanticQueryRequest, overrides: Partial<StatsQueryResponse> = {}): StatsQueryResponse {
+	return {
+		status: 'ok',
+		result: {
+			shape: 'ranking',
+			columns: ['player', 'ast'],
+			rows: [{ player: 'Tyrese Haliburton', ast: 10.9 }],
+			summary: 'Tyrese Haliburton led the league in assists at 10.9 per game.'
+		},
+		citations: [{ source: 'stats.nba.com', detail: 'LeagueDashPlayerStats' }],
+		provenance: {
+			executor: 'semantic_executor',
+			resolvedQuery: request.query,
+			dataFreshnessMode: 'nightly',
+			sourceCalls: []
+		},
+		warnings: [],
+		traceId: 'trace-ranked',
+		...overrides
+	};
+}
+
+function buildAnswerPayload(toolResult: QueryAnswerToolResult, overrides: Partial<QueryAnswerResponse> = {}): QueryAnswerResponse {
+	return {
+		status: toolResult.response.status,
+		answer: 'Tyrese Haliburton led the league in assists at 10.9 per game.',
+		artifacts: [
+			{
+				type: 'table',
+				shape: 'ranking',
+				columns: ['player', 'ast'],
+				rows: [{ player: 'Tyrese Haliburton', ast: 10.9 }]
+			}
+		],
+		toolResults: [toolResult],
+		citations: toolResult.response.citations,
+		warnings: toolResult.response.warnings,
+		traceId: toolResult.response.traceId,
+		...overrides
+	};
+}
+
 describe('POST /api/query', () => {
 	const originalConsoleError = console.error;
 
@@ -35,8 +80,10 @@ describe('POST /api/query', () => {
 		_setDefaultPlannerFactoryForTests(null);
 	});
 
-	test('returns 200 for supported player ranking questions', async () => {
+	test('returns an answer-first payload for supported one-tool questions', async () => {
 		let executedRequest: SemanticQueryRequest | null = null;
+		let rendererInput: { question: string; toolResults: QueryAnswerToolResult[] } | null = null;
+
 		_setQueryRouteDependenciesForTests({
 			async planQuestion(): Promise<PlannerDecision> {
 				return {
@@ -64,22 +111,20 @@ describe('POST /api/query', () => {
 			},
 			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
 				executedRequest = request;
+				return buildStatsResponse(request);
+			},
+			async renderAnswer(input) {
+				rendererInput = input;
 				return {
-					status: 'ok',
-					result: {
-						shape: 'ranking',
-						columns: ['player', 'ast'],
-						rows: [{ player: 'Tyrese Haliburton', ast: 10.9 }]
-					},
-					citations: [],
-					provenance: {
-						executor: 'semantic_executor',
-						resolvedQuery: request.query,
-						dataFreshnessMode: 'nightly',
-						sourceCalls: []
-					},
-					warnings: [],
-					traceId: 'trace-ranked'
+					answer: 'Tyrese Haliburton led the league in assists at 10.9 per game.',
+					artifacts: [
+						{
+							type: 'table',
+							shape: 'ranking',
+							columns: ['player', 'ast'],
+							rows: [{ player: 'Tyrese Haliburton', ast: 10.9 }]
+						}
+					]
 				};
 			}
 		});
@@ -91,17 +136,29 @@ describe('POST /api/query', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as StatsQueryResponse;
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'ok');
+		assert.equal(payload.answer, 'Tyrese Haliburton led the league in assists at 10.9 per game.');
+		assert.equal(payload.toolResults.length, 1);
+		assert.equal(payload.artifacts.length, 1);
+		assert.equal(payload.citations.length, 1);
+		assert.equal(payload.traceId, 'trace-ranked');
 		assert.notEqual(executedRequest, null);
 		assert.equal(executedRequest!.question, 'Who averaged the most assists in 2023-24?');
 		assert.deepEqual(executedRequest!.query.metrics, ['ast']);
+		assert.notEqual(rendererInput, null);
+		assert.equal(rendererInput!.question, 'Who averaged the most assists in 2023-24?');
+		assert.equal(rendererInput!.toolResults.length, 1);
+		assert.equal(rendererInput!.toolResults[0]?.toolName, 'stats_query');
+		assert.deepEqual(rendererInput!.toolResults[0]?.request, executedRequest);
 	});
 
 	test('does not instantiate the default planner when route tests inject dependencies', async () => {
 		let defaultPlannerFactoryCalls = 0;
+		let rendererCalls = 0;
+
 		_setDefaultPlannerFactoryForTests(() => {
 			defaultPlannerFactoryCalls += 1;
 			throw new Error('default planner should not be created');
@@ -119,6 +176,10 @@ describe('POST /api/query', () => {
 			},
 			async executeSemanticQuery(): Promise<StatsQueryResponse> {
 				throw new Error('Executor should not be called.');
+			},
+			async renderAnswer() {
+				rendererCalls += 1;
+				throw new Error('Renderer should not be called.');
 			}
 		});
 
@@ -129,49 +190,61 @@ describe('POST /api/query', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as StatsQueryResponse;
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'coverage_gap');
+		assert.equal(payload.answer, 'Predictions are not supported in this slice.');
+		assert.equal(payload.toolResults.length, 0);
 		assert.equal(defaultPlannerFactoryCalls, 0);
+		assert.equal(rendererCalls, 0);
 	});
 
-	test('returns typed coverage gaps without calling the executor', async () => {
+	test('returns typed planner non-ok responses without calling the executor or renderer', async () => {
 		let executorCalls = 0;
+		let rendererCalls = 0;
+
 		_setQueryRouteDependenciesForTests({
 			async planQuestion(): Promise<PlannerDecision> {
 				return {
-					type: 'coverage_gap',
+					type: 'clarification_needed',
 					warning: {
-						code: 'unsupported_query_shape',
-						message: 'Predictions are not supported in this slice.'
+						code: 'missing_metric',
+						message: 'Player trend questions need a metric like points, assists, or rebounds.'
 					}
 				};
 			},
 			async executeSemanticQuery(): Promise<StatsQueryResponse> {
 				executorCalls += 1;
 				throw new Error('Executor should not be called.');
+			},
+			async renderAnswer() {
+				rendererCalls += 1;
+				throw new Error('Renderer should not be called.');
 			}
 		});
 
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
-					question: 'Who wins the title this year?'
+					question: 'Show me Jokic over his last 5'
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as StatsQueryResponse;
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
 
 		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'coverage_gap');
+		assert.equal(payload.status, 'clarification_needed');
+		assert.equal(payload.answer, 'Player trend questions need a metric like points, assists, or rebounds.');
+		assert.equal(payload.toolResults.length, 0);
+		assert.equal(payload.warnings[0]?.code, 'missing_metric');
 		assert.equal(executorCalls, 0);
-		assert.equal(payload.provenance.resolvedQuery, null);
-		assert.deepEqual(payload.provenance.sourceCalls, []);
+		assert.equal(rendererCalls, 0);
 	});
 
-	test('executes supported team defensive ranking questions through the planner route', async () => {
+	test('passes supported team defensive ranking tool results through the renderer boundary', async () => {
 		let executedRequest: SemanticQueryRequest | null = null;
+
 		_setQueryRouteDependenciesForTests({
 			async planQuestion(): Promise<PlannerDecision> {
 				return {
@@ -199,22 +272,27 @@ describe('POST /api/query', () => {
 			},
 			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
 				executedRequest = request;
-				return {
-					status: 'ok',
+				return buildStatsResponse(request, {
 					result: {
 						shape: 'ranking',
 						columns: ['team', 'drtg'],
 						rows: [{ team: 'Minnesota Timberwolves', drtg: 108.4 }]
 					},
-					citations: [],
-					provenance: {
-						executor: 'semantic_executor',
-						resolvedQuery: request.query,
-						dataFreshnessMode: 'nightly',
-						sourceCalls: []
-					},
-					warnings: [],
 					traceId: 'trace-team-defense'
+				});
+			},
+			async renderAnswer({ toolResults }) {
+				assert.equal(toolResults[0]?.response.traceId, 'trace-team-defense');
+				return {
+					answer: 'Minnesota finished with the best defensive rating at 108.4.',
+					artifacts: [
+						{
+							type: 'table',
+							shape: 'ranking',
+							columns: ['team', 'drtg'],
+							rows: [{ team: 'Minnesota Timberwolves', drtg: 108.4 }]
+						}
+					]
 				};
 			}
 		});
@@ -226,10 +304,11 @@ describe('POST /api/query', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as StatsQueryResponse;
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'ok');
+		assert.equal(payload.answer, 'Minnesota finished with the best defensive rating at 108.4.');
 		assert.notEqual(executedRequest, null);
 		assert.equal(executedRequest!.query.entity, 'team');
 		assert.deepEqual(executedRequest!.query.metrics, ['drtg']);
@@ -239,140 +318,9 @@ describe('POST /api/query', () => {
 		});
 	});
 
-	test('executes supported player season lookup questions through the planner route', async () => {
+	test('passes supported trend tool results through the renderer boundary', async () => {
 		let executedRequest: SemanticQueryRequest | null = null;
-		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
-				return {
-					type: 'planned',
-					query: {
-						operation: 'lookup',
-						entity: 'player',
-						subject: {
-							names: ['Nikola Jokic']
-						},
-						metrics: ['reb'],
-						filters: {
-							season: '2023-24',
-							seasonType: null,
-							window: null,
-							dateFrom: null,
-							dateTo: null
-						},
-						orderBy: null,
-						limit: null,
-						outputMode: 'table'
-					}
-				};
-			},
-			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
-				executedRequest = request;
-				return {
-					status: 'ok',
-					result: {
-						shape: 'table',
-						columns: ['player', 'reb'],
-						rows: [{ player: 'Nikola Jokic', reb: 12.4 }]
-					},
-					citations: [],
-					provenance: {
-						executor: 'semantic_executor',
-						resolvedQuery: request.query,
-						dataFreshnessMode: 'nightly',
-						sourceCalls: []
-					},
-					warnings: [],
-					traceId: 'trace-player-lookup'
-				};
-			}
-		});
 
-		const response = await POST(
-			createPostEvent(
-				JSON.stringify({
-					question: 'How many rebounds did Nikola Jokic average in 2023-24?'
-				})
-			)
-		);
-		const payload = (await parseJson(response)) as StatsQueryResponse;
-
-		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'ok');
-		assert.notEqual(executedRequest, null);
-		assert.equal(executedRequest!.query.operation, 'lookup');
-		assert.equal(executedRequest!.query.entity, 'player');
-		assert.deepEqual(executedRequest!.query.subject.names, ['Nikola Jokic']);
-		assert.equal(executedRequest!.query.filters.season, '2023-24');
-	});
-
-	test('executes supported team season lookup questions through the planner route', async () => {
-		let executedRequest: SemanticQueryRequest | null = null;
-		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
-				return {
-					type: 'planned',
-					query: {
-						operation: 'lookup',
-						entity: 'team',
-						subject: {
-							names: ['Boston Celtics']
-						},
-						metrics: ['wins'],
-						filters: {
-							season: '2023-24',
-							seasonType: null,
-							window: null,
-							dateFrom: null,
-							dateTo: null
-						},
-						orderBy: null,
-						limit: null,
-						outputMode: 'table'
-					}
-				};
-			},
-			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
-				executedRequest = request;
-				return {
-					status: 'ok',
-					result: {
-						shape: 'table',
-						columns: ['team', 'wins'],
-						rows: [{ team: 'Boston Celtics', wins: 64 }]
-					},
-					citations: [],
-					provenance: {
-						executor: 'semantic_executor',
-						resolvedQuery: request.query,
-						dataFreshnessMode: 'nightly',
-						sourceCalls: []
-					},
-					warnings: [],
-					traceId: 'trace-team-lookup'
-				};
-			}
-		});
-
-		const response = await POST(
-			createPostEvent(
-				JSON.stringify({
-					question: 'How many wins did the Boston Celtics have in 2023/24?'
-				})
-			)
-		);
-		const payload = (await parseJson(response)) as StatsQueryResponse;
-
-		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'ok');
-		assert.notEqual(executedRequest, null);
-		assert.equal(executedRequest!.query.operation, 'lookup');
-		assert.equal(executedRequest!.query.entity, 'team');
-		assert.deepEqual(executedRequest!.query.subject.names, ['Boston Celtics']);
-		assert.equal(executedRequest!.query.filters.season, '2023-24');
-	});
-
-	test('executes supported scoring-language player trend questions through the planner route', async () => {
-		let executedRequest: SemanticQueryRequest | null = null;
 		_setQueryRouteDependenciesForTests({
 			async planQuestion(): Promise<PlannerDecision> {
 				return {
@@ -402,22 +350,27 @@ describe('POST /api/query', () => {
 			},
 			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
 				executedRequest = request;
-				return {
-					status: 'ok',
+				return buildStatsResponse(request, {
 					result: {
 						shape: 'timeseries',
 						columns: ['gameDate', 'metric', 'value'],
 						rows: [{ gameDate: '2024-03-01', metric: 'pts', value: 32 }]
 					},
-					citations: [],
-					provenance: {
-						executor: 'semantic_executor',
-						resolvedQuery: request.query,
-						dataFreshnessMode: 'nightly',
-						sourceCalls: []
-					},
-					warnings: [],
 					traceId: 'trace-trend'
+				});
+			},
+			async renderAnswer({ toolResults }) {
+				assert.equal(toolResults[0]?.response.result?.shape, 'timeseries');
+				return {
+					answer: 'Jokic scored 32 points in the sampled game log result.',
+					artifacts: [
+						{
+							type: 'table',
+							shape: 'timeseries',
+							columns: ['gameDate', 'metric', 'value'],
+							rows: [{ gameDate: '2024-03-01', metric: 'pts', value: 32 }]
+						}
+					]
 				};
 			}
 		});
@@ -429,7 +382,7 @@ describe('POST /api/query', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as StatsQueryResponse;
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'ok');
@@ -441,8 +394,9 @@ describe('POST /api/query', () => {
 		});
 	});
 
-	test('executes supported player comparison questions through the planner route with stable subject order', async () => {
+	test('passes supported comparison tool results through the renderer boundary with stable subject order', async () => {
 		let executedRequest: SemanticQueryRequest | null = null;
+
 		_setQueryRouteDependenciesForTests({
 			async planQuestion(): Promise<PlannerDecision> {
 				return {
@@ -469,8 +423,7 @@ describe('POST /api/query', () => {
 			},
 			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
 				executedRequest = request;
-				return {
-					status: 'ok',
+				return buildStatsResponse(request, {
 					result: {
 						shape: 'comparison',
 						columns: ['player', 'pts'],
@@ -479,15 +432,23 @@ describe('POST /api/query', () => {
 							{ player: 'Stephen Curry', pts: 26.4 }
 						]
 					},
-					citations: [],
-					provenance: {
-						executor: 'semantic_executor',
-						resolvedQuery: request.query,
-						dataFreshnessMode: 'nightly',
-						sourceCalls: []
-					},
-					warnings: [],
 					traceId: 'trace-compare'
+				});
+			},
+			async renderAnswer() {
+				return {
+					answer: 'Stephen Curry scored more points per game than Damian Lillard in 2023-24.',
+					artifacts: [
+						{
+							type: 'table',
+							shape: 'comparison',
+							columns: ['player', 'pts'],
+							rows: [
+								{ player: 'Damian Lillard', pts: 24.3 },
+								{ player: 'Stephen Curry', pts: 26.4 }
+							]
+						}
+					]
 				};
 			}
 		});
@@ -499,7 +460,7 @@ describe('POST /api/query', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as StatsQueryResponse;
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'ok');
@@ -509,117 +470,91 @@ describe('POST /api/query', () => {
 		assert.equal(executedRequest!.query.outputMode, 'comparison');
 	});
 
-	test('returns clarification_needed for vague trend questions without calling the executor', async () => {
+	test('returns a 500 when the planner fails or the renderer cannot produce a valid answer', async () => {
 		let executorCalls = 0;
+
 		_setQueryRouteDependenciesForTests({
 			async planQuestion(): Promise<PlannerDecision> {
 				return {
-					type: 'clarification_needed',
-					warning: {
-						code: 'missing_metric',
-						message: 'Player trend questions need a metric like points, assists, or rebounds.'
+					type: 'planned',
+					query: {
+						operation: 'rank',
+						entity: 'player',
+						subject: {},
+						metrics: ['ast'],
+						filters: {
+							season: '2023-24',
+							seasonType: null,
+							window: null,
+							dateFrom: null,
+							dateTo: null
+						},
+						orderBy: {
+							metric: 'ast',
+							direction: 'desc'
+						},
+						limit: 10,
+						outputMode: 'table'
 					}
 				};
 			},
-			async executeSemanticQuery(): Promise<StatsQueryResponse> {
+			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
 				executorCalls += 1;
-				throw new Error('Executor should not be called.');
+				return buildStatsResponse(request);
+			},
+			async renderAnswer() {
+				throw new Error('renderer exploded');
 			}
 		});
 
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
-					question: 'Show me Jokic over his last 5'
+					question: 'Who averaged the most assists in 2023-24?'
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as StatsQueryResponse;
+		const payload = (await parseJson(response)) as { error: string };
 
-		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'clarification_needed');
-		assert.equal(executorCalls, 0);
-		assert.equal(payload.warnings[0]?.code, 'missing_metric');
-		assert.equal(payload.provenance.resolvedQuery, null);
+		assert.equal(response.status, 500);
+		assert.equal(payload.error, 'Internal server error.');
+		assert.equal(executorCalls, 1);
 	});
 
-	test('returns typed coverage gaps for adjacent unsupported team asks without calling the executor', async () => {
+	test('returns a 500 when the planner produces an invalid semantic query', async () => {
 		let executorCalls = 0;
+
 		_setQueryRouteDependenciesForTests({
 			async planQuestion(): Promise<PlannerDecision> {
 				return {
-					type: 'coverage_gap',
-					warning: {
-						code: 'unsupported_metric',
-						message: 'Team offensive rankings are not supported in this slice.'
+					type: 'planned',
+					query: {
+						operation: 'rank',
+						entity: 'player',
+						subject: {},
+						metrics: ['not-a-real-metric'],
+						filters: {
+							season: '2023-24',
+							seasonType: null,
+							window: null,
+							dateFrom: null,
+							dateTo: null
+						},
+						orderBy: {
+							metric: 'not-a-real-metric',
+							direction: 'desc'
+						},
+						limit: 10,
+						outputMode: 'table'
 					}
-				};
+				} as PlannerDecision;
 			},
 			async executeSemanticQuery(): Promise<StatsQueryResponse> {
 				executorCalls += 1;
 				throw new Error('Executor should not be called.');
-			}
-		});
-
-		const response = await POST(
-			createPostEvent(
-				JSON.stringify({
-					question: 'Which team has the best offensive rating in 2023-24?'
-				})
-			)
-		);
-		const payload = (await parseJson(response)) as StatsQueryResponse;
-
-		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'coverage_gap');
-		assert.equal(executorCalls, 0);
-		assert.equal(payload.warnings[0]?.code, 'unsupported_metric');
-		assert.equal(payload.provenance.resolvedQuery, null);
-	});
-
-	test('returns clarification_needed for comparison questions with fewer than two subjects without calling the executor', async () => {
-		let executorCalls = 0;
-		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
-				return {
-					type: 'clarification_needed',
-					warning: {
-						code: 'compare_requires_two_subjects',
-						message: 'Player comparisons require exactly two player names in this slice.'
-					}
-				};
 			},
-			async executeSemanticQuery(): Promise<StatsQueryResponse> {
-				executorCalls += 1;
-				throw new Error('Executor should not be called.');
-			}
-		});
-
-		const response = await POST(
-			createPostEvent(
-				JSON.stringify({
-					question: 'Compare Steph in 2023-24'
-				})
-			)
-		);
-		const payload = (await parseJson(response)) as StatsQueryResponse;
-
-		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'clarification_needed');
-		assert.equal(executorCalls, 0);
-		assert.equal(payload.warnings[0]?.code, 'compare_requires_two_subjects');
-		assert.equal(payload.provenance.resolvedQuery, null);
-	});
-
-	test('returns 500 when the planner fails or returns invalid output', async () => {
-		let executorCalls = 0;
-		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
-				throw new Error('planner exploded');
-			},
-			async executeSemanticQuery(): Promise<StatsQueryResponse> {
-				executorCalls += 1;
-				throw new Error('Executor should not be called.');
+			async renderAnswer() {
+				throw new Error('Renderer should not be called.');
 			}
 		});
 
@@ -635,5 +570,70 @@ describe('POST /api/query', () => {
 		assert.equal(response.status, 500);
 		assert.equal(payload.error, 'Internal server error.');
 		assert.equal(executorCalls, 0);
+	});
+
+	test('maps executed non-ok tool results into answer-first payloads without calling the renderer', async () => {
+		let rendererCalls = 0;
+		const request: SemanticQueryRequest = {
+			question: 'Show me Jokic over his last 5',
+			query: {
+				operation: 'trend',
+				entity: 'player',
+				subject: {
+					names: ['Jokic']
+				},
+				metrics: ['pts'],
+				filters: {
+					season: null,
+					seasonType: null,
+					window: {
+						type: 'last_n_games',
+						n: 5
+					},
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'timeseries'
+			}
+		};
+
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<PlannerDecision> {
+				return {
+					type: 'planned',
+					query: request.query
+				};
+			},
+			async executeSemanticQuery(): Promise<StatsQueryResponse> {
+				return buildStatsResponse(request, {
+					status: 'coverage_gap',
+					result: null,
+					warnings: [
+						{
+							code: 'nightly_data_unavailable',
+							message: 'No stored nightly endpoint payload was available for one or more required requests.'
+						}
+					],
+					traceId: 'trace-coverage'
+				});
+			},
+			async renderAnswer() {
+				rendererCalls += 1;
+				throw new Error('Renderer should not be called.');
+			}
+		});
+
+		const response = await POST(createPostEvent(JSON.stringify({ question: request.question })));
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'coverage_gap');
+		assert.equal(payload.answer, 'No stored nightly endpoint payload was available for one or more required requests.');
+		assert.equal(payload.toolResults.length, 1);
+		assert.equal(payload.artifacts.length, 0);
+		assert.equal(payload.traceId, 'trace-coverage');
+		assert.equal(rendererCalls, 0);
 	});
 });

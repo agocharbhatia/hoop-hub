@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
+import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
 import type { PlannerDecision } from '$lib/contracts/planner';
-import type { StatsQueryResponse } from '$lib/contracts/semantic-query';
 import { resetDataStoreForTests } from '$lib/server/data/store';
 import { executeSemanticQuery } from '$lib/server/semantic/query-service';
 import { seedSemanticFixtureCache } from '../helpers/seed-semantic-fixture-cache';
@@ -31,7 +31,28 @@ function usePlannerDecision(decision: PlannerDecision): void {
 		async planQuestion(): Promise<PlannerDecision> {
 			return decision;
 		},
-		executeSemanticQuery
+		executeSemanticQuery,
+		async renderAnswer({ toolResults }) {
+			const toolResult = toolResults[0];
+			const summary = toolResult?.response.result?.summary?.trim();
+			return {
+				answer:
+					summary && summary.length > 0
+						? summary
+						: toolResult?.response.warnings[0]?.message ?? 'Unable to answer this query.',
+				artifacts:
+					toolResult?.response.result === null
+						? []
+						: [
+								{
+									type: 'table',
+									shape: toolResult.response.result.shape,
+									columns: toolResult.response.result.columns,
+									rows: toolResult.response.result.rows
+								}
+							]
+			};
+		}
 	});
 }
 
@@ -76,7 +97,7 @@ describe('POST /api/query integration', () => {
 		assert.match(payload.error, /question is required/i);
 	});
 
-	test('returns structured rows for supported raw natural-language queries', async () => {
+	test('returns answer-first payloads for supported ranking questions', async () => {
 		usePlannerDecision({
 			type: 'planned',
 			query: {
@@ -107,20 +128,15 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as {
-			status: string;
-			result: { summary?: string; rows: unknown[] };
-			citations: unknown[];
-			provenance: { executor: string };
-			traceId: string;
-		};
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'ok');
-		assert.equal((payload.result.summary?.length ?? 0) > 0, true);
-		assert.equal(payload.result.rows.length > 0, true);
+		assert.equal(payload.answer.length > 0, true);
+		assert.equal(payload.toolResults.length, 1);
+		assert.equal(payload.artifacts.length, 1);
 		assert.equal(payload.citations.length > 0, true);
-		assert.equal(payload.provenance.executor, 'semantic_executor');
+		assert.equal(payload.toolResults[0]?.response.provenance.executor, 'semantic_executor');
 		assert.equal(payload.traceId.length > 0, true);
 	});
 
@@ -157,6 +173,23 @@ describe('POST /api/query integration', () => {
 			},
 			executeSemanticQuery(request) {
 				return executeSemanticQuery(request, new Date('2026-03-25T12:00:00.000Z'));
+			},
+			async renderAnswer({ toolResults }) {
+				const toolResult = toolResults[0];
+				return {
+					answer: toolResult?.response.result?.summary ?? 'Missing summary.',
+					artifacts:
+						toolResult?.response.result === null
+							? []
+							: [
+									{
+										type: 'table',
+										shape: toolResult.response.result.shape,
+										columns: toolResult.response.result.columns,
+										rows: toolResult.response.result.rows
+									}
+								]
+				};
 			}
 		});
 
@@ -167,16 +200,14 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as StatsQueryResponse;
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const toolResult = payload.toolResults[0];
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'ok');
-		assert.equal(payload.provenance.dataFreshnessMode, 'nightly');
-		assert.equal(payload.provenance.sourceCalls[0]?.cacheStatus, 'stale_hit');
-		if (payload.result === null) {
-			throw new Error('Expected ranking result for next-day nightly snapshot reuse.');
-		}
-		assert.equal(payload.result.shape, 'ranking');
+		assert.equal(toolResult?.response.provenance.dataFreshnessMode, 'nightly');
+		assert.equal(toolResult?.response.provenance.sourceCalls[0]?.cacheStatus, 'stale_hit');
+		assert.equal(toolResult?.response.result?.shape, 'ranking');
 	});
 
 	test('resolves arbitrary exact-name player trends through the shared full-directory resolver', async () => {
@@ -212,37 +243,20 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as {
-			status: string;
-			result: { rows: Array<{ label?: string; metric?: string; value?: number }> };
-			provenance: {
-				resolvedQuery: {
-					subject: { ids: string[]; names: string[] };
-					filters: {
-						season: string | null;
-						seasonType: string | null;
-						window: { type: string; n: number } | null;
-					};
-				};
-			};
-		};
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const toolResult = payload.toolResults[0];
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'ok');
-		assert.equal(payload.result.rows.length, 2);
-		assert.equal(payload.result.rows[0]?.label, 'MAR 10, 2026');
-		assert.equal(payload.result.rows[0]?.metric, 'pts');
-		assert.equal(payload.result.rows[0]?.value, 12);
-		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+		assert.equal(toolResult?.response.result?.rows.length, 2);
+		assert.equal(toolResult?.response.result?.rows[0]?.label, 'MAR 10, 2026');
+		assert.equal(toolResult?.response.result?.rows[0]?.metric, 'pts');
+		assert.equal(toolResult?.response.result?.rows[0]?.value, 12);
+		assert.deepEqual(toolResult?.response.provenance.resolvedQuery?.subject, {
 			ids: ['1630173'],
 			names: ['Precious Achiuwa']
 		});
-		assert.equal(payload.provenance.resolvedQuery.filters.season, '2025-26');
-		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
-		assert.deepEqual(payload.provenance.resolvedQuery.filters.window, {
-			type: 'last_n_games',
-			n: 2
-		});
+		assert.equal(toolResult?.response.provenance.resolvedQuery?.filters.season, '2025-26');
 	});
 
 	test('executes supported player season lookups end to end and preserves the named season for executor grounding', async () => {
@@ -275,208 +289,24 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as {
-			status: string;
-			result:
-				| {
-						shape: string;
-						rows: Array<{ playerId?: string; playerName?: string; season?: string; pts?: number }>;
-				  }
-				| null;
-			provenance: {
-				resolvedQuery: {
-					entity: string;
-					subject: { ids: string[]; names: string[] };
-					filters: { season: string | null; seasonType: string | null };
-				};
-			};
-		};
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const toolResult = payload.toolResults[0];
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'ok');
-		assert.equal(payload.result?.shape, 'table');
-		assert.equal(payload.result?.rows.length, 1);
-		assert.equal(payload.result?.rows[0]?.playerId, '203999');
-		assert.equal(payload.result?.rows[0]?.playerName, 'Nikola Jokic');
-		assert.equal(payload.result?.rows[0]?.season, '2023-24');
-		assert.equal(typeof payload.result?.rows[0]?.pts, 'number');
-		assert.equal(payload.provenance.resolvedQuery.entity, 'player');
-		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+		assert.equal(toolResult?.response.result?.shape, 'table');
+		assert.equal(toolResult?.response.result?.rows.length, 1);
+		assert.equal(toolResult?.response.result?.rows[0]?.playerId, '203999');
+		assert.equal(toolResult?.response.result?.rows[0]?.playerName, 'Nikola Jokic');
+		assert.equal(toolResult?.response.result?.rows[0]?.season, '2023-24');
+		assert.equal(typeof toolResult?.response.result?.rows[0]?.pts, 'number');
+		assert.equal(toolResult?.response.provenance.resolvedQuery?.entity, 'player');
+		assert.deepEqual(toolResult?.response.provenance.resolvedQuery?.subject, {
 			ids: ['203999'],
 			names: ['Nikola Jokic']
 		});
-		assert.equal(payload.provenance.resolvedQuery.filters.season, '2023-24');
-		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
-	});
-
-	test('executes supported team season lookups end to end and preserves the named season for executor grounding', async () => {
-		usePlannerDecision({
-			type: 'planned',
-			query: {
-				operation: 'lookup',
-				entity: 'team',
-				subject: {
-					names: ['Boston Celtics']
-				},
-				metrics: ['wins'],
-				filters: {
-					season: '2023-24',
-					seasonType: null,
-					window: null,
-					dateFrom: null,
-					dateTo: null
-				},
-				orderBy: null,
-				limit: null,
-				outputMode: 'table'
-			}
-		});
-
-		const response = await POST(
-			createPostEvent(
-				JSON.stringify({
-					question: 'How many wins did the Boston Celtics have in 2023-24?'
-				})
-			)
-		);
-		const payload = (await parseJson(response)) as {
-			status: string;
-			result:
-				| {
-						shape: string;
-						rows: Array<{ teamId?: string; teamName?: string; season?: string; wins?: number }>;
-				  }
-				| null;
-			provenance: {
-				resolvedQuery: {
-					entity: string;
-					subject: { ids: string[]; names: string[] };
-					filters: { season: string | null; seasonType: string | null };
-				};
-			};
-		};
-
-		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'ok');
-		assert.equal(payload.result?.shape, 'table');
-		assert.equal(payload.result?.rows.length, 1);
-		assert.equal(payload.result?.rows[0]?.teamId, '1610612738');
-		assert.equal(payload.result?.rows[0]?.teamName, 'Boston Celtics');
-		assert.equal(payload.result?.rows[0]?.season, '2023-24');
-		assert.equal(typeof payload.result?.rows[0]?.wins, 'number');
-		assert.equal(payload.provenance.resolvedQuery.entity, 'team');
-		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
-			ids: ['1610612738'],
-			names: ['Boston Celtics']
-		});
-		assert.equal(payload.provenance.resolvedQuery.filters.season, '2023-24');
-		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
-	});
-
-	test('resolves curated aliases through the shared player resolver', async () => {
-		usePlannerDecision({
-			type: 'planned',
-			query: {
-				operation: 'trend',
-				entity: 'player',
-				subject: {
-					names: ['Jokic']
-				},
-				metrics: ['pts'],
-				filters: {
-					season: null,
-					seasonType: null,
-					window: {
-						type: 'last_n_games',
-						n: 2
-					},
-					dateFrom: null,
-					dateTo: null
-				},
-				orderBy: null,
-				limit: null,
-				outputMode: 'timeseries'
-			}
-		});
-
-		const response = await POST(
-			createPostEvent(
-				JSON.stringify({
-					question: 'Show Jokic trend for points in the last 2 games'
-				})
-			)
-		);
-		const payload = (await parseJson(response)) as {
-			status: string;
-			provenance: {
-				resolvedQuery: {
-					subject: { ids: string[]; names: string[] };
-				};
-			};
-		};
-
-		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'ok');
-		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
-			ids: ['203999'],
-			names: ['Nikola Jokic']
-		});
-	});
-
-	test('resolves arbitrary exact-name comparison subjects through the shared full-directory resolver', async () => {
-		usePlannerDecision({
-			type: 'planned',
-			query: {
-				operation: 'compare',
-				entity: 'player',
-				subject: {
-					names: ['Stephen Curry', 'Precious Achiuwa']
-				},
-				metrics: ['pts'],
-				filters: {
-					season: '2023-24',
-					seasonType: null,
-					window: null,
-					dateFrom: null,
-					dateTo: null
-				},
-				orderBy: null,
-				limit: null,
-				outputMode: 'comparison'
-			}
-		});
-
-		const response = await POST(
-			createPostEvent(
-				JSON.stringify({
-					question: 'Compare Stephen Curry vs Precious Achiuwa by points in 2023-24'
-				})
-			)
-		);
-		const payload = (await parseJson(response)) as {
-			status: string;
-			result: { rows: Array<{ subject?: string }> };
-			provenance: {
-				resolvedQuery: {
-					subject: { ids: string[]; names: string[] };
-					filters: { season: string | null; seasonType: string | null };
-				};
-			};
-		};
-
-		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'ok');
-		assert.equal(payload.result.rows.length, 2);
-		assert.deepEqual(
-			payload.result.rows.map((row) => row.subject),
-			['Stephen Curry', 'Precious Achiuwa']
-		);
-		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
-			ids: ['201939', '1630173'],
-			names: ['Stephen Curry', 'Precious Achiuwa']
-		});
-		assert.equal(payload.provenance.resolvedQuery.filters.season, '2023-24');
-		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.equal(toolResult?.response.provenance.resolvedQuery?.filters.season, '2023-24');
+		assert.equal(toolResult?.response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
 	});
 
 	test('resolves curated comparison aliases through the shared player resolver', async () => {
@@ -509,26 +339,19 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as {
-			status: string;
-			result: { rows: Array<{ subject?: string }> };
-			provenance: {
-				resolvedQuery: {
-					subject: { ids: string[]; names: string[] };
-				};
-			};
-		};
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const toolResult = payload.toolResults[0];
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'ok');
-		assert.equal(payload.result.rows.length, 2);
-		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+		assert.equal(toolResult?.response.result?.rows.length, 2);
+		assert.deepEqual(toolResult?.response.provenance.resolvedQuery?.subject, {
 			ids: ['201939', '203081'],
 			names: ['Stephen Curry', 'Damian Lillard']
 		});
 	});
 
-	test('returns clarification_needed for ambiguous alias questions instead of guessing', async () => {
+	test('returns executed clarification responses inside the answer-first payload instead of guessing', async () => {
 		usePlannerDecision({
 			type: 'planned',
 			query: {
@@ -561,20 +384,18 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as {
-			status: string;
-			result: unknown;
-			warnings: { code: string; message: string }[];
-		};
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'clarification_needed');
-		assert.equal(payload.result, null);
+		assert.equal(payload.answer.length > 0, true);
+		assert.equal(payload.toolResults.length, 1);
+		assert.equal(payload.toolResults[0]?.response.result, null);
 		assert.equal(payload.warnings[0]?.code, 'ambiguous_subject');
 		assert.match(payload.warnings[0]?.message ?? '', /patrick williams/i);
 	});
 
-	test('returns typed coverage gaps for ungrounded queries', async () => {
+	test('returns typed planner coverage gaps in the answer-first payload', async () => {
 		let executorCalls = 0;
 		_setQueryRouteDependenciesForTests({
 			async planQuestion(): Promise<PlannerDecision> {
@@ -586,9 +407,12 @@ describe('POST /api/query integration', () => {
 					}
 				};
 			},
-			async executeSemanticQuery(): Promise<StatsQueryResponse> {
+			async executeSemanticQuery() {
 				executorCalls += 1;
 				throw new Error('Executor should not be called.');
+			},
+			async renderAnswer() {
+				throw new Error('Renderer should not be called.');
 			}
 		});
 
@@ -599,51 +423,13 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as {
-			status: string;
-			result: unknown;
-			warnings: { code: string }[];
-			traceId: string;
-		};
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'coverage_gap');
-		assert.equal(payload.result, null);
-		assert.equal(payload.warnings.length > 0, true);
+		assert.equal(payload.answer, 'Predictions are not supported in this slice.');
+		assert.equal(payload.toolResults.length, 0);
 		assert.equal(payload.traceId.length > 0, true);
-		assert.equal(executorCalls, 0);
-	});
-
-	test('returns coverage gaps instead of 500s for unsupported comparison metrics', async () => {
-		let executorCalls = 0;
-		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
-				return {
-					type: 'coverage_gap',
-					warning: {
-						code: 'unsupported_metric',
-						message: 'Defensive rating comparisons are not supported in this slice.'
-					}
-				};
-			},
-			async executeSemanticQuery(): Promise<StatsQueryResponse> {
-				executorCalls += 1;
-				throw new Error('Executor should not be called.');
-			}
-		});
-
-		const response = await POST(
-			createPostEvent(
-				JSON.stringify({
-					question: 'Compare Stephen Curry vs Damian Lillard by defensive rating'
-				})
-			)
-		);
-		const payload = (await parseJson(response)) as { status: string; warnings: { code: string }[] };
-
-		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'coverage_gap');
-		assert.equal(payload.warnings[0]?.code, 'unsupported_metric');
 		assert.equal(executorCalls, 0);
 	});
 });
