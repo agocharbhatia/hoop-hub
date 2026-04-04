@@ -1,14 +1,12 @@
 tasks:
   - id: unify_semantic_metrics_and_capabilities
     title: Unify Semantic Metrics And Capabilities
-    github_issue: 26
-    blocked_by: []
-    type: afk
-    status: pending
     summary: >
       Establish one shared semantic metric and capability contract for the stats
       runtime, expose it through the public capabilities route, and make active
       runtime validation read from the same source of truth.
+    status: done
+    blocked_by: []
     module_scope:
       - semantic metric registry
       - capability registry
@@ -16,14 +14,16 @@ tasks:
       - semantic query validation
       - planner capability wiring
     interface_contract:
-      - public stats tool capabilities expose only supported operations, entities,
-        metrics, output modes, seasons, season types, and subject rules
-      - executor validation and orchestration discovery read from the same shared
-        contract
+      - public stats tool capabilities expose only supported operations,
+        entities, metrics, output modes, seasons, season types, and subject
+        rules
+      - executor validation and orchestration discovery read from the same
+        shared contract
       - internal source variants and raw source fields remain private
     acceptance_criteria:
       - the active runtime uses one shared semantic capability source of truth
-      - GET /api/stats/capabilities returns the public tool contract for this slice
+      - GET /api/stats/capabilities returns the public tool contract for this
+        slice
       - contract tests prove capabilities and executor validation stay aligned
     test_plan:
       - add capability registry contract tests
@@ -35,18 +35,18 @@ tasks:
       - bun run test
       - bun run build
     retry_limit: 2
+    attempts: 0
     notes: []
-
+    github_issue: 26
+    type: afk
   - id: add_team_directory_and_ambiguity_safe_resolution
     title: Add Team Directory And Ambiguity-Safe Resolution
-    github_issue: 27
-    blocked_by:
-      - unify_semantic_metrics_and_capabilities
-    type: afk
-    status: pending
     summary: >
       Add the shared team identity layer and ambiguity-safe resolution behavior
       so team lookups can ground to canonical subjects without guessing.
+    status: pending
+    blocked_by:
+      - unify_semantic_metrics_and_capabilities
     module_scope:
       - team directory snapshot
       - team alias overlay
@@ -56,10 +56,13 @@ tasks:
       - team resolution supports canonical names, city names, short names,
         abbreviations, and curated aliases
       - ambiguous team inputs return clarification_needed
-      - canonical team identity is reflected in resolvedQuery once grounding is proven
+      - canonical team identity is reflected in resolvedQuery once grounding is
+        proven
     acceptance_criteria:
-      - the runtime resolves supported team naming forms to canonical team identity
-      - ambiguous team inputs do not guess and return typed clarification behavior
+      - the runtime resolves supported team naming forms to canonical team
+        identity
+      - ambiguous team inputs do not guess and return typed clarification
+        behavior
       - resolver tests lock canonical identity and ambiguity semantics
     test_plan:
       - add team resolver unit tests for exact, alias, and ambiguous cases
@@ -69,32 +72,34 @@ tasks:
       - bun run test
       - bun run build
     retry_limit: 2
+    attempts: 0
     notes: []
-
+    github_issue: 27
+    type: afk
   - id: upgrade_deterministic_lookup_fixtures_and_bootstrap_sources
     title: Upgrade Deterministic Lookup Fixtures And Bootstrap Sources
-    github_issue: 28
-    blocked_by:
-      - unify_semantic_metrics_and_capabilities
-    type: afk
-    status: pending
     summary: >
       Replace the skinny deterministic season fixtures with lookup-ready season
       payloads and make cache seeding plus fixture-backed bootstrap consume the
       same supported metric surface.
+    status: pending
+    blocked_by:
+      - unify_semantic_metrics_and_capabilities
     module_scope:
       - deterministic season fixtures
       - semantic cache seed helper
       - fixture bootstrap fetcher
       - lookup data coverage tests
     interface_contract:
-      - deterministic data covers the shipped player and team lookup metric surface
+      - deterministic data covers the shipped player and team lookup metric
+        surface
       - seed and bootstrap fixture paths use the same season payload shapes
       - fixture coverage stays honest to the supported lookup contract
     acceptance_criteria:
       - deterministic fixtures cover the committed lookup metric surface
       - cache seeding and fixture bootstrap read from the same richer payload set
-      - tests fail if the supported lookup metric surface drifts from fixture support
+      - tests fail if the supported lookup metric surface drifts from fixture
+        support
     test_plan:
       - update deterministic fixture coverage tests
       - add bootstrap fixture parity tests
@@ -104,31 +109,33 @@ tasks:
       - bun run test
       - bun run build
     retry_limit: 2
+    attempts: 0
     notes: []
-
+    github_issue: 28
+    type: afk
   - id: materialize_lookup_season_source_variants
     title: Materialize Lookup Season Source Variants
-    github_issue: 29
+    summary: >
+      Expand nightly and historical materialization so current season and
+      2023-24 lookup source variants are written to stored data for player base
+      and team base plus advanced season rows.
+    status: pending
     blocked_by:
       - unify_semantic_metrics_and_capabilities
       - upgrade_deterministic_lookup_fixtures_and_bootstrap_sources
-    type: afk
-    status: pending
-    summary: >
-      Expand nightly and historical materialization so current season and 2023-24
-      lookup source variants are written to stored data for player base and team
-      base plus advanced season rows.
     module_scope:
       - nightly request planning
       - historical backfill planning
       - materialization service
       - stored-data lookup support
     interface_contract:
-      - supported lookup source variants are available from nightly materialized data
+      - supported lookup source variants are available from nightly materialized
+        data
       - current season and 2023-24 support use the same generalized seams
       - empty DB recovery remains nightly_data_unavailable until bootstrap
     acceptance_criteria:
-      - nightly and backfill paths materialize the supported lookup source variants
+      - nightly and backfill paths materialize the supported lookup source
+        variants
       - supported lookup reads succeed after bootstrap from stored data only
       - bootstrap tests lock source-variant materialization and empty-DB recovery
     test_plan:
@@ -140,21 +147,21 @@ tasks:
       - bun run test
       - bun run build
     retry_limit: 2
+    attempts: 0
     notes: []
-
+    github_issue: 29
+    type: afk
   - id: ship_structured_player_season_lookup
     title: Ship Structured Player Season Lookup
-    github_issue: 30
-    blocked_by:
-      - unify_semantic_metrics_and_capabilities
-      - upgrade_deterministic_lookup_fixtures_and_bootstrap_sources
-      - materialize_lookup_season_source_variants
-    type: afk
-    status: pending
     summary: >
       Deliver end-to-end lookup/player support on the stats tool contract with
       one-subject validation, canonical player grounding, one-row table output,
       supported-season behavior, warnings, and traces.
+    status: pending
+    blocked_by:
+      - unify_semantic_metrics_and_capabilities
+      - upgrade_deterministic_lookup_fixtures_and_bootstrap_sources
+      - materialize_lookup_season_source_variants
     module_scope:
       - semantic executor lookup planning
       - player lookup extraction
@@ -162,11 +169,14 @@ tasks:
       - trace and provenance behavior
     interface_contract:
       - POST /api/stats/query accepts canonical lookup/player requests
-      - lookup/player returns one table row with canonical identity and season metadata
-      - unsupported metrics, seasons, season types, and empty stored data fail honestly
+      - lookup/player returns one table row with canonical identity and season
+        metadata
+      - unsupported metrics, seasons, season types, and empty stored data fail
+        honestly
     acceptance_criteria:
       - structured player lookup executes successfully for supported asks
-      - canonical resolvedQuery identity and supported season behavior are preserved
+      - canonical resolvedQuery identity and supported season behavior are
+        preserved
       - route, executor, and trace tests lock the full player lookup contract
     test_plan:
       - add semantic executor tests for player lookup output and warnings
@@ -177,22 +187,22 @@ tasks:
       - bun run test
       - bun run build
     retry_limit: 2
+    attempts: 0
     notes: []
-
+    github_issue: 30
+    type: afk
   - id: ship_structured_team_season_lookup
     title: Ship Structured Team Season Lookup
-    github_issue: 31
+    summary: >
+      Deliver end-to-end lookup/team support on the stats tool contract with
+      ambiguity-safe team grounding, one-row table output, and merged base plus
+      advanced team season metrics.
+    status: pending
     blocked_by:
       - unify_semantic_metrics_and_capabilities
       - add_team_directory_and_ambiguity_safe_resolution
       - upgrade_deterministic_lookup_fixtures_and_bootstrap_sources
       - materialize_lookup_season_source_variants
-    type: afk
-    status: pending
-    summary: >
-      Deliver end-to-end lookup/team support on the stats tool contract with
-      ambiguity-safe team grounding, one-row table output, and merged base plus
-      advanced team season metrics.
     module_scope:
       - semantic executor lookup planning
       - team lookup extraction and source merging
@@ -200,12 +210,15 @@ tasks:
       - team trace and provenance behavior
     interface_contract:
       - POST /api/stats/query accepts canonical lookup/team requests
-      - lookup/team returns one table row with canonical team identity and season metadata
-      - team lookup can merge approved base and advanced metrics into one response row
+      - lookup/team returns one table row with canonical team identity and
+        season metadata
+      - team lookup can merge approved base and advanced metrics into one
+        response row
     acceptance_criteria:
       - structured team lookup executes successfully for supported asks
       - record metrics and merged team metrics are returned in one canonical row
-      - route, resolver, executor, and trace tests lock the full team lookup contract
+      - route, resolver, executor, and trace tests lock the full team lookup
+        contract
     test_plan:
       - add semantic executor tests for team lookup output and source merging
       - add stats route tests for direct lookup/team requests
@@ -215,21 +228,22 @@ tasks:
       - bun run test
       - bun run build
     retry_limit: 2
+    attempts: 0
     notes: []
-
+    github_issue: 31
+    type: afk
   - id: expand_planner_to_season_lookup_phrasing
     title: Expand Planner To Season Lookup Phrasing
-    github_issue: 32
+    summary: >
+      Expand the planner route so supported player and team season-stat phrasing
+      maps into the new structured lookup contract sourced from shared
+      capabilities.
+    status: pending
     blocked_by:
       - unify_semantic_metrics_and_capabilities
       - add_team_directory_and_ambiguity_safe_resolution
       - ship_structured_player_season_lookup
       - ship_structured_team_season_lookup
-    type: afk
-    status: pending
-    summary: >
-      Expand the planner route so supported player and team season-stat phrasing
-      maps into the new structured lookup contract sourced from shared capabilities.
     module_scope:
       - planner service
       - planner schema/prompt construction
@@ -237,36 +251,40 @@ tasks:
       - planner lookup tests
     interface_contract:
       - planner lookup support is derived from the shared capabilities contract
-      - planner preserves supported season input and stops before canonical grounding
+      - planner preserves supported season input and stops before canonical
+        grounding
       - vague asks clarify and unsupported adjacent asks remain coverage gaps
     acceptance_criteria:
-      - supported player and team season lookup asks plan into valid structured lookup queries
-      - planner preserves supported season mentions and safe clarification behavior
+      - supported player and team season lookup asks plan into valid structured
+        lookup queries
+      - planner preserves supported season mentions and safe clarification
+        behavior
       - planner and /api/query tests lock lookup planning end to end
     test_plan:
       - add planner service tests for lookup phrasing and season normalization
-      - add /api/query integration tests for supported and unsupported lookup asks
+      - add /api/query integration tests for supported and unsupported lookup
+        asks
       - add prompt/schema coverage sourced from shared capabilities
     quality_gates:
       - bun run check
       - bun run test
       - bun run build
     retry_limit: 2
+    attempts: 0
     notes: []
-
+    github_issue: 32
+    type: afk
   - id: lock_empty_db_and_bootstrap_lookup_e2e_coverage
     title: Lock Empty-DB And Bootstrap Lookup E2E Coverage
-    github_issue: 33
+    summary: >
+      Lock the before-and-after bootstrap behavior for supported lookup asks
+      across the planner route, structured route, and trace surface.
+    status: pending
     blocked_by:
       - materialize_lookup_season_source_variants
       - ship_structured_player_season_lookup
       - ship_structured_team_season_lookup
       - expand_planner_to_season_lookup_phrasing
-    type: afk
-    status: pending
-    summary: >
-      Lock the before-and-after bootstrap behavior for supported lookup asks
-      across the planner route, structured route, and trace surface.
     module_scope:
       - empty DB route coverage
       - post-bootstrap route coverage
@@ -277,11 +295,13 @@ tasks:
       - supported lookup asks return ok after the intended bootstrap path
       - traces remain canonical and trustworthy before and after bootstrap
     acceptance_criteria:
-      - supported lookup asks fail honestly before bootstrap and recover after bootstrap
+      - supported lookup asks fail honestly before bootstrap and recover after
+        bootstrap
       - cross-route lookup traces remain canonical across the bootstrap boundary
       - end-to-end tests lock the shipped lookup bootstrap behavior
     test_plan:
-      - add empty-DB integration tests for lookup on /api/query and /api/stats/query
+      - add empty-DB integration tests for lookup on /api/query and
+        /api/stats/query
       - add post-bootstrap integration tests for supported lookup asks
       - add trace verification across the bootstrap boundary
     quality_gates:
@@ -289,4 +309,7 @@ tasks:
       - bun run test
       - bun run build
     retry_limit: 2
+    attempts: 0
     notes: []
+    github_issue: 33
+    type: afk

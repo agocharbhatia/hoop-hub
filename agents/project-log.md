@@ -144,3 +144,10 @@
 - Workspace setup now copies `.env` and `apps/web/.env` from `SUPERSET_ROOT_PATH` when Superset provides a root-repo path, and only falls back to local `.env.example` files when the workspace does not already have a local env file to preserve.
 - PRD published: `Scalable Season Lookup Expansion` ([#25](https://github.com/agocharbhatia/hoop-hub/issues/25)). Core architecture choice: expand the semantic runtime with grounded `lookup/player` and `lookup/team`, unify active runtime metrics under one semantic capability/metric registry, and add a public capabilities contract so the LLM only requests supported operations, metrics, seasons, and outputs. Workflow assumption: the stats tool returns structured grounded data and provenance, while the LLM consumes the published capabilities and owns final presentation.
 - Slice `unify_semantic_metrics_and_capabilities` established one shared semantic capability registry for the active stats runtime. The direct structured validator, planner schema/prompt surface, and new `GET /api/stats/capabilities` route now read from the same public contract so orchestration and executor validation cannot drift on supported operations, entities, metrics, seasons, season types, output modes, or subject cardinality.
+## unify_semantic_metrics_and_capabilities
+
+- Title: Unify Semantic Metrics And Capabilities
+- Module scope: semantic metric registry, capability registry, public capabilities route, semantic query validation, planner capability wiring
+- Interface contract: public stats tool capabilities expose only supported operations, entities, metrics, output modes, seasons, season types, and subject rules | executor validation and orchestration discovery read from the same shared contract | internal source variants and raw source fields remain private
+- Tests: add capability registry contract tests | add capabilities route tests | add validation tests proving supported lookup boundaries come from the shared contract
+
