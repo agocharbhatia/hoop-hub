@@ -4,7 +4,9 @@ import {
 } from '$lib/contracts/planner';
 import type {
 	SemanticQueryRequest,
-	StatsQueryResponse
+	StatsQueryResponse,
+	StatsQueryStatus,
+	StatsQueryWarning
 } from '$lib/contracts/semantic-query';
 import type {
 	QueryAnswerPlannedToolRequest,
@@ -23,8 +25,11 @@ export type SemanticBatchExecutorInput = {
 };
 
 export type SemanticBatchExecutorResult = {
+	status: StatsQueryStatus;
 	plannedToolRequests: QueryAnswerPlannedToolRequest[];
 	toolResults: QueryAnswerToolResult[];
+	successfulToolResults: QueryAnswerToolResult[];
+	warnings: StatsQueryWarning[];
 	executedStructuredTraceIds: string[];
 };
 
@@ -87,9 +92,14 @@ export function createSemanticBatchExecutor(
 				executedStructuredTraceIds.push(response.traceId);
 			}
 
+			const successfulToolResults = toolResults.filter((toolResult) => isSuccessfulToolResult(toolResult));
+
 			return {
+				status: successfulToolResults.length > 0 ? 'ok' : selectBatchStatus(toolResults),
 				plannedToolRequests,
 				toolResults,
+				successfulToolResults,
+				warnings: collectWarnings(toolResults),
 				executedStructuredTraceIds
 			};
 		}
@@ -100,6 +110,27 @@ export function createSemanticBatchExecutor(
 
 function buildNormalizedRequestKey(request: SemanticQueryRequest): string {
 	return JSON.stringify(request.query);
+}
+
+function isSuccessfulToolResult(toolResult: QueryAnswerToolResult): boolean {
+	return toolResult.response.status === 'ok' && toolResult.response.result !== null;
+}
+
+function collectWarnings(toolResults: QueryAnswerToolResult[]): StatsQueryWarning[] {
+	return toolResults.flatMap((toolResult) => toolResult.response.warnings);
+}
+
+function selectBatchStatus(toolResults: QueryAnswerToolResult[]): Exclude<StatsQueryStatus, 'ok'> {
+	const firstNonOkToolResult = toolResults.find(
+		(toolResult): toolResult is QueryAnswerToolResult & {
+			response: QueryAnswerToolResult['response'] & { status: Exclude<StatsQueryStatus, 'ok'> };
+		} => toolResult.response.status !== 'ok'
+	);
+	if (firstNonOkToolResult) {
+		return firstNonOkToolResult.response.status;
+	}
+
+	return 'coverage_gap';
 }
 
 function validatePlannedToolRequest(

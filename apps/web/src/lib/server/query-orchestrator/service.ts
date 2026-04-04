@@ -56,35 +56,33 @@ export function createQueryOrchestratorService(
 				question,
 				toolRequests: decision.toolRequests
 			});
-			const firstNonOkToolResult = executedBatch.toolResults.find(
-				(toolResult) => toolResult.response.status !== 'ok' || toolResult.response.result === null
-			);
 
-			if (firstNonOkToolResult) {
+			if (executedBatch.status !== 'ok') {
 				saveQueryOrchestrationTrace(
 					orchestrationTraceId,
 					question,
-					firstNonOkToolResult.response.status,
+					executedBatch.status,
 					executedBatch,
-					firstNonOkToolResult.response.warnings,
+					executedBatch.warnings,
 					planningLatencyMs,
 					0
 				);
-				return buildAnswerResponseFromSemanticResponse(
+				return buildNonOkAnswerResponse(
 					orchestrationTraceId,
 					executedBatch.toolResults,
-					firstNonOkToolResult.response
+					executedBatch.status,
+					executedBatch.warnings
 				);
 			}
 
 			const renderStartedAt = performance.now();
 			const rendered = await dependencies.renderer.renderAnswer({
 				question,
-				toolResults: executedBatch.toolResults
+				toolResults: executedBatch.successfulToolResults
 			});
 			const renderLatencyMs = Math.round(performance.now() - renderStartedAt);
-			const citations = collectCitations(executedBatch.toolResults);
-			const warnings = collectWarnings(executedBatch.toolResults);
+			const citations = collectCitations(executedBatch.successfulToolResults);
+			const warnings = executedBatch.warnings;
 
 			saveQueryOrchestrationTrace(
 				orchestrationTraceId,
@@ -140,7 +138,7 @@ function buildPlannedNonOkResponse(
 		}
 	});
 
-	return buildAnswerResponseFromSemanticResponse(traceId, [], response);
+	return buildNonOkAnswerResponse(traceId, [], decision.type, response.warnings);
 }
 
 function saveQueryOrchestrationTrace(
@@ -167,18 +165,19 @@ function saveQueryOrchestrationTrace(
 	});
 }
 
-function buildAnswerResponseFromSemanticResponse(
+function buildNonOkAnswerResponse(
 	traceId: string,
 	toolResults: QueryAnswerToolResult[],
-	response: StatsQueryResponse
+	status: Exclude<StatsQueryResponse['status'], 'ok'>,
+	warnings: StatsQueryResponse['warnings']
 ): QueryAnswerResponse {
 	return {
-		status: response.status,
-		answer: response.warnings[0]?.message ?? 'Unable to process this query.',
+		status,
+		answer: warnings[0]?.message ?? 'Unable to process this query.',
 		artifacts: [],
 		toolResults,
-		citations: response.citations,
-		warnings: response.warnings,
+		citations: collectCitations(toolResults),
+		warnings,
 		traceId
 	};
 }
@@ -200,8 +199,4 @@ function collectCitations(toolResults: QueryAnswerToolResult[]): QueryAnswerResp
 	}
 
 	return citations;
-}
-
-function collectWarnings(toolResults: QueryAnswerToolResult[]): QueryAnswerResponse['warnings'] {
-	return toolResults.flatMap((toolResult) => toolResult.response.warnings);
 }

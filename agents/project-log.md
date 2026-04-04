@@ -210,6 +210,7 @@
 - Slice `ship_answer_first_api_query_for_one_tool_result` ships the narrow answer-first contract on `/api/query`: one planned structured request, one semantic executor result exposed under `toolResults`, one renderer-owned `answer` plus small artifacts, and UI consumption moved off the old top-level raw `StatsQueryResponse` shape.
 - Slice `add_honest_orchestration_traces_for_answer_route_requests` gives `/api/query` its own orchestration trace ids and payloads. Answer-route traces now persist planned tool requests plus executed structured trace ids, aggregate freshness and source-call data from the referenced semantic traces, and stop exposing a fake single `resolvedQuery`.
 - Slice `generalize_single_request_planning_from_capabilities` publishes per-shape planner metadata on the shared stats capabilities contract (`queryShapes` with supported metrics plus ordering/window defaults) and feeds that contract directly into the planner prompt so single-request capability growth comes from one shared source instead of more handwritten prompt families.
+- Slice `return_partial_answers_for_mixed_batch_outcomes` locks the `/api/query` partial-answer policy at the orchestration boundary: a planned batch now stays top-level `ok` when at least one structured tool result is usable, failed sibling requests only surface as aggregated warnings, and zero-success batches collapse to one honest typed non-ok response instead of erasing success or fabricating an `ok`.
 ## ship_answer_first_api_query_for_one_tool_result
 
 - Title: Ship Answer-First /api/query For One Tool Result
@@ -247,4 +248,3 @@
 - Module scope: request normalization, exact deduplication, batch execution ordering
 - Interface contract: planned requests are normalized before equality comparison | exact normalized duplicates are removed | non-duplicate request order is preserved
 - Tests: add executor tests for exact normalized deduplication | add executor tests for preserved non-duplicate order | add negative tests proving fuzzy merges are out of scope
-

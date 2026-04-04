@@ -88,7 +88,104 @@ describe('createSemanticBatchExecutor', () => {
 		);
 		assert.equal(result.plannedToolRequests.length, 2);
 		assert.equal(result.toolResults.length, 2);
+		assert.equal(result.successfulToolResults.length, 2);
+		assert.equal(result.status, 'ok');
+		assert.deepEqual(result.warnings, []);
 		assert.deepEqual(result.executedStructuredTraceIds, ['trace-ortg', 'trace-drtg']);
+	});
+
+	test('keeps successful grounded results and aggregates warnings for mixed batch outcomes', async () => {
+		const executor = createSemanticBatchExecutor({
+			validateSemanticQueryRequest,
+			async executeSemanticQuery(request) {
+				const metric = request.query.metrics[0];
+				if (metric === 'drtg') {
+					return {
+						status: 'coverage_gap',
+						result: null,
+						citations: [],
+						provenance: {
+							executor: 'semantic_executor',
+							resolvedQuery: request.query,
+							dataFreshnessMode: 'nightly',
+							sourceCalls: []
+						},
+						warnings: [
+							{
+								code: 'nightly_data_unavailable',
+								message: 'No stored nightly endpoint payload was available for defensive rating.'
+							}
+						],
+						traceId: 'trace-drtg-gap'
+					};
+				}
+
+				return buildStatsResponse(request, `trace-${metric}`);
+			}
+		});
+
+		const result = await executor.execute({
+			question: 'Show the Boston Celtics offensive and defensive rating in 2023-24',
+			toolRequests: [buildToolRequest('ortg'), buildToolRequest('drtg')]
+		});
+
+		assert.equal(result.status, 'ok');
+		assert.equal(result.toolResults.length, 2);
+		assert.equal(result.successfulToolResults.length, 1);
+		assert.equal(result.successfulToolResults[0]?.response.traceId, 'trace-ortg');
+		assert.deepEqual(result.warnings, [
+			{
+				code: 'nightly_data_unavailable',
+				message: 'No stored nightly endpoint payload was available for defensive rating.'
+			}
+		]);
+		assert.deepEqual(result.executedStructuredTraceIds, ['trace-ortg', 'trace-drtg-gap']);
+	});
+
+	test('returns typed non-ok batch status when no usable tool result exists', async () => {
+		const executor = createSemanticBatchExecutor({
+			validateSemanticQueryRequest,
+			async executeSemanticQuery(request) {
+				const metric = request.query.metrics[0];
+				return {
+					status: 'coverage_gap',
+					result: null,
+					citations: [],
+					provenance: {
+						executor: 'semantic_executor',
+						resolvedQuery: request.query,
+						dataFreshnessMode: 'nightly',
+						sourceCalls: []
+					},
+					warnings: [
+						{
+							code: `missing_${metric}`,
+							message: `No stored nightly endpoint payload was available for ${metric}.`
+						}
+					],
+					traceId: `trace-${metric}-gap`
+				};
+			}
+		});
+
+		const result = await executor.execute({
+			question: 'Show the Boston Celtics offensive and defensive rating in 2023-24',
+			toolRequests: [buildToolRequest('ortg'), buildToolRequest('drtg')]
+		});
+
+		assert.equal(result.status, 'coverage_gap');
+		assert.equal(result.successfulToolResults.length, 0);
+		assert.deepEqual(result.warnings, [
+			{
+				code: 'missing_ortg',
+				message: 'No stored nightly endpoint payload was available for ortg.'
+			},
+			{
+				code: 'missing_drtg',
+				message: 'No stored nightly endpoint payload was available for drtg.'
+			}
+		]);
+		assert.deepEqual(result.executedStructuredTraceIds, ['trace-ortg-gap', 'trace-drtg-gap']);
 	});
 
 	test('fails fast when a planned tool request does not pass semantic validation', async () => {

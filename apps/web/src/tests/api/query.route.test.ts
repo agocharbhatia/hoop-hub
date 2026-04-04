@@ -593,6 +593,132 @@ describe('POST /api/query', () => {
 		assert.equal(payload.citations.length, 2);
 	});
 
+	test('returns ok plus warnings when a mixed batch keeps at least one grounded tool result', async () => {
+		let rendererCalls = 0;
+		let rendererInput: { question: string; toolResults: QueryAnswerToolResult[] } | null = null;
+
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<BatchPlannerDecision> {
+				return {
+					type: 'planned',
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'lookup',
+								entity: 'team',
+								subject: {
+									names: ['Boston Celtics']
+								},
+								metrics: ['ortg'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'table'
+							}
+						},
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'lookup',
+								entity: 'team',
+								subject: {
+									names: ['Boston Celtics']
+								},
+								metrics: ['drtg'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'table'
+							}
+						}
+					]
+				};
+			},
+			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
+				const metric = request.query.metrics[0] ?? 'metric';
+				if (metric === 'drtg') {
+					return buildStatsResponse(request, {
+						status: 'coverage_gap',
+						result: null,
+						citations: [],
+						warnings: [
+							{
+								code: 'nightly_data_unavailable',
+								message: 'No stored nightly endpoint payload was available for defensive rating.'
+							}
+						],
+						traceId: 'trace-drtg-gap'
+					});
+				}
+
+				return buildStatsResponse(request, {
+					result: {
+						shape: 'table',
+						columns: ['team', metric],
+						rows: [{ team: 'Boston Celtics', [metric]: 123.2 }]
+					},
+					citations: [{ source: 'stats.nba.com', detail: metric }],
+					traceId: `trace-${metric}`
+				});
+			},
+			async renderAnswer(input) {
+				rendererCalls += 1;
+				rendererInput = input;
+				return {
+					answer: 'Boston posted a 123.2 offensive rating in the available 2023-24 nightly snapshot.',
+					artifacts: [
+						{
+							type: 'table',
+							shape: 'table',
+							columns: ['team', 'ortg'],
+							rows: [{ team: 'Boston Celtics', ortg: 123.2 }]
+						}
+					]
+				};
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'Show the Boston Celtics offensive and defensive rating in 2023-24'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.toolResults.length, 2);
+		assert.equal(payload.answer, 'Boston posted a 123.2 offensive rating in the available 2023-24 nightly snapshot.');
+		assert.equal(payload.artifacts.length, 1);
+		assert.deepEqual(payload.warnings, [
+			{
+				code: 'nightly_data_unavailable',
+				message: 'No stored nightly endpoint payload was available for defensive rating.'
+			}
+		]);
+		assert.equal(payload.citations.length, 1);
+		assert.equal(payload.citations[0]?.detail, 'ortg');
+		assert.equal(rendererCalls, 1);
+		assert.notEqual(rendererInput, null);
+		assert.equal(rendererInput!.toolResults.length, 1);
+		assert.equal(rendererInput!.toolResults[0]?.response.traceId, 'trace-ortg');
+	});
+
 	test('returns a 500 when the planner fails or the renderer cannot produce a valid answer', async () => {
 		let executorCalls = 0;
 
@@ -774,6 +900,107 @@ describe('POST /api/query', () => {
 		assert.notEqual(payload.traceId.length, 0);
 		assert.notEqual(payload.traceId, payload.toolResults[0]?.response.traceId);
 		assert.equal(payload.toolResults[0]?.response.traceId, 'trace-coverage');
+		assert.equal(rendererCalls, 0);
+	});
+
+	test('returns typed non-ok behavior when a valid batch produces zero usable tool results', async () => {
+		let rendererCalls = 0;
+
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<BatchPlannerDecision> {
+				return {
+					type: 'planned',
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'lookup',
+								entity: 'team',
+								subject: {
+									names: ['Boston Celtics']
+								},
+								metrics: ['ortg'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'table'
+							}
+						},
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'lookup',
+								entity: 'team',
+								subject: {
+									names: ['Boston Celtics']
+								},
+								metrics: ['drtg'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'table'
+							}
+						}
+					]
+				};
+			},
+			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
+				const metric = request.query.metrics[0] ?? 'metric';
+				return buildStatsResponse(request, {
+					status: 'coverage_gap',
+					result: null,
+					citations: [],
+					warnings: [
+						{
+							code: `missing_${metric}`,
+							message: `No stored nightly endpoint payload was available for ${metric}.`
+						}
+					],
+					traceId: `trace-${metric}-gap`
+				});
+			},
+			async renderAnswer() {
+				rendererCalls += 1;
+				throw new Error('Renderer should not be called.');
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'Show the Boston Celtics offensive and defensive rating in 2023-24'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'coverage_gap');
+		assert.equal(payload.answer, 'No stored nightly endpoint payload was available for ortg.');
+		assert.equal(payload.toolResults.length, 2);
+		assert.equal(payload.artifacts.length, 0);
+		assert.deepEqual(payload.warnings, [
+			{
+				code: 'missing_ortg',
+				message: 'No stored nightly endpoint payload was available for ortg.'
+			},
+			{
+				code: 'missing_drtg',
+				message: 'No stored nightly endpoint payload was available for drtg.'
+			}
+		]);
 		assert.equal(rendererCalls, 0);
 	});
 });
