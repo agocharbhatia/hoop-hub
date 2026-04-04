@@ -200,3 +200,10 @@
 - Interface contract: supported lookup asks return nightly_data_unavailable before bootstrap | supported lookup asks return ok after the intended bootstrap path | traces remain canonical and trustworthy before and after bootstrap
 - Tests: add empty-DB integration tests for lookup on /api/query and /api/stats/query | add post-bootstrap integration tests for supported lookup asks | add trace verification across the bootstrap boundary
 
+## 2026-04-04
+
+- PRD drafted: `Batch Tool-Orchestrated Answer Runtime For POST /api/query`.
+- Canonical issue: `#34`.
+- Core architecture choice: replace the single-query planner wrapper on `/api/query` with an answer-first orchestrator that plans a bounded batch of structured tool requests, executes them through the existing semantic executor, and renders the final answer from grounded tool results.
+- Workflow assumptions: keep `/api/stats/query` as the stable single-query tool contract, split planning and answer rendering into separate LLM steps, cap `/api/query` batches at three structured requests, allow partial answers as `ok` plus warnings, and model `/api/query` traces as orchestration traces with planned tool requests plus executed structured trace references instead of one fake `resolvedQuery`.
+- Issue slicing published as implementation issues `#35` through `#41`, and the approved dependency graph now lives in `.sandcastle/tasks.yaml` as the execution source for this PRD.
