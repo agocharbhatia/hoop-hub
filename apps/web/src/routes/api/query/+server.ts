@@ -1,15 +1,10 @@
 import { json } from '@sveltejs/kit';
-import type {
-	QueryAnswerPlannedToolRequest,
-	QueryAnswerResponse,
-	QueryAnswerToolResult
-} from '$lib/contracts/answer-response';
 import type { AnswerRendererService } from '$lib/server/answer-renderer/service';
 import { createDefaultAnswerRendererService } from '$lib/server/answer-renderer/service';
 import type { PlannerService } from '$lib/server/planner/service';
 import { createPlannerService } from '$lib/server/planner/service';
-import type { SemanticQueryRequest, StatsQueryResponse } from '$lib/contracts/semantic-query';
-import { saveOrchestrationTrace } from '$lib/server/semantic/trace-store';
+import { createQueryOrchestratorService, type QueryOrchestratorService } from '$lib/server/query-orchestrator/service';
+import { createSemanticBatchExecutor } from '$lib/server/query-orchestrator/semantic-batch-executor';
 import {
 	buildSemanticNonOkResponse,
 	executeSemanticQuery,
@@ -18,11 +13,7 @@ import {
 import type { RequestHandler } from './$types';
 
 type QueryRouteDependencies = {
-	planner: PlannerService;
-	renderer: AnswerRendererService;
-	executeSemanticQuery: typeof executeSemanticQuery;
-	validateSemanticQueryRequest: typeof validateSemanticQueryRequest;
-	buildSemanticNonOkResponse: typeof buildSemanticNonOkResponse;
+	orchestrator: QueryOrchestratorService;
 };
 
 let testDependencies: QueryRouteDependencies | null = null;
@@ -48,17 +39,21 @@ export function _setQueryRouteDependenciesForTests(
 	}
 
 	testDependencies = {
-		planner: {
-			planQuestion: dependencies.planQuestion
-		},
-		renderer: {
-			renderAnswer:
-				dependencies.renderAnswer ??
-				createDefaultAnswerRendererService().renderAnswer
-		},
-		executeSemanticQuery: dependencies.executeSemanticQuery,
-		validateSemanticQueryRequest,
-		buildSemanticNonOkResponse
+		orchestrator: createQueryOrchestratorService({
+			planner: {
+				planQuestion: dependencies.planQuestion
+			},
+			renderer: {
+				renderAnswer:
+					dependencies.renderAnswer ??
+					createDefaultAnswerRendererService().renderAnswer
+			},
+			batchExecutor: createSemanticBatchExecutor({
+				validateSemanticQueryRequest,
+				executeSemanticQuery: dependencies.executeSemanticQuery
+			}),
+			buildSemanticNonOkResponse
+		})
 	};
 }
 
@@ -85,78 +80,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	try {
 		const dependencies = getDependencies();
-		const orchestrationTraceId = crypto.randomUUID();
-		const planningStartedAt = performance.now();
-		const decision = await dependencies.planner.planQuestion(parsed.value.question);
-		const planningLatencyMs = Math.round(performance.now() - planningStartedAt);
-
-		if (decision.type !== 'planned') {
-			const result = dependencies.buildSemanticNonOkResponse(
-				decision.type,
-				parsed.value.question,
-				decision.warning,
-				null,
-				planningLatencyMs
-			);
-			saveQueryOrchestrationTrace(orchestrationTraceId, parsed.value.question, result.status, [], [], result.warnings, planningLatencyMs, 0);
-			return json(buildAnswerResponseFromSemanticResponse(orchestrationTraceId, [], result), { status: 200 });
-		}
-
-		const validated = dependencies.validateSemanticQueryRequest({
-			question: parsed.value.question,
-			query: decision.query
-		});
-		if (!validated.ok) {
-			throw new Error(`Planner produced an invalid semantic query: ${validated.error}`);
-		}
-
-		const result = await dependencies.executeSemanticQuery(validated.value);
-		const toolResult = buildToolResult(validated.value, result);
-		const plannedToolRequests = [buildPlannedToolRequest(validated.value)];
-
-		if (result.status !== 'ok' || result.result === null) {
-			saveQueryOrchestrationTrace(
-				orchestrationTraceId,
-				parsed.value.question,
-				result.status,
-				plannedToolRequests,
-				[result.traceId],
-				result.warnings,
-				planningLatencyMs,
-				0
-			);
-			return json(buildAnswerResponseFromSemanticResponse(orchestrationTraceId, [toolResult], result), { status: 200 });
-		}
-
-		const renderStartedAt = performance.now();
-		const rendered = await dependencies.renderer.renderAnswer({
-			question: parsed.value.question,
-			toolResults: [toolResult]
-		});
-		const renderLatencyMs = Math.round(performance.now() - renderStartedAt);
-		saveQueryOrchestrationTrace(
-			orchestrationTraceId,
-			parsed.value.question,
-			result.status,
-			plannedToolRequests,
-			[result.traceId],
-			result.warnings,
-			planningLatencyMs,
-			renderLatencyMs
-		);
-
-		return json(
-			{
-				status: result.status,
-				answer: rendered.answer,
-				artifacts: rendered.artifacts,
-				toolResults: [toolResult],
-				citations: result.citations,
-				warnings: result.warnings,
-				traceId: orchestrationTraceId
-			} satisfies QueryAnswerResponse,
-			{ status: 200 }
-		);
+		const answer = await dependencies.orchestrator.answerQuestion(parsed.value.question);
+		return json(answer, { status: 200 });
 	} catch (error) {
 		console.error('Unexpected planner query handler error:', error);
 		return json({ error: 'Internal server error.' }, { status: 500 });
@@ -171,16 +96,20 @@ function getDependencies(): QueryRouteDependencies {
 	}
 
 	return {
-		planner: {
-			planQuestion: async (question) => {
-				const planner = await getDefaultPlannerService();
-				return planner.planQuestion(question);
-			}
-		},
-		renderer: getDefaultAnswerRendererService(),
-		executeSemanticQuery,
-		validateSemanticQueryRequest,
-		buildSemanticNonOkResponse
+		orchestrator: createQueryOrchestratorService({
+			planner: {
+				planQuestion: async (question) => {
+					const planner = await getDefaultPlannerService();
+					return planner.planQuestion(question);
+				}
+			},
+			renderer: getDefaultAnswerRendererService(),
+			batchExecutor: createSemanticBatchExecutor({
+				validateSemanticQueryRequest,
+				executeSemanticQuery
+			}),
+			buildSemanticNonOkResponse
+		})
 	};
 }
 
@@ -222,61 +151,5 @@ function validateQueryQuestionRequest(input: unknown): { ok: true; value: { ques
 		value: {
 			question: question.trim()
 		}
-	};
-}
-
-function buildToolResult(request: SemanticQueryRequest, response: StatsQueryResponse): QueryAnswerToolResult {
-	return {
-		toolName: 'stats_query',
-		request,
-		response
-	};
-}
-
-function buildPlannedToolRequest(request: SemanticQueryRequest): QueryAnswerPlannedToolRequest {
-	return {
-		toolName: 'stats_query',
-		request
-	};
-}
-
-function saveQueryOrchestrationTrace(
-	traceId: string,
-	question: string,
-	status: StatsQueryResponse['status'],
-	plannedToolRequests: QueryAnswerPlannedToolRequest[],
-	executedStructuredTraceIds: string[],
-	warnings: StatsQueryResponse['warnings'],
-	planningLatencyMs: number,
-	renderLatencyMs: number
-): void {
-	saveOrchestrationTrace({
-		traceId,
-		normalizedQuestion: question,
-		status,
-		plannedToolRequests,
-		executedStructuredTraceIds,
-		warnings,
-		computations: [],
-		latencyMs: {
-			planning: planningLatencyMs,
-			render: renderLatencyMs
-		}
-	});
-}
-
-function buildAnswerResponseFromSemanticResponse(
-	traceId: string,
-	toolResults: QueryAnswerToolResult[],
-	response: StatsQueryResponse
-): QueryAnswerResponse {
-	return {
-		status: response.status,
-		answer: response.warnings[0]?.message ?? 'Unable to process this query.',
-		artifacts: [],
-		toolResults,
-		citations: response.citations,
-		warnings: response.warnings,
-		traceId
 	};
 }

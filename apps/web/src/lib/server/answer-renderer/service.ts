@@ -44,26 +44,26 @@ export function createAnswerRendererService(adapter: AnswerRendererAdapter): Ans
 export function createDefaultAnswerRendererService(): AnswerRendererService {
 	return createAnswerRendererService({
 		async renderAnswer({ toolResults }) {
-			const primaryResult = toolResults[0]?.response;
-			const result = primaryResult?.result;
+			const successfulResults = toolResults
+				.map((toolResult) => toolResult.response.result)
+				.filter((result): result is NonNullable<QueryAnswerToolResult['response']['result']> => result !== null);
+			const primaryResponse = toolResults[0]?.response;
 
-			if (!primaryResult || !result) {
+			if (successfulResults.length === 0) {
 				return {
-					answer: primaryResult?.warnings[0]?.message ?? 'Unable to answer this query.',
+					answer: primaryResponse?.warnings[0]?.message ?? 'Unable to answer this query.',
 					artifacts: []
 				};
 			}
 
 			return {
-				answer: buildAnswerText(result.summary, result.rows.length),
-				artifacts: [
-					{
-						type: 'table',
-						shape: result.shape,
-						columns: result.columns,
-						rows: result.rows
-					}
-				]
+				answer: buildCombinedAnswerText(successfulResults),
+				artifacts: successfulResults.map((result) => ({
+					type: 'table',
+					shape: result.shape,
+					columns: result.columns,
+					rows: result.rows
+				}))
 			};
 		}
 	});
@@ -130,4 +130,10 @@ function buildAnswerText(summary: string | undefined, rowCount: number): string 
 	}
 
 	return rowCount > 0 ? `Returned ${rowCount} result${rowCount === 1 ? '' : 's'}.` : 'No rows returned for this query.';
+}
+
+function buildCombinedAnswerText(
+	results: Array<NonNullable<QueryAnswerToolResult['response']['result']>>
+): string {
+	return results.map((result) => buildAnswerText(result.summary, result.rows.length)).join(' ');
 }

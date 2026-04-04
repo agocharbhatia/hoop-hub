@@ -27,6 +27,20 @@ function buildRankingQuery(metric: string): SemanticQuery {
 	};
 }
 
+function buildLookupToolRequest(entity: 'player' | 'team', subjectName: string, metric: string) {
+	return {
+		toolName: 'stats_query' as const,
+		query: buildLookupQuery(entity, subjectName, metric)
+	};
+}
+
+function buildRankingToolRequest(metric: string) {
+	return {
+		toolName: 'stats_query' as const,
+		query: buildRankingQuery(metric)
+	};
+}
+
 function buildTrendQuery(metric: string, n: number): SemanticQuery {
 	return {
 		operation: 'trend',
@@ -128,7 +142,7 @@ describe('createPlannerService', () => {
 		const planner = createPlannerService(
 			createAdapter({
 				type: 'planned',
-				query: buildRankingQuery('ast')
+				toolRequests: [buildRankingToolRequest('ast')]
 			})
 		);
 
@@ -138,16 +152,51 @@ describe('createPlannerService', () => {
 		if (decision.type !== 'planned') {
 			throw new Error('Expected planned decision.');
 		}
-		assert.equal(decision.query.operation, 'rank');
-		assert.equal(decision.query.entity, 'player');
-		assert.deepEqual(decision.query.metrics, ['ast']);
+		assert.equal(decision.toolRequests.length, 1);
+		assert.equal(decision.toolRequests[0]?.toolName, 'stats_query');
+		assert.equal(decision.toolRequests[0]?.query.operation, 'rank');
+		assert.equal(decision.toolRequests[0]?.query.entity, 'player');
+		assert.deepEqual(decision.toolRequests[0]?.query.metrics, ['ast']);
+	});
+
+	test('returns planned batch decisions for supported compound questions', async () => {
+		const planner = createPlannerService(
+			createAdapter({
+				type: 'planned',
+				toolRequests: [
+					buildLookupToolRequest('team', 'Boston Celtics', 'ortg'),
+					buildLookupToolRequest('team', 'Boston Celtics', 'drtg')
+				]
+			})
+		);
+
+		const decision = await planner.planQuestion('Show the Boston Celtics offensive and defensive rating in 2023-24');
+
+		assert.equal(decision.type, 'planned');
+		if (decision.type !== 'planned') {
+			throw new Error('Expected planned decision.');
+		}
+		assert.equal(decision.toolRequests.length, 2);
+		assert.deepEqual(
+			decision.toolRequests.map((toolRequest) => toolRequest.query.metrics),
+			[['ortg'], ['drtg']]
+		);
+		assert.deepEqual(
+			decision.toolRequests.map((toolRequest) => toolRequest.query.subject.names),
+			[['Boston Celtics'], ['Boston Celtics']]
+		);
 	});
 
 	test('returns planned decisions for scoring-language player trends and preserves rolling windows', async () => {
 		const planner = createPlannerService(
 			createAdapter({
 				type: 'planned',
-				query: buildTrendQuery('pts', 5)
+				toolRequests: [
+					{
+						toolName: 'stats_query',
+						query: buildTrendQuery('pts', 5)
+					}
+				]
 			})
 		);
 
@@ -157,10 +206,10 @@ describe('createPlannerService', () => {
 		if (decision.type !== 'planned') {
 			throw new Error('Expected planned decision.');
 		}
-		assert.equal(decision.query.operation, 'trend');
-		assert.equal(decision.query.entity, 'player');
-		assert.deepEqual(decision.query.metrics, ['pts']);
-		assert.deepEqual(decision.query.filters.window, {
+		assert.equal(decision.toolRequests[0]?.query.operation, 'trend');
+		assert.equal(decision.toolRequests[0]?.query.entity, 'player');
+		assert.deepEqual(decision.toolRequests[0]?.query.metrics, ['pts']);
+		assert.deepEqual(decision.toolRequests[0]?.query.filters.window, {
 			type: 'last_n_games',
 			n: 5
 		});
@@ -170,7 +219,12 @@ describe('createPlannerService', () => {
 		const planner = createPlannerService(
 			createAdapter({
 				type: 'planned',
-				query: buildComparisonQuery(['Damian Lillard', 'Stephen Curry'], 'ast')
+				toolRequests: [
+					{
+						toolName: 'stats_query',
+						query: buildComparisonQuery(['Damian Lillard', 'Stephen Curry'], 'ast')
+					}
+				]
 			})
 		);
 
@@ -180,18 +234,18 @@ describe('createPlannerService', () => {
 		if (decision.type !== 'planned') {
 			throw new Error('Expected planned decision.');
 		}
-		assert.equal(decision.query.operation, 'compare');
-		assert.equal(decision.query.entity, 'player');
-		assert.deepEqual(decision.query.subject.names, ['Damian Lillard', 'Stephen Curry']);
-		assert.deepEqual(decision.query.metrics, ['ast']);
-		assert.equal(decision.query.outputMode, 'comparison');
+		assert.equal(decision.toolRequests[0]?.query.operation, 'compare');
+		assert.equal(decision.toolRequests[0]?.query.entity, 'player');
+		assert.deepEqual(decision.toolRequests[0]?.query.subject.names, ['Damian Lillard', 'Stephen Curry']);
+		assert.deepEqual(decision.toolRequests[0]?.query.metrics, ['ast']);
+		assert.equal(decision.toolRequests[0]?.query.outputMode, 'comparison');
 	});
 
 	test('returns planned decisions for supported player season lookups and preserves the named season', async () => {
 		const planner = createPlannerService(
 			createAdapter({
 				type: 'planned',
-				query: buildLookupQuery('player', 'Nikola Jokic', 'pts')
+				toolRequests: [buildLookupToolRequest('player', 'Nikola Jokic', 'pts')]
 			})
 		);
 
@@ -201,19 +255,19 @@ describe('createPlannerService', () => {
 		if (decision.type !== 'planned') {
 			throw new Error('Expected planned decision.');
 		}
-		assert.equal(decision.query.operation, 'lookup');
-		assert.equal(decision.query.entity, 'player');
-		assert.deepEqual(decision.query.subject.names, ['Nikola Jokic']);
-		assert.deepEqual(decision.query.metrics, ['pts']);
-		assert.equal(decision.query.filters.season, '2023-24');
-		assert.equal(decision.query.outputMode, 'table');
+		assert.equal(decision.toolRequests[0]?.query.operation, 'lookup');
+		assert.equal(decision.toolRequests[0]?.query.entity, 'player');
+		assert.deepEqual(decision.toolRequests[0]?.query.subject.names, ['Nikola Jokic']);
+		assert.deepEqual(decision.toolRequests[0]?.query.metrics, ['pts']);
+		assert.equal(decision.toolRequests[0]?.query.filters.season, '2023-24');
+		assert.equal(decision.toolRequests[0]?.query.outputMode, 'table');
 	});
 
 	test('returns planned decisions for supported team season lookups and preserves the named season', async () => {
 		const planner = createPlannerService(
 			createAdapter({
 				type: 'planned',
-				query: buildLookupQuery('team', 'Boston Celtics', 'wins')
+				toolRequests: [buildLookupToolRequest('team', 'Boston Celtics', 'wins')]
 			})
 		);
 
@@ -223,19 +277,19 @@ describe('createPlannerService', () => {
 		if (decision.type !== 'planned') {
 			throw new Error('Expected planned decision.');
 		}
-		assert.equal(decision.query.operation, 'lookup');
-		assert.equal(decision.query.entity, 'team');
-		assert.deepEqual(decision.query.subject.names, ['Boston Celtics']);
-		assert.deepEqual(decision.query.metrics, ['wins']);
-		assert.equal(decision.query.filters.season, '2023-24');
-		assert.equal(decision.query.outputMode, 'table');
+		assert.equal(decision.toolRequests[0]?.query.operation, 'lookup');
+		assert.equal(decision.toolRequests[0]?.query.entity, 'team');
+		assert.deepEqual(decision.toolRequests[0]?.query.subject.names, ['Boston Celtics']);
+		assert.deepEqual(decision.toolRequests[0]?.query.metrics, ['wins']);
+		assert.equal(decision.toolRequests[0]?.query.filters.season, '2023-24');
+		assert.equal(decision.toolRequests[0]?.query.outputMode, 'table');
 	});
 
 	test('returns planned decisions for supported team lookups with capability-backed advanced metrics', async () => {
 		const planner = createPlannerService(
 			createAdapter({
 				type: 'planned',
-				query: buildLookupQuery('team', 'Boston Celtics', 'ortg')
+				toolRequests: [buildLookupToolRequest('team', 'Boston Celtics', 'ortg')]
 			})
 		);
 
@@ -245,18 +299,23 @@ describe('createPlannerService', () => {
 		if (decision.type !== 'planned') {
 			throw new Error('Expected planned decision.');
 		}
-		assert.equal(decision.query.operation, 'lookup');
-		assert.equal(decision.query.entity, 'team');
-		assert.deepEqual(decision.query.subject.names, ['Boston Celtics']);
-		assert.deepEqual(decision.query.metrics, ['ortg']);
-		assert.equal(decision.query.filters.season, '2023-24');
+		assert.equal(decision.toolRequests[0]?.query.operation, 'lookup');
+		assert.equal(decision.toolRequests[0]?.query.entity, 'team');
+		assert.deepEqual(decision.toolRequests[0]?.query.subject.names, ['Boston Celtics']);
+		assert.deepEqual(decision.toolRequests[0]?.query.metrics, ['ortg']);
+		assert.equal(decision.toolRequests[0]?.query.filters.season, '2023-24');
 	});
 
 	test('returns planned decisions for compare asks without a metric using safe default pts', async () => {
 		const planner = createPlannerService(
 			createAdapter({
 				type: 'planned',
-				query: buildComparisonQuery(['Stephen Curry', 'Damian Lillard'], 'pts')
+				toolRequests: [
+					{
+						toolName: 'stats_query',
+						query: buildComparisonQuery(['Stephen Curry', 'Damian Lillard'], 'pts')
+					}
+				]
 			})
 		);
 
@@ -266,14 +325,19 @@ describe('createPlannerService', () => {
 		if (decision.type !== 'planned') {
 			throw new Error('Expected planned decision.');
 		}
-		assert.deepEqual(decision.query.metrics, ['pts']);
+		assert.deepEqual(decision.toolRequests[0]?.query.metrics, ['pts']);
 	});
 
 	test('returns planned decisions for supported team defensive rankings with canonical drtg metric', async () => {
 		const planner = createPlannerService(
 			createAdapter({
 				type: 'planned',
-				query: buildTeamRankingQuery('drtg')
+				toolRequests: [
+					{
+						toolName: 'stats_query',
+						query: buildTeamRankingQuery('drtg')
+					}
+				]
 			})
 		);
 
@@ -283,10 +347,10 @@ describe('createPlannerService', () => {
 		if (decision.type !== 'planned') {
 			throw new Error('Expected planned decision.');
 		}
-		assert.equal(decision.query.operation, 'rank');
-		assert.equal(decision.query.entity, 'team');
-		assert.deepEqual(decision.query.metrics, ['drtg']);
-		assert.deepEqual(decision.query.orderBy, {
+		assert.equal(decision.toolRequests[0]?.query.operation, 'rank');
+		assert.equal(decision.toolRequests[0]?.query.entity, 'team');
+		assert.deepEqual(decision.toolRequests[0]?.query.metrics, ['drtg']);
+		assert.deepEqual(decision.toolRequests[0]?.query.orderBy, {
 			metric: 'drtg',
 			direction: 'asc'
 		});
@@ -296,28 +360,33 @@ describe('createPlannerService', () => {
 		const planner = createPlannerService(
 			createAdapter({
 				type: 'planned',
-				query: {
-					operation: 'rank',
-					entity: 'team',
-					subject: {
-						names: [],
-						ids: []
-					},
-					metrics: ['drtg'],
-					filters: {
-						season: 'this season',
-						seasonType: null,
-						window: null,
-						dateFrom: null,
-						dateTo: null
-					},
-					orderBy: {
-						metric: 'drtg',
-						direction: 'asc'
-					},
-					limit: 10,
-					outputMode: 'table'
-				}
+				toolRequests: [
+					{
+						toolName: 'stats_query',
+						query: {
+							operation: 'rank',
+							entity: 'team',
+							subject: {
+								names: [],
+								ids: []
+							},
+							metrics: ['drtg'],
+							filters: {
+								season: 'this season',
+								seasonType: null,
+								window: null,
+								dateFrom: null,
+								dateTo: null
+							},
+							orderBy: {
+								metric: 'drtg',
+								direction: 'asc'
+							},
+							limit: 10,
+							outputMode: 'table'
+						}
+					}
+				]
 			})
 		);
 
@@ -327,23 +396,28 @@ describe('createPlannerService', () => {
 		if (decision.type !== 'planned') {
 			throw new Error('Expected planned decision.');
 		}
-		assert.equal(decision.query.filters.season, null);
+		assert.equal(decision.toolRequests[0]?.query.filters.season, null);
 	});
 
 	test('normalizes explicit season variants for season lookup asks before executor validation', async () => {
 		const planner = createPlannerService(
 			createAdapter({
 				type: 'planned',
-				query: {
-					...buildLookupQuery('player', 'Nikola Jokic', 'reb'),
-					filters: {
-						season: '2023/2024',
-						seasonType: null,
-						window: null,
-						dateFrom: null,
-						dateTo: null
+				toolRequests: [
+					{
+						toolName: 'stats_query',
+						query: {
+							...buildLookupQuery('player', 'Nikola Jokic', 'reb'),
+							filters: {
+								season: '2023/2024',
+								seasonType: null,
+								window: null,
+								dateFrom: null,
+								dateTo: null
+							}
+						}
 					}
-				}
+				]
 			})
 		);
 
@@ -353,7 +427,30 @@ describe('createPlannerService', () => {
 		if (decision.type !== 'planned') {
 			throw new Error('Expected planned decision.');
 		}
-		assert.equal(decision.query.filters.season, '2023-24');
+		assert.equal(decision.toolRequests[0]?.query.filters.season, '2023-24');
+	});
+
+	test('converts oversized planned batches into typed clarification decisions', async () => {
+		const planner = createPlannerService(
+			createAdapter({
+				type: 'planned',
+				toolRequests: [
+					buildLookupToolRequest('team', 'Boston Celtics', 'wins'),
+					buildLookupToolRequest('team', 'Boston Celtics', 'ortg'),
+					buildLookupToolRequest('team', 'Boston Celtics', 'drtg'),
+					buildLookupToolRequest('team', 'Boston Celtics', 'wins')
+				]
+			})
+		);
+
+		const decision = await planner.planQuestion('Show the Celtics wins, offensive rating, defensive rating, and net rating in 2023-24');
+
+		assert.equal(decision.type, 'clarification_needed');
+		if (decision.type !== 'clarification_needed') {
+			throw new Error('Expected clarification_needed decision.');
+		}
+		assert.equal(decision.warning.code, 'clarification_needed');
+		assert.match(decision.warning.message, /up to 3/i);
 	});
 
 	test('returns typed clarification_needed decisions for vague trend asks with no metric', async () => {
@@ -440,13 +537,18 @@ describe('createPlannerService', () => {
 		const planner = createPlannerService(
 			createAdapter({
 				type: 'planned',
-				query: {
-					operation: 'trend',
-					entity: 'player',
-					subject: {},
-					metrics: ['pts'],
-					filters: {}
-				}
+				toolRequests: [
+					{
+						toolName: 'stats_query',
+						query: {
+							operation: 'trend',
+							entity: 'player',
+							subject: {},
+							metrics: ['pts'],
+							filters: {}
+						}
+					}
+				]
 			})
 		);
 

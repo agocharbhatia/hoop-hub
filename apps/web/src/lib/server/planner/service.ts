@@ -1,4 +1,8 @@
-import type { PlannerDecision } from '$lib/contracts/planner';
+import {
+	MAX_BATCH_TOOL_REQUESTS,
+	type BatchPlannerDecision,
+	type QueryPlannerToolRequest
+} from '$lib/contracts/planner';
 import type {
 	SemanticQuery,
 	SemanticQueryEntity,
@@ -12,7 +16,7 @@ export type PlannerAdapter = {
 };
 
 export type PlannerService = {
-	planQuestion(question: string): Promise<PlannerDecision>;
+	planQuestion(question: string): Promise<BatchPlannerDecision>;
 };
 
 /**
@@ -20,14 +24,25 @@ export type PlannerService = {
  */
 export function createPlannerService(adapter: PlannerAdapter): PlannerService {
 	return {
-		async planQuestion(question: string): Promise<PlannerDecision> {
+		async planQuestion(question: string): Promise<BatchPlannerDecision> {
 			const output = await adapter.planQuestion(question);
 			const validated = validatePlannerDecision(output);
 			if (!validated.ok) {
 				throw new Error(validated.error);
 			}
 
-			return normalizePlannerDecision(validated.value);
+			const normalized = normalizePlannerDecision(validated.value);
+			if (normalized.type === 'planned' && normalized.toolRequests.length > MAX_BATCH_TOOL_REQUESTS) {
+				return {
+					type: 'clarification_needed',
+					warning: {
+						code: 'clarification_needed',
+						message: `This question would require more than ${MAX_BATCH_TOOL_REQUESTS} tool requests. Ask a narrower question that needs up to ${MAX_BATCH_TOOL_REQUESTS}.`
+					}
+				};
+			}
+
+			return normalized;
 		}
 	};
 }
@@ -71,20 +86,23 @@ function normalizeSeasonFilter(season: SemanticQuery['filters']['season']): Sema
 	return `${startYear}-${endYear.slice(-2)}`;
 }
 
-function normalizePlannerDecision(decision: PlannerDecision): PlannerDecision {
+function normalizePlannerDecision(decision: BatchPlannerDecision): BatchPlannerDecision {
 	if (decision.type !== 'planned') {
 		return decision;
 	}
 
 	return {
 		type: 'planned',
-		query: {
-			...decision.query,
-			filters: {
-				...decision.query.filters,
-				season: normalizeSeasonFilter(decision.query.filters.season)
+		toolRequests: decision.toolRequests.map((toolRequest) => ({
+			...toolRequest,
+			query: {
+				...toolRequest.query,
+				filters: {
+					...toolRequest.query.filters,
+					season: normalizeSeasonFilter(toolRequest.query.filters.season)
+				}
 			}
-		}
+		}))
 	};
 }
 
@@ -241,21 +259,31 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 	}).ok;
 }
 
-function validatePlannerDecision(input: unknown): { ok: true; value: PlannerDecision } | { ok: false; error: string } {
+function validatePlannerToolRequest(input: unknown): input is QueryPlannerToolRequest {
+	return isPlainObject(input) && input.toolName === 'stats_query' && validateSemanticQueryShape(input.query);
+}
+
+function validatePlannerDecision(
+	input: unknown
+): { ok: true; value: BatchPlannerDecision } | { ok: false; error: string } {
 	if (!isPlainObject(input)) {
 		return { ok: false, error: 'Planner output must be an object.' };
 	}
 
 	if (input.type === 'planned') {
-		if (!validateSemanticQueryShape(input.query)) {
-			return { ok: false, error: 'Planner planned query failed validation.' };
+		if (!Array.isArray(input.toolRequests) || input.toolRequests.length === 0) {
+			return { ok: false, error: 'Planner planned toolRequests failed validation.' };
+		}
+
+		if (!input.toolRequests.every((toolRequest) => validatePlannerToolRequest(toolRequest))) {
+			return { ok: false, error: 'Planner planned toolRequests failed validation.' };
 		}
 
 		return {
 			ok: true,
 			value: {
 				type: 'planned',
-				query: input.query
+				toolRequests: input.toolRequests
 			}
 		};
 	}

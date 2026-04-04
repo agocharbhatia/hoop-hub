@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import type { QueryAnswerResponse, QueryAnswerToolResult } from '$lib/contracts/answer-response';
-import type { PlannerDecision } from '$lib/contracts/planner';
+import type { BatchPlannerDecision } from '$lib/contracts/planner';
 import type { SemanticQueryRequest, StatsQueryResponse } from '$lib/contracts/semantic-query';
 import {
 	POST,
@@ -85,28 +85,33 @@ describe('POST /api/query', () => {
 		let rendererInput: { question: string; toolResults: QueryAnswerToolResult[] } | null = null;
 
 		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
+			async planQuestion(): Promise<BatchPlannerDecision> {
 				return {
 					type: 'planned',
-					query: {
-						operation: 'rank',
-						entity: 'player',
-						subject: {},
-						metrics: ['ast'],
-						filters: {
-							season: '2023-24',
-							seasonType: null,
-							window: null,
-							dateFrom: null,
-							dateTo: null
-						},
-						orderBy: {
-							metric: 'ast',
-							direction: 'desc'
-						},
-						limit: 10,
-						outputMode: 'table'
-					}
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'rank',
+								entity: 'player',
+								subject: {},
+								metrics: ['ast'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: {
+									metric: 'ast',
+									direction: 'desc'
+								},
+								limit: 10,
+								outputMode: 'table'
+							}
+						}
+					]
 				};
 			},
 			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
@@ -167,7 +172,7 @@ describe('POST /api/query', () => {
 		});
 
 		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
+			async planQuestion(): Promise<BatchPlannerDecision> {
 				return {
 					type: 'coverage_gap',
 					warning: {
@@ -207,7 +212,7 @@ describe('POST /api/query', () => {
 		let rendererCalls = 0;
 
 		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
+			async planQuestion(): Promise<BatchPlannerDecision> {
 				return {
 					type: 'clarification_needed',
 					warning: {
@@ -248,28 +253,33 @@ describe('POST /api/query', () => {
 		let executedRequest: SemanticQueryRequest | null = null;
 
 		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
+			async planQuestion(): Promise<BatchPlannerDecision> {
 				return {
 					type: 'planned',
-					query: {
-						operation: 'rank',
-						entity: 'team',
-						subject: {},
-						metrics: ['drtg'],
-						filters: {
-							season: '2023-24',
-							seasonType: null,
-							window: null,
-							dateFrom: null,
-							dateTo: null
-						},
-						orderBy: {
-							metric: 'drtg',
-							direction: 'asc'
-						},
-						limit: 5,
-						outputMode: 'table'
-					}
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'rank',
+								entity: 'team',
+								subject: {},
+								metrics: ['drtg'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: {
+									metric: 'drtg',
+									direction: 'asc'
+								},
+								limit: 5,
+								outputMode: 'table'
+							}
+						}
+					]
 				};
 			},
 			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
@@ -324,30 +334,35 @@ describe('POST /api/query', () => {
 		let executedRequest: SemanticQueryRequest | null = null;
 
 		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
+			async planQuestion(): Promise<BatchPlannerDecision> {
 				return {
 					type: 'planned',
-					query: {
-						operation: 'trend',
-						entity: 'player',
-						subject: {
-							names: ['Jokic']
-						},
-						metrics: ['pts'],
-						filters: {
-							season: null,
-							seasonType: null,
-							window: {
-								type: 'last_n_games',
-								n: 5
-							},
-							dateFrom: null,
-							dateTo: null
-						},
-						orderBy: null,
-						limit: null,
-						outputMode: 'timeseries'
-					}
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'trend',
+								entity: 'player',
+								subject: {
+									names: ['Jokic']
+								},
+								metrics: ['pts'],
+								filters: {
+									season: null,
+									seasonType: null,
+									window: {
+										type: 'last_n_games',
+										n: 5
+									},
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'timeseries'
+							}
+						}
+					]
 				};
 			},
 			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
@@ -400,27 +415,32 @@ describe('POST /api/query', () => {
 		let executedRequest: SemanticQueryRequest | null = null;
 
 		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
+			async planQuestion(): Promise<BatchPlannerDecision> {
 				return {
 					type: 'planned',
-					query: {
-						operation: 'compare',
-						entity: 'player',
-						subject: {
-							names: ['Damian Lillard', 'Stephen Curry']
-						},
-						metrics: ['pts'],
-						filters: {
-							season: '2023-24',
-							seasonType: null,
-							window: null,
-							dateFrom: null,
-							dateTo: null
-						},
-						orderBy: null,
-						limit: null,
-						outputMode: 'comparison'
-					}
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'compare',
+								entity: 'player',
+								subject: {
+									names: ['Damian Lillard', 'Stephen Curry']
+								},
+								metrics: ['pts'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'comparison'
+							}
+						}
+					]
 				};
 			},
 			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
@@ -472,32 +492,138 @@ describe('POST /api/query', () => {
 		assert.equal(executedRequest!.query.outputMode, 'comparison');
 	});
 
+	test('passes compound planned tool requests through the internal batch path and renderer boundary', async () => {
+		const executedRequests: SemanticQueryRequest[] = [];
+		let rendererInput: { question: string; toolResults: QueryAnswerToolResult[] } | null = null;
+
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<BatchPlannerDecision> {
+				return {
+					type: 'planned',
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'lookup',
+								entity: 'team',
+								subject: {
+									names: ['Boston Celtics']
+								},
+								metrics: ['ortg'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'table'
+							}
+						},
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'lookup',
+								entity: 'team',
+								subject: {
+									names: ['Boston Celtics']
+								},
+								metrics: ['drtg'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'table'
+							}
+						}
+					]
+				};
+			},
+			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
+				executedRequests.push(request);
+				const metric = request.query.metrics[0] ?? 'metric';
+				return buildStatsResponse(request, {
+					result: {
+						shape: 'table',
+						columns: ['team', metric],
+						rows: [{ team: 'Boston Celtics', [metric]: metric === 'ortg' ? 123.2 : 111.6 }]
+					},
+					citations: [{ source: 'stats.nba.com', detail: metric }],
+					traceId: `trace-${metric}`
+				});
+			},
+			async renderAnswer(input) {
+				rendererInput = input;
+				return {
+					answer: 'Boston posted a 123.2 offensive rating and a 111.6 defensive rating in 2023-24.',
+					artifacts: []
+				};
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'Show the Boston Celtics offensive and defensive rating in 2023-24'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.toolResults.length, 2);
+		assert.deepEqual(
+			executedRequests.map((request) => request.query.metrics),
+			[['ortg'], ['drtg']]
+		);
+		assert.notEqual(rendererInput, null);
+		assert.equal(rendererInput!.toolResults.length, 2);
+		assert.deepEqual(
+			rendererInput!.toolResults.map((toolResult) => toolResult.response.traceId),
+			['trace-ortg', 'trace-drtg']
+		);
+		assert.equal(payload.citations.length, 2);
+	});
+
 	test('returns a 500 when the planner fails or the renderer cannot produce a valid answer', async () => {
 		let executorCalls = 0;
 
 		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
+			async planQuestion(): Promise<BatchPlannerDecision> {
 				return {
 					type: 'planned',
-					query: {
-						operation: 'rank',
-						entity: 'player',
-						subject: {},
-						metrics: ['ast'],
-						filters: {
-							season: '2023-24',
-							seasonType: null,
-							window: null,
-							dateFrom: null,
-							dateTo: null
-						},
-						orderBy: {
-							metric: 'ast',
-							direction: 'desc'
-						},
-						limit: 10,
-						outputMode: 'table'
-					}
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'rank',
+								entity: 'player',
+								subject: {},
+								metrics: ['ast'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: {
+									metric: 'ast',
+									direction: 'desc'
+								},
+								limit: 10,
+								outputMode: 'table'
+							}
+						}
+					]
 				};
 			},
 			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
@@ -527,29 +653,34 @@ describe('POST /api/query', () => {
 		let executorCalls = 0;
 
 		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
+			async planQuestion(): Promise<BatchPlannerDecision> {
 				return {
 					type: 'planned',
-					query: {
-						operation: 'rank',
-						entity: 'player',
-						subject: {},
-						metrics: ['not-a-real-metric'],
-						filters: {
-							season: '2023-24',
-							seasonType: null,
-							window: null,
-							dateFrom: null,
-							dateTo: null
-						},
-						orderBy: {
-							metric: 'not-a-real-metric',
-							direction: 'desc'
-						},
-						limit: 10,
-						outputMode: 'table'
-					}
-				} as PlannerDecision;
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'rank',
+								entity: 'player',
+								subject: {},
+								metrics: ['not-a-real-metric'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: {
+									metric: 'not-a-real-metric',
+									direction: 'desc'
+								},
+								limit: 10,
+								outputMode: 'table'
+							}
+						}
+					]
+				} as BatchPlannerDecision;
 			},
 			async executeSemanticQuery(): Promise<StatsQueryResponse> {
 				executorCalls += 1;
@@ -602,10 +733,15 @@ describe('POST /api/query', () => {
 		};
 
 		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
+			async planQuestion(): Promise<BatchPlannerDecision> {
 				return {
 					type: 'planned',
-					query: request.query
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: request.query
+						}
+					]
 				};
 			},
 			async executeSemanticQuery(): Promise<StatsQueryResponse> {

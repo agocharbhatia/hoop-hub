@@ -228,4 +228,9 @@
 - Module scope: query batch planner, planning schema and validation, capability-driven planning rules
 - Interface contract: clear one-request questions map to supported structured tool requests | ambiguous asks return clarification_needed with no executor call | clear but unsupported asks return coverage_gap with no executor call
 - Tests: add planner tests for clear supported one-request asks | add planner tests for ambiguity and unsupported asks | add coverage proving planning derives from shared capabilities
+## add_internal_batched_tool_execution_for_compound_questions
 
+- Title: Add Internal Batched Tool Execution For Compound Questions
+- Module scope: batch planner contract, internal semantic batch executor, query orchestrator
+- Interface contract: `/api/query` can plan and execute up to three internal `stats_query` requests for one answer | each planned request still runs through the canonical semantic validator and executor | `/api/stats/query` stays unchanged as the public single-query structured route
+- Tests: add batch planner contract tests for multi-request and oversized plans | add semantic batch executor tests for internal module wiring | add `/api/query` route coverage for compound-question orchestration

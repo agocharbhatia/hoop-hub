@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
-import type { PlannerDecision } from '$lib/contracts/planner';
+import type { BatchPlannerDecision } from '$lib/contracts/planner';
 import type { StatsQueryResponse } from '$lib/contracts/semantic-query';
 import { resetDataStoreForTests } from '$lib/server/data/store';
 import { createNightlyBootstrapFixtureFetcher } from '$lib/server/nightly/bootstrap-fixtures';
@@ -60,58 +60,68 @@ function getPrimaryToolResponse(payload: QueryAnswerResponse): StatsQueryRespons
 	return response;
 }
 
-function buildPlannedRankingDecision(): PlannerDecision {
+function buildPlannedRankingDecision(): BatchPlannerDecision {
 	return {
 		type: 'planned',
-		query: {
-			operation: 'rank',
-			entity: 'player',
-			subject: {},
-			metrics: ['ast'],
-			filters: {
-				season: null,
-				seasonType: null,
-				window: null,
-				dateFrom: null,
-				dateTo: null
-			},
-			orderBy: {
-				metric: 'ast',
-				direction: 'desc'
-			},
-			limit: 10,
-			outputMode: 'table'
-		}
+		toolRequests: [
+			{
+				toolName: 'stats_query',
+				query: {
+					operation: 'rank',
+					entity: 'player',
+					subject: {},
+					metrics: ['ast'],
+					filters: {
+						season: null,
+						seasonType: null,
+						window: null,
+						dateFrom: null,
+						dateTo: null
+					},
+					orderBy: {
+						metric: 'ast',
+						direction: 'desc'
+					},
+					limit: 10,
+					outputMode: 'table'
+				}
+			}
+		]
 	};
 }
 
-function buildPlannedPlayerLookupDecision(): PlannerDecision {
+function buildPlannedPlayerLookupDecision(): BatchPlannerDecision {
 	return {
 		type: 'planned',
-		query: {
-			operation: 'lookup',
-			entity: 'player',
-			subject: {
-				names: ['Nikola Jokic']
-			},
-			metrics: ['pts', 'reb'],
-			filters: {
-				season: null,
-				seasonType: null,
-				window: null,
-				dateFrom: null,
-				dateTo: null
-			},
-			orderBy: null,
-			limit: null,
-			outputMode: 'table'
-		}
+		toolRequests: [
+			{
+				toolName: 'stats_query',
+				query: {
+					operation: 'lookup',
+					entity: 'player',
+					subject: {
+						names: ['Nikola Jokic']
+					},
+					metrics: ['pts', 'reb'],
+					filters: {
+						season: null,
+						seasonType: null,
+						window: null,
+						dateFrom: null,
+						dateTo: null
+					},
+					orderBy: null,
+					limit: null,
+					outputMode: 'table'
+				}
+			}
+		]
 	};
 }
 
 function useQueryPlannerAt(now: Date): void {
 	_setQueryRouteDependenciesForTests({
-		async planQuestion(): Promise<PlannerDecision> {
+		async planQuestion(): Promise<BatchPlannerDecision> {
 			return buildPlannedRankingDecision();
 		},
 		executeSemanticQuery(request): Promise<StatsQueryResponse> {
@@ -122,7 +132,7 @@ function useQueryPlannerAt(now: Date): void {
 
 function usePlayerLookupPlannerAt(now: Date): void {
 	_setQueryRouteDependenciesForTests({
-		async planQuestion(): Promise<PlannerDecision> {
+		async planQuestion(): Promise<BatchPlannerDecision> {
 			return buildPlannedPlayerLookupDecision();
 		},
 		executeSemanticQuery(request): Promise<StatsQueryResponse> {

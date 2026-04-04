@@ -15,7 +15,8 @@ describe('openai planner adapter prompt contract', () => {
 		assert.match(systemPrompt, /Use null for implicit current-season asks/i);
 		assert.match(systemPrompt, /always normalize it to exact YYYY-YY form/i);
 		assert.match(systemPrompt, /2023\/24, 2023-2024, and 2023 24 must all become 2023-24/i);
-		assert.match(systemPrompt, /Single-request stats capability contract:/i);
+		assert.match(systemPrompt, /Do not plan more than 3 tool requests/i);
+		assert.match(systemPrompt, /Batch stats capability contract:/i);
 		assert.match(systemPrompt, /lookup\/player/i);
 		assert.match(systemPrompt, /lookup\/team/i);
 	});
@@ -24,16 +25,17 @@ describe('openai planner adapter prompt contract', () => {
 		const capabilities = getPublicSemanticCapabilities();
 		const schema = _getPlannerOutputSchemaForTests();
 
-		assert.deepEqual(schema.schema.properties.query.properties.operation.enum, capabilities.operations);
-		assert.deepEqual(schema.schema.properties.query.properties.entity.enum, capabilities.entities);
+		assert.deepEqual(schema.schema.properties.toolRequests.items.properties.query.properties.operation.enum, capabilities.operations);
+		assert.deepEqual(schema.schema.properties.toolRequests.items.properties.query.properties.entity.enum, capabilities.entities);
 		assert.deepEqual(
-			schema.schema.properties.query.properties.metrics.items.enum,
+			schema.schema.properties.toolRequests.items.properties.query.properties.metrics.items.enum,
 			capabilities.metrics.map((metric) => metric.id)
 		);
 		assert.deepEqual(
-			schema.schema.properties.query.properties.outputMode.enum,
+			schema.schema.properties.toolRequests.items.properties.query.properties.outputMode.enum,
 			[...capabilities.outputModes, null]
 		);
+		assert.equal(schema.schema.properties.toolRequests.maxItems, 3);
 		assert.deepEqual(
 			schema.schema.properties.warning.properties.code.enum,
 			[
@@ -46,10 +48,10 @@ describe('openai planner adapter prompt contract', () => {
 		);
 	});
 
-	test('embeds the published single-request query-shape contract into the planner prompt', () => {
+	test('embeds the published batch query-shape contract into the planner prompt', () => {
 		const capabilities = getPublicSemanticCapabilities();
 		const messages = _buildPlannerMessagesForTests('How many wins did the Celtics have this season?');
-		const contractPrefix = 'Single-request stats capability contract: ';
+		const contractPrefix = 'Batch stats capability contract: ';
 		const contractMessage = messages.find(
 			(message) =>
 				message.role === 'system' &&
@@ -63,11 +65,13 @@ describe('openai planner adapter prompt contract', () => {
 		}
 
 		const embeddedContract = JSON.parse(contractMessage.content.slice(contractPrefix.length)) as {
+			maxToolRequests: number;
 			seasons: { supported: string[]; default: string };
 			seasonTypes: { supported: string[]; default: string };
 			queryShapes: unknown[];
 		};
 
+		assert.equal(embeddedContract.maxToolRequests, 3);
 		assert.deepEqual(embeddedContract.seasons, capabilities.seasons);
 		assert.deepEqual(embeddedContract.seasonTypes, capabilities.seasonTypes);
 		assert.deepEqual(embeddedContract.queryShapes, capabilities.queryShapes);

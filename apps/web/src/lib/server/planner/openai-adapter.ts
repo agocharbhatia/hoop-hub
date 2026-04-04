@@ -2,10 +2,11 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import { MAX_BATCH_TOOL_REQUESTS } from '$lib/contracts/planner';
 import { getPublicSemanticCapabilities } from '$lib/server/semantic/capabilities';
 import type { PlannerAdapter } from './service';
 
-const PLANNER_CAPABILITY_CONTRACT_PREFIX = 'Single-request stats capability contract: ';
+const PLANNER_CAPABILITY_CONTRACT_PREFIX = 'Batch stats capability contract: ';
 
 function buildPlannerOutputSchema() {
 	const capabilities = getPublicSemanticCapabilities();
@@ -21,101 +22,117 @@ function buildPlannerOutputSchema() {
 					type: 'string',
 					enum: ['planned', 'coverage_gap', 'clarification_needed']
 				},
-				query: {
-					type: ['object', 'null'],
-					additionalProperties: false,
-					properties: {
-						operation: {
-							type: 'string',
-							enum: capabilities.operations
-						},
-						entity: {
-							type: 'string',
-							enum: capabilities.entities
-						},
-						subject: {
-							type: 'object',
-							additionalProperties: false,
-							properties: {
-								names: {
-									type: 'array',
-									items: { type: 'string' }
-								},
-								ids: {
-									type: 'array',
-									items: { type: 'string' }
-								}
-							},
-							required: ['names', 'ids']
-						},
-						metrics: {
-							type: 'array',
-							items: {
+				toolRequests: {
+					type: ['array', 'null'],
+					minItems: 1,
+					maxItems: MAX_BATCH_TOOL_REQUESTS,
+					items: {
+						type: 'object',
+						additionalProperties: false,
+						properties: {
+							toolName: {
 								type: 'string',
-								enum: capabilities.metrics.map((metric) => metric.id)
+								enum: ['stats_query']
 							},
-							minItems: 1
-						},
-						filters: {
-							type: 'object',
-							additionalProperties: false,
-							properties: {
-								season: {
-									type: ['string', 'null']
-								},
-								seasonType: {
-									type: ['string', 'null'],
-									enum: [...capabilities.seasonTypes.supported, null]
-								},
-								window: {
-									type: ['object', 'null'],
-									additionalProperties: false,
-									properties: {
-										type: {
-											type: 'string',
-											enum: ['last_n_games']
-										},
-										n: {
-											type: 'integer',
-											minimum: 1
-										}
+							query: {
+								type: 'object',
+								additionalProperties: false,
+								properties: {
+									operation: {
+										type: 'string',
+										enum: capabilities.operations
 									},
-									required: ['type', 'n']
+									entity: {
+										type: 'string',
+										enum: capabilities.entities
+									},
+									subject: {
+										type: 'object',
+										additionalProperties: false,
+										properties: {
+											names: {
+												type: 'array',
+												items: { type: 'string' }
+											},
+											ids: {
+												type: 'array',
+												items: { type: 'string' }
+											}
+										},
+										required: ['names', 'ids']
+									},
+									metrics: {
+										type: 'array',
+										items: {
+											type: 'string',
+											enum: capabilities.metrics.map((metric) => metric.id)
+										},
+										minItems: 1
+									},
+									filters: {
+										type: 'object',
+										additionalProperties: false,
+										properties: {
+											season: {
+												type: ['string', 'null']
+											},
+											seasonType: {
+												type: ['string', 'null'],
+												enum: [...capabilities.seasonTypes.supported, null]
+											},
+											window: {
+												type: ['object', 'null'],
+												additionalProperties: false,
+												properties: {
+													type: {
+														type: 'string',
+														enum: ['last_n_games']
+													},
+													n: {
+														type: 'integer',
+														minimum: 1
+													}
+												},
+												required: ['type', 'n']
+											},
+											dateFrom: {
+												type: 'null'
+											},
+											dateTo: {
+												type: 'null'
+											}
+										},
+										required: ['season', 'seasonType', 'window', 'dateFrom', 'dateTo']
+									},
+									orderBy: {
+										type: ['object', 'null'],
+										additionalProperties: false,
+										properties: {
+											metric: {
+												type: 'string',
+												enum: capabilities.metrics.map((metric) => metric.id)
+											},
+											direction: {
+												type: 'string',
+												enum: ['asc', 'desc']
+											}
+										},
+										required: ['metric', 'direction']
+									},
+									limit: {
+										type: ['integer', 'null'],
+										minimum: 1
+									},
+									outputMode: {
+										type: ['string', 'null'],
+										enum: [...capabilities.outputModes, null]
+									}
 								},
-								dateFrom: {
-									type: 'null'
-								},
-								dateTo: {
-									type: 'null'
-								}
-							},
-							required: ['season', 'seasonType', 'window', 'dateFrom', 'dateTo']
+								required: ['operation', 'entity', 'subject', 'metrics', 'filters', 'orderBy', 'limit', 'outputMode']
+							}
 						},
-						orderBy: {
-							type: ['object', 'null'],
-							additionalProperties: false,
-							properties: {
-								metric: {
-									type: 'string',
-									enum: capabilities.metrics.map((metric) => metric.id)
-								},
-								direction: {
-									type: 'string',
-									enum: ['asc', 'desc']
-								}
-							},
-							required: ['metric', 'direction']
-						},
-						limit: {
-							type: ['integer', 'null'],
-							minimum: 1
-						},
-						outputMode: {
-							type: ['string', 'null'],
-							enum: [...capabilities.outputModes, null]
-						}
-					},
-					required: ['operation', 'entity', 'subject', 'metrics', 'filters', 'orderBy', 'limit', 'outputMode']
+						required: ['toolName', 'query']
+					}
 				},
 				warning: {
 					type: ['object', 'null'],
@@ -136,7 +153,7 @@ function buildPlannerOutputSchema() {
 					required: ['code', 'message']
 				}
 			},
-			required: ['type', 'query', 'warning']
+			required: ['type', 'toolRequests', 'warning']
 		}
 	} as const;
 }
@@ -224,6 +241,7 @@ function buildSingleRequestPlannerCapabilityContract() {
 	const capabilities = getPublicSemanticCapabilities();
 
 	return {
+		maxToolRequests: MAX_BATCH_TOOL_REQUESTS,
 		seasons: capabilities.seasons,
 		seasonTypes: capabilities.seasonTypes,
 		queryShapes: capabilities.queryShapes
@@ -250,9 +268,9 @@ export function _buildPlannerMessagesForTests(question: string): ChatCompletionM
 		{
 			role: 'system',
 			content:
-				`You plan NBA stats questions into one supported structured request. Only support ${capabilities.queryShapes
+				`You plan NBA stats questions into up to ${MAX_BATCH_TOOL_REQUESTS} supported structured tool requests. Only support ${capabilities.queryShapes
 					.map((shape) => `${shape.operation}/${shape.entity}`)
-					.join(', ')} in this slice. Use the published stats capability contract as your source of truth. Do not resolve player identity into canonical ids. If no single supported query shape fits, return coverage_gap.`
+					.join(', ')} in this slice. Use the published stats capability contract as your source of truth. Do not resolve player identity into canonical ids. If no bounded supported tool batch fits, return coverage_gap.`
 		},
 		{
 			role: 'system',
@@ -266,7 +284,7 @@ export function _buildPlannerMessagesForTests(question: string): ChatCompletionM
 		{
 			role: 'system',
 			content:
-				'Always include every schema field. Use empty arrays instead of omitting subject.names or subject.ids. Use null for optional scalar or object fields that do not apply. Season normalization is the planner\'s responsibility. Never emit season phrases like this season or current season in filters.season. Use null for implicit current-season asks. When the question names a season, always normalize it to exact YYYY-YY form before returning it. For example, 2023/24, 2023-2024, and 2023 24 must all become 2023-24. Preserve raw subject name order from the question in subject.names. Keep subject.ids empty in this slice.'
+				`Always include every schema field. Use empty arrays instead of omitting subject.names or subject.ids. Use null for optional scalar or object fields that do not apply. Season normalization is the planner's responsibility. Never emit season phrases like this season or current season in filters.season. Use null for implicit current-season asks. When the question names a season, always normalize it to exact YYYY-YY form before returning it. For example, 2023/24, 2023-2024, and 2023 24 must all become 2023-24. Preserve raw subject name order from the question in subject.names. Keep subject.ids empty in this slice. Do not plan more than ${MAX_BATCH_TOOL_REQUESTS} tool requests.`
 		},
 		{
 			role: 'system',

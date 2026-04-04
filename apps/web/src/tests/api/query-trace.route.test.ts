@@ -72,25 +72,30 @@ describe('GET /api/query-trace/:traceId', () => {
 			async planQuestion() {
 				return {
 					type: 'planned',
-					query: {
-						operation: 'rank',
-						entity: 'player',
-						subject: {},
-						metrics: ['ast'],
-						filters: {
-							season: '2023-24',
-							seasonType: null,
-							window: null,
-							dateFrom: null,
-							dateTo: null
-						},
-						orderBy: {
-							metric: 'ast',
-							direction: 'desc'
-						},
-						limit: 10,
-						outputMode: 'table'
-					}
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'rank',
+								entity: 'player',
+								subject: {},
+								metrics: ['ast'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: {
+									metric: 'ast',
+									direction: 'desc'
+								},
+								limit: 10,
+								outputMode: 'table'
+							}
+						}
+					]
 				};
 			},
 			executeSemanticQuery
@@ -422,27 +427,32 @@ describe('GET /api/query-trace/:traceId', () => {
 			async planQuestion() {
 				return {
 					type: 'planned',
-					query: {
-						operation: 'trend',
-						entity: 'player',
-						subject: {
-							names: ['Precious Achiuwa']
-						},
-						metrics: ['pts'],
-						filters: {
-							season: null,
-							seasonType: null,
-							window: {
-								type: 'last_n_games',
-								n: 2
-							},
-							dateFrom: null,
-							dateTo: null
-						},
-						orderBy: null,
-						limit: null,
-						outputMode: 'timeseries'
-					}
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'trend',
+								entity: 'player',
+								subject: {
+									names: ['Precious Achiuwa']
+								},
+								metrics: ['pts'],
+								filters: {
+									season: null,
+									seasonType: null,
+									window: {
+										type: 'last_n_games',
+										n: 2
+									},
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'timeseries'
+							}
+						}
+					]
 				};
 			},
 			executeSemanticQuery
@@ -486,27 +496,32 @@ describe('GET /api/query-trace/:traceId', () => {
 			async planQuestion() {
 				return {
 					type: 'planned',
-					query: {
-						operation: 'trend',
-						entity: 'player',
-						subject: {
-							names: ['Jokic']
-						},
-						metrics: ['pts'],
-						filters: {
-							season: null,
-							seasonType: null,
-							window: {
-								type: 'last_n_games',
-								n: 2
-							},
-							dateFrom: null,
-							dateTo: null
-						},
-						orderBy: null,
-						limit: null,
-						outputMode: 'timeseries'
-					}
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'trend',
+								entity: 'player',
+								subject: {
+									names: ['Jokic']
+								},
+								metrics: ['pts'],
+								filters: {
+									season: null,
+									seasonType: null,
+									window: {
+										type: 'last_n_games',
+										n: 2
+									},
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'timeseries'
+							}
+						}
+					]
 				};
 			},
 			executeSemanticQuery

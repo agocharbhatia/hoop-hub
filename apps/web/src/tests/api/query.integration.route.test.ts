@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
-import type { PlannerDecision } from '$lib/contracts/planner';
+import type { BatchPlannerDecision } from '$lib/contracts/planner';
 import { resetDataStoreForTests } from '$lib/server/data/store';
 import { executeSemanticQuery } from '$lib/server/semantic/query-service';
 import { seedSemanticFixtureCache } from '../helpers/seed-semantic-fixture-cache';
@@ -26,9 +26,9 @@ async function parseJson(response: Response): Promise<unknown> {
 	return response.json();
 }
 
-function usePlannerDecision(decision: PlannerDecision): void {
+function usePlannerDecision(decision: BatchPlannerDecision): void {
 	_setQueryRouteDependenciesForTests({
-		async planQuestion(): Promise<PlannerDecision> {
+		async planQuestion(): Promise<BatchPlannerDecision> {
 			return decision;
 		},
 		executeSemanticQuery,
@@ -100,25 +100,30 @@ describe('POST /api/query integration', () => {
 	test('returns answer-first payloads for supported ranking questions', async () => {
 		usePlannerDecision({
 			type: 'planned',
-			query: {
-				operation: 'rank',
-				entity: 'player',
-				subject: {},
-				metrics: ['ast'],
-				filters: {
-					season: '2023-24',
-					seasonType: null,
-					window: null,
-					dateFrom: null,
-					dateTo: null
-				},
-				orderBy: {
-					metric: 'ast',
-					direction: 'desc'
-				},
-				limit: 10,
-				outputMode: 'table'
-			}
+			toolRequests: [
+				{
+					toolName: 'stats_query',
+					query: {
+						operation: 'rank',
+						entity: 'player',
+						subject: {},
+						metrics: ['ast'],
+						filters: {
+							season: '2023-24',
+							seasonType: null,
+							window: null,
+							dateFrom: null,
+							dateTo: null
+						},
+						orderBy: {
+							metric: 'ast',
+							direction: 'desc'
+						},
+						limit: 10,
+						outputMode: 'table'
+					}
+				}
+			]
 		});
 
 		const response = await POST(
@@ -147,28 +152,33 @@ describe('POST /api/query integration', () => {
 		seedSemanticFixtureCache(new Date('2026-03-24T12:00:00.000Z'));
 
 		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
+			async planQuestion(): Promise<BatchPlannerDecision> {
 				return {
 					type: 'planned',
-					query: {
-						operation: 'rank',
-						entity: 'player',
-						subject: {},
-						metrics: ['ast'],
-						filters: {
-							season: '2023-24',
-							seasonType: null,
-							window: null,
-							dateFrom: null,
-							dateTo: null
-						},
-						orderBy: {
-							metric: 'ast',
-							direction: 'desc'
-						},
-						limit: 10,
-						outputMode: 'table'
-					}
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'rank',
+								entity: 'player',
+								subject: {},
+								metrics: ['ast'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: {
+									metric: 'ast',
+									direction: 'desc'
+								},
+								limit: 10,
+								outputMode: 'table'
+							}
+						}
+					]
 				};
 			},
 			executeSemanticQuery(request) {
@@ -213,27 +223,32 @@ describe('POST /api/query integration', () => {
 	test('resolves arbitrary exact-name player trends through the shared full-directory resolver', async () => {
 		usePlannerDecision({
 			type: 'planned',
-			query: {
-				operation: 'trend',
-				entity: 'player',
-				subject: {
-					names: ['Precious Achiuwa']
-				},
-				metrics: ['pts'],
-				filters: {
-					season: null,
-					seasonType: null,
-					window: {
-						type: 'last_n_games',
-						n: 2
-					},
-					dateFrom: null,
-					dateTo: null
-				},
-				orderBy: null,
-				limit: null,
-				outputMode: 'timeseries'
-			}
+			toolRequests: [
+				{
+					toolName: 'stats_query',
+					query: {
+						operation: 'trend',
+						entity: 'player',
+						subject: {
+							names: ['Precious Achiuwa']
+						},
+						metrics: ['pts'],
+						filters: {
+							season: null,
+							seasonType: null,
+							window: {
+								type: 'last_n_games',
+								n: 2
+							},
+							dateFrom: null,
+							dateTo: null
+						},
+						orderBy: null,
+						limit: null,
+						outputMode: 'timeseries'
+					}
+				}
+			]
 		});
 
 		const response = await POST(
@@ -262,24 +277,29 @@ describe('POST /api/query integration', () => {
 	test('executes supported player season lookups end to end and preserves the named season for executor grounding', async () => {
 		usePlannerDecision({
 			type: 'planned',
-			query: {
-				operation: 'lookup',
-				entity: 'player',
-				subject: {
-					names: ['Nikola Jokic']
-				},
-				metrics: ['pts'],
-				filters: {
-					season: '2023-24',
-					seasonType: null,
-					window: null,
-					dateFrom: null,
-					dateTo: null
-				},
-				orderBy: null,
-				limit: null,
-				outputMode: 'table'
-			}
+			toolRequests: [
+				{
+					toolName: 'stats_query',
+					query: {
+						operation: 'lookup',
+						entity: 'player',
+						subject: {
+							names: ['Nikola Jokic']
+						},
+						metrics: ['pts'],
+						filters: {
+							season: '2023-24',
+							seasonType: null,
+							window: null,
+							dateFrom: null,
+							dateTo: null
+						},
+						orderBy: null,
+						limit: null,
+						outputMode: 'table'
+					}
+				}
+			]
 		});
 
 		const response = await POST(
@@ -312,24 +332,29 @@ describe('POST /api/query integration', () => {
 	test('resolves curated comparison aliases through the shared player resolver', async () => {
 		usePlannerDecision({
 			type: 'planned',
-			query: {
-				operation: 'compare',
-				entity: 'player',
-				subject: {
-					names: ['Curry', 'Dame']
-				},
-				metrics: ['pts'],
-				filters: {
-					season: '2023-24',
-					seasonType: null,
-					window: null,
-					dateFrom: null,
-					dateTo: null
-				},
-				orderBy: null,
-				limit: null,
-				outputMode: 'comparison'
-			}
+			toolRequests: [
+				{
+					toolName: 'stats_query',
+					query: {
+						operation: 'compare',
+						entity: 'player',
+						subject: {
+							names: ['Curry', 'Dame']
+						},
+						metrics: ['pts'],
+						filters: {
+							season: '2023-24',
+							seasonType: null,
+							window: null,
+							dateFrom: null,
+							dateTo: null
+						},
+						orderBy: null,
+						limit: null,
+						outputMode: 'comparison'
+					}
+				}
+			]
 		});
 
 		const response = await POST(
@@ -354,27 +379,32 @@ describe('POST /api/query integration', () => {
 	test('returns executed clarification responses inside the answer-first payload instead of guessing', async () => {
 		usePlannerDecision({
 			type: 'planned',
-			query: {
-				operation: 'trend',
-				entity: 'player',
-				subject: {
-					names: ['Williams']
-				},
-				metrics: ['pts'],
-				filters: {
-					season: null,
-					seasonType: null,
-					window: {
-						type: 'last_n_games',
-						n: 2
-					},
-					dateFrom: null,
-					dateTo: null
-				},
-				orderBy: null,
-				limit: null,
-				outputMode: 'timeseries'
-			}
+			toolRequests: [
+				{
+					toolName: 'stats_query',
+					query: {
+						operation: 'trend',
+						entity: 'player',
+						subject: {
+							names: ['Williams']
+						},
+						metrics: ['pts'],
+						filters: {
+							season: null,
+							seasonType: null,
+							window: {
+								type: 'last_n_games',
+								n: 2
+							},
+							dateFrom: null,
+							dateTo: null
+						},
+						orderBy: null,
+						limit: null,
+						outputMode: 'timeseries'
+					}
+				}
+			]
 		});
 
 		const response = await POST(
@@ -398,7 +428,7 @@ describe('POST /api/query integration', () => {
 	test('returns typed planner coverage gaps in the answer-first payload', async () => {
 		let executorCalls = 0;
 		_setQueryRouteDependenciesForTests({
-			async planQuestion(): Promise<PlannerDecision> {
+			async planQuestion(): Promise<BatchPlannerDecision> {
 				return {
 					type: 'coverage_gap',
 					warning: {
