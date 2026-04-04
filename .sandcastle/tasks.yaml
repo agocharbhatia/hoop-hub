@@ -157,7 +157,7 @@ tasks:
       Deliver end-to-end lookup/player support on the stats tool contract with
       one-subject validation, canonical player grounding, one-row table output,
       supported-season behavior, warnings, and traces.
-    status: pending
+    status: done
     blocked_by:
       - unify_semantic_metrics_and_capabilities
       - upgrade_deterministic_lookup_fixtures_and_bootstrap_sources

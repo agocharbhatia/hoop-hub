@@ -172,3 +172,10 @@
 - Module scope: nightly request planning, historical backfill planning, materialization service, stored-data lookup support
 - Interface contract: supported lookup source variants are available from nightly materialized data | current season and 2023-24 support use the same generalized seams | empty DB recovery remains nightly_data_unavailable until bootstrap
 - Tests: add bootstrap service tests for lookup source variants | add historical backfill tests for 2023-24 lookup support | add stored-read tests for supported lookup shapes after bootstrap
+## ship_structured_player_season_lookup
+
+- Title: Ship Structured Player Season Lookup
+- Module scope: semantic executor lookup planning, player lookup extraction, structured route contract, trace and provenance behavior
+- Interface contract: POST /api/stats/query accepts canonical lookup/player requests | lookup/player returns one table row with canonical identity and season metadata | unsupported metrics, seasons, season types, and empty stored data fail honestly
+- Tests: add semantic executor tests for player lookup output and warnings | add stats route tests for direct lookup/player requests | add trace tests for canonical player lookup provenance
+
