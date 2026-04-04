@@ -119,7 +119,7 @@ tasks:
       Expand nightly and historical materialization so current season and
       2023-24 lookup source variants are written to stored data for player base
       and team base plus advanced season rows.
-    status: pending
+    status: done
     blocked_by:
       - unify_semantic_metrics_and_capabilities
       - upgrade_deterministic_lookup_fixtures_and_bootstrap_sources

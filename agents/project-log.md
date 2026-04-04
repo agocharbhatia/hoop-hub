@@ -165,3 +165,10 @@
 - Module scope: deterministic season fixtures, semantic cache seed helper, fixture bootstrap fetcher, lookup data coverage tests
 - Interface contract: deterministic data covers the shipped player and team lookup metric surface | seed and bootstrap fixture paths use the same season payload shapes | fixture coverage stays honest to the supported lookup contract
 - Tests: update deterministic fixture coverage tests | add bootstrap fixture parity tests | keep default tests fully fixture-backed
+## materialize_lookup_season_source_variants
+
+- Title: Materialize Lookup Season Source Variants
+- Module scope: nightly request planning, historical backfill planning, materialization service, stored-data lookup support
+- Interface contract: supported lookup source variants are available from nightly materialized data | current season and 2023-24 support use the same generalized seams | empty DB recovery remains nightly_data_unavailable until bootstrap
+- Tests: add bootstrap service tests for lookup source variants | add historical backfill tests for 2023-24 lookup support | add stored-read tests for supported lookup shapes after bootstrap
+
