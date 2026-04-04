@@ -145,6 +145,7 @@
 - PRD published: `Scalable Season Lookup Expansion` ([#25](https://github.com/agocharbhatia/hoop-hub/issues/25)). Core architecture choice: expand the semantic runtime with grounded `lookup/player` and `lookup/team`, unify active runtime metrics under one semantic capability/metric registry, and add a public capabilities contract so the LLM only requests supported operations, metrics, seasons, and outputs. Workflow assumption: the stats tool returns structured grounded data and provenance, while the LLM consumes the published capabilities and owns final presentation.
 - Slice `unify_semantic_metrics_and_capabilities` established one shared semantic capability registry for the active stats runtime. The direct structured validator, planner schema/prompt surface, and new `GET /api/stats/capabilities` route now read from the same public contract so orchestration and executor validation cannot drift on supported operations, entities, metrics, seasons, season types, output modes, or subject cardinality.
 - Slice `add_team_directory_and_ambiguity_safe_resolution` adds a shared seeded team identity layer for the semantic runtime. Team defensive ranking queries can now ground one team subject by canonical name, city, short name, abbreviation, or curated alias, while ambiguous labels like `Los Angeles` or `LA` must stop with typed `clarification_needed` and leave `resolvedQuery` null instead of guessing.
+- Deterministic offline lookup coverage now runs through one shared fixture registry. Cache seeding and fixture-backed bootstrap both read the same richer season payload set, while bootstrap-only cohort fallback rows must be derived from that shared player season fixture instead of inventing a separate payload surface.
 ## unify_semantic_metrics_and_capabilities
 
 - Title: Unify Semantic Metrics And Capabilities
@@ -157,4 +158,3 @@
 - Module scope: team directory snapshot, team alias overlay, team resolver, structured/team trace resolution contract
 - Interface contract: team resolution supports canonical names, city names, short names, abbreviations, and curated aliases | ambiguous team inputs return clarification_needed | canonical team identity is reflected in resolvedQuery once grounding is proven
 - Tests: add team resolver unit tests for exact, alias, and ambiguous cases | add contract tests for canonical resolvedQuery behavior
-
