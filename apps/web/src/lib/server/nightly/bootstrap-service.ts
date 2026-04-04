@@ -137,6 +137,14 @@ function resolvePhaseConcurrency(phase: NightlyRunRequestPhase, requestCount: nu
 }
 
 function resolvePhaseDelayMs(phase: NightlyRunRequestPhase): number {
+	const rawOverride = process.env.HOOP_HUB_BOOTSTRAP_DELAY_MS;
+	if (rawOverride !== undefined) {
+		const parsedOverride = Number.parseInt(rawOverride, 10);
+		if (Number.isFinite(parsedOverride) && parsedOverride >= 0) {
+			return parsedOverride;
+		}
+	}
+
 	return DEFAULT_PHASE_DELAY_MS[phase];
 }
 

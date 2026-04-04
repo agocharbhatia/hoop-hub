@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import { buildRawEndpointCacheKey, getDataStore, resetDataStoreForTests } from '$lib/server/data/store';
+import { createNightlyBootstrapFixtureFetcher } from '$lib/server/nightly/bootstrap-fixtures';
+import { listDeterministicLookupFixtureSurface } from '$lib/server/nightly/deterministic-fixtures';
+import { bootstrapCurrentSeasonNightly } from '$lib/server/nightly/bootstrap-service';
 import { _setLiveStatsTransportForTests, fetchStatsEndpointWithCache } from './stats-endpoint-client';
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
@@ -197,6 +200,30 @@ describe('stats-endpoint-client', () => {
 		assert.equal(result.sourceStatus, 'ok');
 		assert.equal(result.isProvisional, false);
 		assert.notEqual(result.payload, null);
+	});
+
+	test('reads every supported lookup source variant from stored nightly data after bootstrap', async () => {
+		const bootstrapNow = new Date('2026-04-02T05:00:00.000Z');
+		await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now: bootstrapNow,
+			fetcher: createNightlyBootstrapFixtureFetcher()
+		});
+
+		const queryNow = new Date('2026-04-02T12:00:00.000Z');
+		for (const requirement of listDeterministicLookupFixtureSurface()) {
+			const result = await fetchStatsEndpointWithCache({
+				endpointId: requirement.endpointId,
+				now: queryNow,
+				allowLiveFetch: false,
+				params: requirement.params
+			});
+
+			assert.equal(result.cacheStatus, 'hit');
+			assert.equal(result.sourceStatus, 'ok');
+			assert.equal(result.isProvisional, false);
+			assert.notEqual(result.payload, null);
+		}
 	});
 
 	test('caller can disable live fetch even when environment fallback is enabled', async () => {

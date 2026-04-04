@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 import {
 	DEFAULT_NIGHTLY_ACTIVE_PLAYER_COHORT_SIZE,
 	NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS,
+	buildSupportedSeasonLookupRequests,
 	buildPlayerTrendBootstrapRequests,
 	deriveNightlyPlayerComparisonCohort,
 	prioritizeNightlyPlayerBootstrapOrder,
@@ -66,6 +67,29 @@ describe('current-season nightly planning', () => {
 				}
 			}
 		]);
+	});
+
+	test('builds the shared lookup source variants for a season', () => {
+		assert.deepEqual(
+			buildSupportedSeasonLookupRequests('2025-26').map((request) => ({
+				endpointId: request.endpointId,
+				measureType: request.params.MeasureType
+			})),
+			[
+				{
+					endpointId: 'leaguedashplayerstats',
+					measureType: 'Base'
+				},
+				{
+					endpointId: 'leaguedashteamstats',
+					measureType: 'Base'
+				},
+				{
+					endpointId: 'leaguedashteamstats',
+					measureType: 'Advanced'
+				}
+			]
+		);
 	});
 
 	test('prioritizes the allowlist players ahead of the remaining nightly cohort', () => {

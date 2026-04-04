@@ -146,6 +146,7 @@
 - Slice `unify_semantic_metrics_and_capabilities` established one shared semantic capability registry for the active stats runtime. The direct structured validator, planner schema/prompt surface, and new `GET /api/stats/capabilities` route now read from the same public contract so orchestration and executor validation cannot drift on supported operations, entities, metrics, seasons, season types, output modes, or subject cardinality.
 - Slice `add_team_directory_and_ambiguity_safe_resolution` adds a shared seeded team identity layer for the semantic runtime. Team defensive ranking queries can now ground one team subject by canonical name, city, short name, abbreviation, or curated alias, while ambiguous labels like `Los Angeles` or `LA` must stop with typed `clarification_needed` and leave `resolvedQuery` null instead of guessing.
 - Deterministic offline lookup coverage now runs through one shared fixture registry. Cache seeding and fixture-backed bootstrap both read the same richer season payload set, while bootstrap-only cohort fallback rows must be derived from that shared player season fixture instead of inventing a separate payload surface.
+- Nightly/bootstrap lookup materialization now plans one shared season-source variant set for both current season and `2023-24` backfill: player season base, team season base, and team season advanced rows. Future lookup expansion should extend that shared seam instead of hand-adding season-specific requests in separate planners.
 ## unify_semantic_metrics_and_capabilities
 
 - Title: Unify Semantic Metrics And Capabilities
@@ -164,4 +165,3 @@
 - Module scope: deterministic season fixtures, semantic cache seed helper, fixture bootstrap fetcher, lookup data coverage tests
 - Interface contract: deterministic data covers the shipped player and team lookup metric surface | seed and bootstrap fixture paths use the same season payload shapes | fixture coverage stays honest to the supported lookup contract
 - Tests: update deterministic fixture coverage tests | add bootstrap fixture parity tests | keep default tests fully fixture-backed
-

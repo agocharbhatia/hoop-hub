@@ -3,6 +3,20 @@ import type { EndpointFetchRequest } from '$lib/server/data';
 export const CURRENT_SEASON_LEAGUE_WIDE_ENDPOINT_IDS = ['leaguedashplayerstats', 'leaguedashteamstats'] as const;
 export const NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS = ['1630173', '201939', '203081', '203999'] as const;
 export const DEFAULT_NIGHTLY_ACTIVE_PLAYER_COHORT_SIZE = 75;
+export const SUPPORTED_LOOKUP_SOURCE_VARIANTS = [
+	{
+		endpointId: 'leaguedashplayerstats',
+		measureType: 'Base'
+	},
+	{
+		endpointId: 'leaguedashteamstats',
+		measureType: 'Base'
+	},
+	{
+		endpointId: 'leaguedashteamstats',
+		measureType: 'Advanced'
+	}
+] as const;
 
 export type CurrentSeasonLeagueWideRequestPlan = {
 	endpointId: (typeof CURRENT_SEASON_LEAGUE_WIDE_ENDPOINT_IDS)[number];
@@ -114,6 +128,18 @@ export function buildLeagueWidePlayerRankingRequest(season: string, seasonType =
 }
 
 export function buildLeagueWideTeamDefenseRequest(season: string, seasonType = 'Regular Season'): EndpointFetchRequest {
+	return buildLeagueWideTeamStatsRequest(season, 'Advanced', seasonType);
+}
+
+export function buildLeagueWideTeamBaseRequest(season: string, seasonType = 'Regular Season'): EndpointFetchRequest {
+	return buildLeagueWideTeamStatsRequest(season, 'Base', seasonType);
+}
+
+export function buildLeagueWideTeamStatsRequest(
+	season: string,
+	measureType: 'Base' | 'Advanced',
+	seasonType = 'Regular Season'
+): EndpointFetchRequest {
 	return {
 		endpointId: 'leaguedashteamstats',
 		params: {
@@ -122,7 +148,7 @@ export function buildLeagueWideTeamDefenseRequest(season: string, seasonType = '
 			GameSegment: '',
 			LastNGames: '0',
 			Location: '',
-			MeasureType: 'Advanced',
+			MeasureType: measureType,
 			Month: '0',
 			OpponentTeamID: '0',
 			Outcome: '',
@@ -149,6 +175,14 @@ export function buildLeagueWideTeamDefenseRequest(season: string, seasonType = '
 			TwoWay: ''
 		}
 	};
+}
+
+export function buildSupportedSeasonLookupRequests(season: string, seasonType = 'Regular Season'): EndpointFetchRequest[] {
+	return SUPPORTED_LOOKUP_SOURCE_VARIANTS.map((variant) =>
+		variant.endpointId === 'leaguedashplayerstats'
+			? buildLeagueWidePlayerRankingRequest(season, seasonType)
+			: buildLeagueWideTeamStatsRequest(season, variant.measureType, seasonType)
+	);
 }
 
 export function deriveNightlyPlayerComparisonCohort(
@@ -222,14 +256,8 @@ export function buildPlayerTrendBootstrapRequests(playerIds: readonly string[], 
 export function planCurrentSeasonLeagueWideRequests(slateDate: string): CurrentSeasonLeagueWideRequestPlan[] {
 	const season = resolveSeasonForSlateDate(slateDate);
 
-	return [
-		{
-			endpointId: 'leaguedashplayerstats',
-			request: buildLeagueWidePlayerRankingRequest(season)
-		},
-		{
-			endpointId: 'leaguedashteamstats',
-			request: buildLeagueWideTeamDefenseRequest(season)
-		}
-	];
+	return buildSupportedSeasonLookupRequests(season).map((request) => ({
+		endpointId: request.endpointId as (typeof CURRENT_SEASON_LEAGUE_WIDE_ENDPOINT_IDS)[number],
+		request
+	}));
 }
