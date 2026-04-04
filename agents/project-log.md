@@ -222,3 +222,10 @@
 - Module scope: answer-route trace contract, trace persistence, trace route
 - Interface contract: answer-route traces expose plannedToolRequests and executed structured trace ids | GET /api/query-trace/:traceId returns honest orchestration traces for /api/query | answer-route traces do not expose a fake single resolvedQuery
 - Tests: add /api/query-trace tests for answer-route orchestration traces | add persistence tests for planned tool requests and executed trace ids | keep existing structured trace tests green
+## generalize_single_request_planning_from_capabilities
+
+- Title: Generalize Single-Request Planning From Capabilities
+- Module scope: query batch planner, planning schema and validation, capability-driven planning rules
+- Interface contract: clear one-request questions map to supported structured tool requests | ambiguous asks return clarification_needed with no executor call | clear but unsupported asks return coverage_gap with no executor call
+- Tests: add planner tests for clear supported one-request asks | add planner tests for ambiguity and unsupported asks | add coverage proving planning derives from shared capabilities
+

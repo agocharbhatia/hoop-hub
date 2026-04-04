@@ -83,7 +83,7 @@ tasks:
       capability-driven planning so any clear question that maps to one
       supported structured query can be answered without adding another
       handwritten natural-language slice.
-    status: pending
+    status: done
     blocked_by:
       - ship_answer_first_api_query_for_one_tool_result
     module_scope:
