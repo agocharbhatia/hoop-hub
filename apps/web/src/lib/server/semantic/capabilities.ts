@@ -45,9 +45,15 @@ type SupportedShape = {
 	subjectRule: SemanticSubjectRuleKind;
 };
 
-type SupportedShapeKey = 'rank/player' | 'trend/player' | 'compare/player' | 'rank/team';
+type SupportedShapeKey = 'lookup/player' | 'rank/player' | 'trend/player' | 'compare/player' | 'rank/team';
 
 const SUPPORTED_SHAPES: SupportedShape[] = [
+	{
+		operation: 'lookup',
+		entity: 'player',
+		outputModes: ['table'],
+		subjectRule: 'exactly_one'
+	},
 	{
 		operation: 'rank',
 		entity: 'player',
@@ -79,6 +85,7 @@ const SUPPORTED_SEASON_TYPES = ['Regular Season'] as const;
 
 const INTENT_BY_SHAPE = new Map(
 	[
+		['lookup/player', 'player_lookup'],
 		['rank/player', 'league_leaders'],
 		['trend/player', 'player_trend'],
 		['compare/player', 'player_compare'],
@@ -88,7 +95,9 @@ const INTENT_BY_SHAPE = new Map(
 
 function getShapeKey(operation: SemanticQueryOperation, entity: SemanticQueryEntity): SupportedShapeKey | null {
 	const key = `${operation}/${entity}`;
-	return key === 'rank/player' || key === 'trend/player' || key === 'compare/player' || key === 'rank/team' ? key : null;
+	return key === 'lookup/player' || key === 'rank/player' || key === 'trend/player' || key === 'compare/player' || key === 'rank/team'
+		? key
+		: null;
 }
 
 function getSupportedShape(

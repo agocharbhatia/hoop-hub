@@ -159,6 +159,46 @@ export function extractPlayerRankingRows(
 	};
 }
 
+export function extractPlayerLookupRow(
+	payload: unknown,
+	subject: { playerId: string; playerName: string },
+	metrics: string[],
+	season: string,
+	seasonType: string
+): StatsQueryResult {
+	const resultSet = extractResultSet(payload, ['LeagueDashPlayerStats']);
+	const playerIdIndex = getColumnIndex(resultSet.headers, 'PLAYER_ID');
+	const seasonRow = resultSet.rowSet.find((row) => String(row[playerIdIndex] ?? '') === subject.playerId);
+
+	if (!seasonRow) {
+		throw new SemanticExtractionError(`No season row could be resolved for ${subject.playerName}.`);
+	}
+
+	const row: StatsQueryRow = {
+		playerId: subject.playerId,
+		playerName: subject.playerName,
+		season,
+		seasonType
+	};
+
+	for (const metric of metrics) {
+		const columnName = PLAYER_METRIC_COLUMNS[metric];
+		if (!columnName) {
+			throw new SemanticExtractionError(`Unsupported player lookup metric '${metric}'.`);
+		}
+
+		const metricIndex = getColumnIndex(resultSet.headers, columnName);
+		row[metric] = normalizeNumber(seasonRow[metricIndex] ?? 0);
+	}
+
+	return {
+		shape: 'table',
+		columns: ['playerId', 'playerName', 'season', 'seasonType', ...metrics],
+		rows: [row],
+		summary: `Returned ${subject.playerName} season metrics for ${season}.`
+	};
+}
+
 export function extractPlayerTrendRows(
 	payload: unknown,
 	metrics: string[],

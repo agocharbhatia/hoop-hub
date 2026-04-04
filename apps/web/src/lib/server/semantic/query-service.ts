@@ -35,6 +35,7 @@ import {
 	validateStructuredTeamSubjectPairs
 } from '$lib/server/teams/team-directory';
 import {
+	extractPlayerLookupRow,
 	extractPlayerComparisonRows,
 	extractPlayerRankingRows,
 	extractPlayerTrendRows,
@@ -69,6 +70,13 @@ type RankingPlan = {
 	limit: number;
 };
 
+type LookupPlan = {
+	type: 'player_lookup';
+	query: SemanticQuery;
+	subject: ResolvedPlayerSubject;
+	season: string;
+};
+
 type TrendPlan = {
 	type: 'player_trend';
 	query: SemanticQuery;
@@ -92,7 +100,7 @@ type TeamRankingPlan = {
 	subject: ResolvedTeamSubject | null;
 };
 
-type ExecutionPlan = RankingPlan | TrendPlan | ComparisonPlan | TeamRankingPlan;
+type ExecutionPlan = LookupPlan | RankingPlan | TrendPlan | ComparisonPlan | TeamRankingPlan;
 
 type RetrievalOutcome = {
 	sourceCalls: TraceSourceCall[];
@@ -383,6 +391,10 @@ function buildTraceQuestion(query: SemanticQuery): string {
 	const names = query.subject.names ?? [];
 	const metricId = query.metrics[0] ?? 'unknown metric';
 
+	if (query.operation === 'lookup') {
+		return `Lookup ${names[0] ?? 'the player'} for ${query.metrics.join(', ') || metricId}`;
+	}
+
 	if (query.operation === 'compare') {
 		return `Compare ${names.join(' vs ')} by ${metricId}`;
 	}
@@ -507,7 +519,10 @@ async function executeEndpointRequests(
 	};
 }
 
-function validateMetricSet(intent: 'league_leaders' | 'player_trend' | 'player_compare' | 'team_ranking', metrics: string[]): WarningResult | null {
+function validateMetricSet(
+	intent: 'player_lookup' | 'league_leaders' | 'player_trend' | 'player_compare' | 'team_ranking',
+	metrics: string[]
+): WarningResult | null {
 	const validation = validateMetricsForIntent(
 		intent,
 		metrics.map((metric) => ({ id: metric, confidence: 1 }))
@@ -775,6 +790,25 @@ function determineSupportedPlan(
 		};
 	}
 
+	if (query.operation === 'lookup' && query.entity === 'player') {
+		const subject = resolvePlayerEntity(query.subject, 1);
+		if (!Array.isArray(subject)) {
+			return subject.resolvedQuery === null ? subject : { ...subject, resolvedQuery: query };
+		}
+
+		const metricWarning = validateMetricSet('player_lookup', query.metrics);
+		if (metricWarning) {
+			return { ...metricWarning, resolvedQuery: query };
+		}
+
+		return {
+			type: 'player_lookup',
+			query: buildCanonicalResolvedQuery(query, now, subject),
+			subject: subject[0],
+			season: query.filters.season ?? resolveCurrentSeason(now)
+		};
+	}
+
 	if (query.operation === 'rank' && query.entity === 'player') {
 		if ((query.subject.names?.length ?? 0) > 0 || (query.subject.ids?.length ?? 0) > 0) {
 			return {
@@ -878,6 +912,10 @@ function buildPlayerRankingRequest(plan: RankingPlan): EndpointFetchRequest {
 	return buildLeagueWidePlayerRankingRequest(plan.season, plan.query.filters.seasonType ?? 'Regular Season');
 }
 
+function buildPlayerLookupRequest(plan: LookupPlan): EndpointFetchRequest {
+	return buildLeagueWidePlayerRankingRequest(plan.season, plan.query.filters.seasonType ?? 'Regular Season');
+}
+
 function buildPlayerTrendRequest(plan: TrendPlan): EndpointFetchRequest {
 	return {
 		endpointId: 'playergamelog',
@@ -908,6 +946,10 @@ function buildTeamRankingRequest(plan: TeamRankingPlan): EndpointFetchRequest {
 }
 
 function buildEndpointRequests(plan: ExecutionPlan): EndpointFetchRequest[] {
+	if (plan.type === 'player_lookup') {
+		return [buildPlayerLookupRequest(plan)];
+	}
+
 	if (plan.type === 'player_ranking') {
 		return [buildPlayerRankingRequest(plan)];
 	}
@@ -1016,7 +1058,68 @@ function buildMissingPayloadWarning(retrieval: RetrievalOutcome): StatsQueryWarn
 	);
 }
 
+function buildMissingLookupRowWarning(plan: ExecutionPlan, retrieval: RetrievalOutcome): StatsQueryWarning | null {
+	if (plan.type !== 'player_lookup') {
+		return null;
+	}
+
+	const payload = retrieval.responses[0]?.result.payload as
+		| {
+				resultSet?: { headers?: unknown; rowSet?: unknown };
+				resultSets?: Array<{ name?: string; headers?: unknown; rowSet?: unknown }>;
+		  }
+		| null
+		| undefined;
+	const resultSet =
+		(payload?.resultSet && Array.isArray(payload.resultSet.headers) && Array.isArray(payload.resultSet.rowSet)
+			? payload.resultSet
+			: null) ??
+		(Array.isArray(payload?.resultSets)
+			? payload.resultSets.find(
+					(entry) =>
+						entry.name === 'LeagueDashPlayerStats' &&
+						Array.isArray(entry.headers) &&
+						Array.isArray(entry.rowSet)
+					)
+			: null);
+
+	if (!resultSet || !Array.isArray(resultSet.headers) || !Array.isArray(resultSet.rowSet)) {
+		return null;
+	}
+
+	const playerIdIndex = resultSet.headers.indexOf('PLAYER_ID');
+	if (playerIdIndex < 0) {
+		return null;
+	}
+
+	const hasRow = resultSet.rowSet.some(
+		(row) => Array.isArray(row) && String(row[playerIdIndex] ?? '') === plan.subject.id
+	);
+	if (hasRow) {
+		return null;
+	}
+
+	return buildWarning(
+		'nightly_data_unavailable',
+		'No stored nightly season row was available for the resolved player lookup subject.'
+	);
+}
+
 function parseExecutionResult(plan: ExecutionPlan, retrieval: RetrievalOutcome): StatsQueryResult {
+	if (plan.type === 'player_lookup') {
+		const payload = retrieval.responses[0]?.result.payload;
+		return extractPlayerLookupRow(
+			payload,
+			{
+				playerId: plan.subject.id,
+				playerName: plan.subject.name
+			},
+			plan.query.metrics,
+			plan.season,
+			plan.query.filters.seasonType ?? 'Regular Season'
+		);
+	}
+
 	if (plan.type === 'player_ranking') {
 		const payload = retrieval.responses[0]?.result.payload;
 		return extractPlayerRankingRows(payload, plan.query.metrics, plan.limit, plan.query.orderBy ?? null, plan.season);
@@ -1361,8 +1464,10 @@ export async function executeSemanticQuery(request: SemanticQueryRequest, now: D
 	const retrieval = await executeEndpointRequests(buildEndpointRequests(analysis));
 	const computeStartedAt = performance.now();
 	const missingPayloadWarning = buildMissingPayloadWarning(retrieval);
+	const missingLookupRowWarning = buildMissingLookupRowWarning(analysis, retrieval);
 
-	if (missingPayloadWarning) {
+	if (missingPayloadWarning || missingLookupRowWarning) {
+		const warning = missingPayloadWarning ?? missingLookupRowWarning ?? buildWarning('nightly_data_unavailable', 'No stored nightly data was available.');
 		const latencyMs = buildLatency({
 			planning: planningLatencyMs,
 			retrieval: retrieval.retrievalLatencyMs,
@@ -1377,7 +1482,7 @@ export async function executeSemanticQuery(request: SemanticQueryRequest, now: D
 			retrieval.dataFreshnessMode,
 			retrieval.sourceCalls,
 			retrieval.citations,
-			[missingPayloadWarning],
+			[warning],
 			latencyMs,
 			retrieval.cache
 		);
@@ -1389,7 +1494,7 @@ export async function executeSemanticQuery(request: SemanticQueryRequest, now: D
 			analysis.query,
 			retrieval.dataFreshnessMode,
 			retrieval.sourceCalls,
-			[missingPayloadWarning],
+			[warning],
 			traceId
 		);
 	}

@@ -24,6 +24,7 @@ type LatencyParts = Omit<QueryTraceResponse['latencyMs'], 'total'>;
 const traceStore = new Map<string, QueryTraceResponse>();
 
 const INTENT_SOURCE_ENDPOINTS: Record<SupportedIntent, string[]> = {
+	player_lookup: ['leaguedashplayerstats'],
 	league_leaders: ['leagueleaders'],
 	player_trend: ['playergamelog'],
 	player_compare: ['playercareerstats'],
@@ -31,6 +32,7 @@ const INTENT_SOURCE_ENDPOINTS: Record<SupportedIntent, string[]> = {
 };
 
 const INTENT_FOLLOWUPS: Record<SupportedIntent, string[]> = {
+	player_lookup: ['Add rebounds and assists', 'Ask for 2023-24 instead', 'Compare with recent game trend'],
 	league_leaders: ['Show top 5 leaders', 'Limit to last 10 games', 'Compare with previous season leaders'],
 	player_trend: ['Compare against season average', 'Show game-by-game values', 'Add offensive vs defensive split'],
 	player_compare: ['Add TS% and usage', 'Limit to playoffs', 'Show season-by-season table'],
@@ -38,6 +40,7 @@ const INTENT_FOLLOWUPS: Record<SupportedIntent, string[]> = {
 };
 
 const INTENT_LATENCIES: Record<SupportedIntent, LatencyParts> = {
+	player_lookup: { planning: 120, retrieval: 0, compute: 150, render: 80 },
 	league_leaders: { planning: 120, retrieval: 0, compute: 160, render: 80 },
 	player_trend: { planning: 130, retrieval: 0, compute: 180, render: 90 },
 	player_compare: { planning: 140, retrieval: 0, compute: 210, render: 100 },

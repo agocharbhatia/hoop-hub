@@ -20,7 +20,7 @@ describe('GET /api/stats/capabilities', () => {
 		};
 
 		assert.equal(response.status, 200);
-		assert.deepEqual(payload.operations, ['rank', 'trend', 'compare']);
+		assert.deepEqual(payload.operations, ['lookup', 'rank', 'trend', 'compare']);
 		assert.deepEqual(payload.entities, ['player', 'team']);
 		assert.deepEqual(payload.outputModes, ['table', 'timeseries', 'comparison']);
 		assert.deepEqual(payload.seasons, {
@@ -38,6 +38,7 @@ describe('GET /api/stats/capabilities', () => {
 		assert.deepEqual(
 			payload.subjectRules.map((rule) => `${rule.operation}/${rule.entity}:${rule.kind}`),
 			[
+				'lookup/player:exactly_one',
 				'rank/player:none',
 				'trend/player:exactly_one',
 				'compare/player:exactly_two',

@@ -10,7 +10,7 @@ describe('semantic capability registry', () => {
 	test('exposes only the active public stats tool contract', () => {
 		const capabilities = getPublicSemanticCapabilities();
 
-		assert.deepEqual(capabilities.operations, ['rank', 'trend', 'compare']);
+		assert.deepEqual(capabilities.operations, ['lookup', 'rank', 'trend', 'compare']);
 		assert.deepEqual(capabilities.entities, ['player', 'team']);
 		assert.deepEqual(capabilities.outputModes, ['table', 'timeseries', 'comparison']);
 		assert.deepEqual(capabilities.seasons.supported, ['current', '2023-24']);
@@ -22,6 +22,7 @@ describe('semantic capability registry', () => {
 				kind: rule.kind
 			})),
 			[
+				{ operation: 'lookup', entity: 'player', kind: 'exactly_one' },
 				{ operation: 'rank', entity: 'player', kind: 'none' },
 				{ operation: 'trend', entity: 'player', kind: 'exactly_one' },
 				{ operation: 'compare', entity: 'player', kind: 'exactly_two' },
@@ -32,6 +33,7 @@ describe('semantic capability registry', () => {
 	});
 
 	test('keeps metric validation aligned with the shared capability surface', () => {
+		assert.equal(isSupportedSemanticMetric('lookup', 'player', 'ast'), true);
 		assert.equal(isSupportedSemanticMetric('rank', 'player', 'ast'), true);
 		assert.equal(isSupportedSemanticMetric('rank', 'player', 'drtg'), false);
 		assert.equal(isSupportedSemanticMetric('rank', 'team', 'drtg'), true);
@@ -62,11 +64,11 @@ describe('semantic capability registry', () => {
 				names: ['Nikola Jokic']
 			},
 			metrics: ['pts'],
-			filters: {}
+			filters: {},
+			outputMode: 'table'
 		});
 
 		assert.equal(supported.ok, true);
-		assert.equal(unsupported.ok, false);
-		assert.match(unsupported.error, /supported semantic operation/i);
+		assert.equal(unsupported.ok, true);
 	});
 });

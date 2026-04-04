@@ -25,11 +25,11 @@ describe('validateSemanticQueryRequest', () => {
 		assert.equal(result.ok, true);
 	});
 
-	test('rejects unsupported query shapes outside the shared runtime capability contract', () => {
+	test('rejects unsupported entity shapes outside the shared runtime capability contract', () => {
 		const result = validateSemanticQueryRequest({
 			query: {
 				operation: 'lookup',
-				entity: 'player',
+				entity: 'game',
 				subject: {
 					names: ['Nikola Jokic']
 				},
@@ -39,7 +39,7 @@ describe('validateSemanticQueryRequest', () => {
 		});
 
 		assert.equal(result.ok, false);
-		assert.match(result.error, /supported semantic operation/i);
+		assert.match(result.error, /supported semantic entity|supported semantic query shape/i);
 	});
 
 	test('rejects invalid window shapes', () => {
@@ -155,6 +155,83 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.result?.rows.length, 20);
 		assert.equal(response.provenance.executor, 'semantic_executor');
 		assert.equal(response.traceId.length > 0, true);
+	});
+
+	test('returns one canonical season row for supported player lookup queries', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'lookup',
+					entity: 'player',
+					subject: {
+						names: ['jokic']
+					},
+					metrics: ['pts', 'reb'],
+					filters: {},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.shape, 'table');
+		assert.deepEqual(response.result?.columns, ['playerId', 'playerName', 'season', 'seasonType', 'pts', 'reb']);
+		assert.deepEqual(response.result?.rows, [
+			{
+				playerId: '203999',
+				playerName: 'Nikola Jokic',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				pts: 26.4,
+				reb: 12.4
+			}
+		]);
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['203999'],
+			names: ['Nikola Jokic']
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+		assert.deepEqual(response.warnings, []);
+	});
+
+	test('returns coverage_gap for lookup metrics outside the supported player season surface', async () => {
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'lookup',
+				entity: 'player',
+				subject: {
+					names: ['Nikola Jokic']
+				},
+				metrics: ['drtg'],
+				filters: {},
+				outputMode: 'table'
+			}
+		});
+
+		assert.equal(response.status, 'coverage_gap');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'unsupported_metric');
+	});
+
+	test('returns coverage_gap when no stored season lookup row exists for the resolved player', async () => {
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'lookup',
+				entity: 'player',
+				subject: {
+					ids: ['2544']
+				},
+				metrics: ['pts'],
+				filters: {},
+				outputMode: 'table'
+			}
+		});
+
+		assert.equal(response.status, 'coverage_gap');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'nightly_data_unavailable');
 	});
 
 	test('canonicalizes exact-city team ranking requests in resolvedQuery provenance', async () => {

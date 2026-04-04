@@ -255,6 +255,56 @@ describe('GET /api/query-trace/:traceId', () => {
 		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
 	});
 
+	test('returns canonical player season lookup provenance for structured traces', async () => {
+		const statsResponse = await statsPost({
+			request: new Request('http://localhost/api/stats/query', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					query: {
+						operation: 'lookup',
+						entity: 'player',
+						subject: {
+							names: ['jokic']
+						},
+						metrics: ['pts', 'reb'],
+						filters: {},
+						outputMode: 'table'
+					}
+				})
+			})
+		} as Parameters<typeof statsPost>[0]);
+		const stats = (await statsResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(stats.traceId));
+		const payload = (await parseJson(response)) as {
+			status: string;
+			resolvedQuery: {
+				subject: { ids: string[]; names: string[] };
+				filters: { season: string | null; seasonType: string | null };
+				operation: string;
+				entity: string;
+				metrics: string[];
+			};
+			sourceCalls: Array<{ endpointId: string }>;
+			warnings: Array<{ code: string }>;
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.resolvedQuery.operation, 'lookup');
+		assert.equal(payload.resolvedQuery.entity, 'player');
+		assert.deepEqual(payload.resolvedQuery.metrics, ['pts', 'reb']);
+		assert.deepEqual(payload.resolvedQuery.subject, {
+			ids: ['203999'],
+			names: ['Nikola Jokic']
+		});
+		assert.equal(payload.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.equal(payload.sourceCalls.some((source) => source.endpointId === 'leaguedashplayerstats'), true);
+		assert.deepEqual(payload.warnings, []);
+	});
+
 	test('returns canonical team resolvedQuery names, ids, and defaulted filters for structured traces', async () => {
 		const statsResponse = await statsPost({
 			request: new Request('http://localhost/api/stats/query', {

@@ -147,6 +147,7 @@
 - Slice `add_team_directory_and_ambiguity_safe_resolution` adds a shared seeded team identity layer for the semantic runtime. Team defensive ranking queries can now ground one team subject by canonical name, city, short name, abbreviation, or curated alias, while ambiguous labels like `Los Angeles` or `LA` must stop with typed `clarification_needed` and leave `resolvedQuery` null instead of guessing.
 - Deterministic offline lookup coverage now runs through one shared fixture registry. Cache seeding and fixture-backed bootstrap both read the same richer season payload set, while bootstrap-only cohort fallback rows must be derived from that shared player season fixture instead of inventing a separate payload surface.
 - Nightly/bootstrap lookup materialization now plans one shared season-source variant set for both current season and `2023-24` backfill: player season base, team season base, and team season advanced rows. Future lookup expansion should extend that shared seam instead of hand-adding season-specific requests in separate planners.
+- Slice `ship_structured_player_season_lookup` adds `lookup/player` to the public semantic capability contract and executes it by filtering stored league-wide season rows for one canonical player. The shipped row contract is identity-first (`playerId`, `playerName`), then canonical season metadata (`season`, `seasonType`), then requested metrics; missing stored subject rows should fail as `nightly_data_unavailable` instead of a generic extraction error.
 ## unify_semantic_metrics_and_capabilities
 
 - Title: Unify Semantic Metrics And Capabilities
@@ -171,4 +172,3 @@
 - Module scope: nightly request planning, historical backfill planning, materialization service, stored-data lookup support
 - Interface contract: supported lookup source variants are available from nightly materialized data | current season and 2023-24 support use the same generalized seams | empty DB recovery remains nightly_data_unavailable until bootstrap
 - Tests: add bootstrap service tests for lookup source variants | add historical backfill tests for 2023-24 lookup support | add stored-read tests for supported lookup shapes after bootstrap
-
