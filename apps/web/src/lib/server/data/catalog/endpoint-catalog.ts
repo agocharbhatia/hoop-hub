@@ -1,4 +1,9 @@
-export type SupportedQueryIntent = 'league_leaders' | 'player_trend' | 'player_compare' | 'team_ranking';
+export type SupportedQueryIntent =
+	| 'league_leaders'
+	| 'player_trend'
+	| 'player_compare'
+	| 'team_lookup'
+	| 'team_ranking';
 
 export type EndpointVolatilityTier = 'high' | 'medium' | 'low';
 
@@ -159,7 +164,7 @@ const ENDPOINT_CATALOG: EndpointCatalogEntry[] = [
 		volatilityTier: 'high',
 		ttlMinutes: TTL_MINUTES_BY_TIER.high,
 		parserVersion: 'v1',
-		supportedIntents: ['team_ranking']
+		supportedIntents: ['team_lookup', 'team_ranking']
 	},
 	{
 		endpointId: 'teamdashboardbygeneralsplits',
@@ -190,7 +195,7 @@ const ENDPOINT_CATALOG: EndpointCatalogEntry[] = [
 		volatilityTier: 'medium',
 		ttlMinutes: TTL_MINUTES_BY_TIER.medium,
 		parserVersion: 'v1',
-		supportedIntents: ['team_ranking']
+		supportedIntents: ['team_lookup', 'team_ranking']
 	}
 ];
 

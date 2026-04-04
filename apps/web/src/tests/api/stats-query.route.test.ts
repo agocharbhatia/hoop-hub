@@ -157,6 +157,64 @@ describe('POST /api/stats/query', () => {
 		assert.deepEqual(payload.warnings, []);
 	});
 
+	test('returns 200 ok for supported structured team lookup queries', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'lookup',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['wins', 'ortg', 'drtg'],
+						filters: {},
+						outputMode: 'table'
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: { shape: string; columns: string[]; rows: Array<Record<string, string | number>> };
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+					filters: { season: string; seasonType: string };
+				};
+				sourceCalls: Array<{ endpointId: string }>;
+			};
+			warnings: Array<{ code: string }>;
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.result.shape, 'table');
+		assert.deepEqual(payload.result.columns, ['teamId', 'teamName', 'season', 'seasonType', 'wins', 'ortg', 'drtg']);
+		assert.deepEqual(payload.result.rows, [
+			{
+				teamId: '1610612738',
+				teamName: 'Boston Celtics',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				wins: 64,
+				ortg: 121.7,
+				drtg: 110.2
+			}
+		]);
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(payload.provenance.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.deepEqual(
+			payload.provenance.sourceCalls.map((sourceCall) => sourceCall.endpointId),
+			['leaguedashteamstats', 'leaguedashteamstats']
+		);
+		assert.deepEqual(payload.warnings, []);
+	});
+
 	test('returns 400 for structured player lookup requests with unsupported seasons', async () => {
 		const response = await POST(
 			createPostEvent(

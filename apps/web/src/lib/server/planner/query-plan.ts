@@ -19,6 +19,7 @@ const TEAM_TERMS = ['team', 'teams'];
 
 const DEFAULT_METRIC_BY_INTENT: Record<Exclude<QueryIntent, 'unsupported'>, string> = {
 	player_lookup: 'pts',
+	team_lookup: 'wins',
 	league_leaders: 'pts',
 	player_trend: 'pts',
 	player_compare: 'pts',

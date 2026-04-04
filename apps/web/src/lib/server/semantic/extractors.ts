@@ -22,6 +22,11 @@ const PLAYER_METRIC_COLUMNS: Record<string, string> = {
 };
 
 const TEAM_METRIC_COLUMNS: Record<string, string> = {
+	wins: 'W',
+	losses: 'L',
+	win_pct: 'W_PCT',
+	reb: 'REB',
+	ortg: 'OFF_RATING',
 	drtg: 'DEF_RATING'
 };
 
@@ -327,5 +332,52 @@ export function extractTeamRankingRows(
 		columns: ['rank', 'subject', 'metric', 'value'],
 		rows,
 		summary: `${rows[0].subject} lead team ${formatMetricLabel(metric)} rankings for ${seasonLabel} at ${rows[0].value}.`
+	};
+}
+
+export function extractTeamLookupRow(
+	payloads: { base: unknown; advanced: unknown },
+	subject: { teamId: string; teamName: string },
+	metrics: string[],
+	season: string,
+	seasonType: string
+): StatsQueryResult {
+	const resultSets = {
+		base: extractResultSet(payloads.base, ['LeagueDashTeamStats']),
+		advanced: extractResultSet(payloads.advanced, ['LeagueDashTeamStats'])
+	};
+	const baseTeamIdIndex = getColumnIndex(resultSets.base.headers, 'TEAM_ID');
+	const advancedTeamIdIndex = getColumnIndex(resultSets.advanced.headers, 'TEAM_ID');
+	const baseRow = resultSets.base.rowSet.find((row) => String(row[baseTeamIdIndex] ?? '') === subject.teamId);
+	const advancedRow = resultSets.advanced.rowSet.find((row) => String(row[advancedTeamIdIndex] ?? '') === subject.teamId);
+
+	if (!baseRow || !advancedRow) {
+		throw new SemanticExtractionError(`No season row could be resolved for ${subject.teamName}.`);
+	}
+
+	const row: StatsQueryRow = {
+		teamId: subject.teamId,
+		teamName: subject.teamName,
+		season,
+		seasonType
+	};
+
+	for (const metric of metrics) {
+		const columnName = TEAM_METRIC_COLUMNS[metric];
+		if (!columnName) {
+			throw new SemanticExtractionError(`Unsupported team lookup metric '${metric}'.`);
+		}
+
+		const source = metric === 'ortg' || metric === 'drtg' ? resultSets.advanced : resultSets.base;
+		const sourceRow = metric === 'ortg' || metric === 'drtg' ? advancedRow : baseRow;
+		const metricIndex = getColumnIndex(source.headers, columnName);
+		row[metric] = normalizeNumber(sourceRow[metricIndex] ?? 0);
+	}
+
+	return {
+		shape: 'table',
+		columns: ['teamId', 'teamName', 'season', 'seasonType', ...metrics],
+		rows: [row],
+		summary: `Returned ${subject.teamName} season metrics for ${season}.`
 	};
 }

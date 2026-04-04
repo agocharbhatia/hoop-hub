@@ -99,6 +99,23 @@ describe('validateSemanticQueryRequest', () => {
 		assert.match(result.error, /same canonical team/i);
 	});
 
+	test('accepts valid structured team lookup requests', () => {
+		const result = validateSemanticQueryRequest({
+			query: {
+				operation: 'lookup',
+				entity: 'team',
+				subject: {
+					names: ['Boston']
+				},
+				metrics: ['wins', 'drtg'],
+				filters: {},
+				outputMode: 'table'
+			}
+		});
+
+		assert.equal(result.ok, true);
+	});
+
 	test('rejects deprecated allowLiveFallback request options', () => {
 		const result = validateSemanticQueryRequest({
 			query: {
@@ -194,6 +211,85 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
 		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
 		assert.deepEqual(response.warnings, []);
+	});
+
+	test('returns one canonical merged season row for supported team lookup queries', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'lookup',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['wins', 'losses', 'win_pct', 'reb', 'ortg', 'drtg'],
+					filters: {},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.shape, 'table');
+		assert.deepEqual(response.result?.columns, [
+			'teamId',
+			'teamName',
+			'season',
+			'seasonType',
+			'wins',
+			'losses',
+			'win_pct',
+			'reb',
+			'ortg',
+			'drtg'
+		]);
+		assert.deepEqual(response.result?.rows, [
+			{
+				teamId: '1610612738',
+				teamName: 'Boston Celtics',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				wins: 64,
+				losses: 18,
+				win_pct: 0.78,
+				reb: 46.3,
+				ortg: 121.7,
+				drtg: 110.2
+			}
+		]);
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+		assert.deepEqual(
+			response.provenance.sourceCalls.map((sourceCall) => sourceCall.endpointId),
+			['leaguedashteamstats', 'leaguedashteamstats']
+		);
+		assert.deepEqual(response.warnings, []);
+	});
+
+	test('returns clarification_needed for ambiguous team lookup requests', async () => {
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'lookup',
+				entity: 'team',
+				subject: {
+					names: ['Los Angeles']
+				},
+				metrics: ['wins'],
+				filters: {},
+				outputMode: 'table'
+			}
+		});
+
+		assert.equal(response.status, 'clarification_needed');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'ambiguous_subject');
+		assert.match(response.warnings[0]?.message ?? '', /los angeles clippers/i);
+		assert.equal(response.provenance.resolvedQuery, null);
 	});
 
 	test('returns coverage_gap for lookup metrics outside the supported player season surface', async () => {

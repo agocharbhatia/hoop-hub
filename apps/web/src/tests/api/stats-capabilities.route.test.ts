@@ -33,12 +33,13 @@ describe('GET /api/stats/capabilities', () => {
 		});
 		assert.deepEqual(
 			payload.metrics.map((metric) => metric.id),
-			['ast', 'reb', 'pts', 'drtg']
+			['ast', 'reb', 'pts', 'wins', 'losses', 'win_pct', 'ortg', 'drtg']
 		);
 		assert.deepEqual(
 			payload.subjectRules.map((rule) => `${rule.operation}/${rule.entity}:${rule.kind}`),
 			[
 				'lookup/player:exactly_one',
+				'lookup/team:exactly_one',
 				'rank/player:none',
 				'trend/player:exactly_one',
 				'compare/player:exactly_two',

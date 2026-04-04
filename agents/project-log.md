@@ -148,6 +148,7 @@
 - Deterministic offline lookup coverage now runs through one shared fixture registry. Cache seeding and fixture-backed bootstrap both read the same richer season payload set, while bootstrap-only cohort fallback rows must be derived from that shared player season fixture instead of inventing a separate payload surface.
 - Nightly/bootstrap lookup materialization now plans one shared season-source variant set for both current season and `2023-24` backfill: player season base, team season base, and team season advanced rows. Future lookup expansion should extend that shared seam instead of hand-adding season-specific requests in separate planners.
 - Slice `ship_structured_player_season_lookup` adds `lookup/player` to the public semantic capability contract and executes it by filtering stored league-wide season rows for one canonical player. The shipped row contract is identity-first (`playerId`, `playerName`), then canonical season metadata (`season`, `seasonType`), then requested metrics; missing stored subject rows should fail as `nightly_data_unavailable` instead of a generic extraction error.
+- Slice `ship_structured_team_season_lookup` extends that lookup contract to teams through the semantic executor, not the planner. Team season lookup now grounds exactly one canonical team with ambiguity-safe resolution, merges stored base plus advanced `leaguedashteamstats` rows into one table row, and advertises the expanded `lookup/team` metric surface through the shared public capabilities contract so validation, trace provenance, and tool discovery stay aligned.
 ## unify_semantic_metrics_and_capabilities
 
 - Title: Unify Semantic Metrics And Capabilities
@@ -178,4 +179,3 @@
 - Module scope: semantic executor lookup planning, player lookup extraction, structured route contract, trace and provenance behavior
 - Interface contract: POST /api/stats/query accepts canonical lookup/player requests | lookup/player returns one table row with canonical identity and season metadata | unsupported metrics, seasons, season types, and empty stored data fail honestly
 - Tests: add semantic executor tests for player lookup output and warnings | add stats route tests for direct lookup/player requests | add trace tests for canonical player lookup provenance
-

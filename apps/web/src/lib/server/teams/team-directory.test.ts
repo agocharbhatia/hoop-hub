@@ -61,4 +61,13 @@ describe('team-directory', () => {
 
 		assert.match(error ?? '', /same canonical team/i);
 	});
+
+	test('accepts structured id-name pairs that resolve through curated team aliases', () => {
+		const error = validateStructuredTeamSubjectPairs({
+			ids: ['1610612750'],
+			names: ['Wolves']
+		});
+
+		assert.equal(error, null);
+	});
 });

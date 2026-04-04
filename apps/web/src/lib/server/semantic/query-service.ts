@@ -39,6 +39,7 @@ import {
 	extractPlayerComparisonRows,
 	extractPlayerRankingRows,
 	extractPlayerTrendRows,
+	extractTeamLookupRow,
 	extractTeamRankingRows,
 	SemanticExtractionError
 } from './extractors';
@@ -77,6 +78,13 @@ type LookupPlan = {
 	season: string;
 };
 
+type TeamLookupPlan = {
+	type: 'team_lookup';
+	query: SemanticQuery;
+	subject: ResolvedTeamSubject;
+	season: string;
+};
+
 type TrendPlan = {
 	type: 'player_trend';
 	query: SemanticQuery;
@@ -100,7 +108,7 @@ type TeamRankingPlan = {
 	subject: ResolvedTeamSubject | null;
 };
 
-type ExecutionPlan = LookupPlan | RankingPlan | TrendPlan | ComparisonPlan | TeamRankingPlan;
+type ExecutionPlan = LookupPlan | TeamLookupPlan | RankingPlan | TrendPlan | ComparisonPlan | TeamRankingPlan;
 
 type RetrievalOutcome = {
 	sourceCalls: TraceSourceCall[];
@@ -520,7 +528,7 @@ async function executeEndpointRequests(
 }
 
 function validateMetricSet(
-	intent: 'player_lookup' | 'league_leaders' | 'player_trend' | 'player_compare' | 'team_ranking',
+	intent: 'player_lookup' | 'team_lookup' | 'league_leaders' | 'player_trend' | 'player_compare' | 'team_ranking',
 	metrics: string[]
 ): WarningResult | null {
 	const validation = validateMetricsForIntent(
@@ -809,6 +817,26 @@ function determineSupportedPlan(
 		};
 	}
 
+	if (query.operation === 'lookup' && query.entity === 'team') {
+		const subject = resolveTeamEntity(query.subject);
+		if (subject && 'warning' in subject) {
+			return subject.resolvedQuery === null ? subject : { ...subject, resolvedQuery: query };
+		}
+		const resolvedSubject = subject as ResolvedTeamSubject;
+
+		const metricWarning = validateMetricSet('team_lookup', query.metrics);
+		if (metricWarning) {
+			return { ...metricWarning, resolvedQuery: query };
+		}
+
+		return {
+			type: 'team_lookup',
+			query: buildCanonicalResolvedQuery(query, now, [], resolvedSubject),
+			subject: resolvedSubject,
+			season: query.filters.season ?? resolveCurrentSeason(now)
+		};
+	}
+
 	if (query.operation === 'rank' && query.entity === 'player') {
 		if ((query.subject.names?.length ?? 0) > 0 || (query.subject.ids?.length ?? 0) > 0) {
 			return {
@@ -916,6 +944,65 @@ function buildPlayerLookupRequest(plan: LookupPlan): EndpointFetchRequest {
 	return buildLeagueWidePlayerRankingRequest(plan.season, plan.query.filters.seasonType ?? 'Regular Season');
 }
 
+/* Helper functions */
+
+function buildTeamSeasonStatsRequest(
+	season: string,
+	seasonType: string,
+	measureType: 'Base' | 'Advanced'
+): EndpointFetchRequest {
+	return {
+		endpointId: 'leaguedashteamstats',
+		params: {
+			DateFrom: '',
+			DateTo: '',
+			GameSegment: '',
+			LastNGames: '0',
+			Location: '',
+			MeasureType: measureType,
+			Month: '0',
+			OpponentTeamID: '0',
+			Outcome: '',
+			PaceAdjust: 'N',
+			PerMode: 'PerGame',
+			Period: '0',
+			PlusMinus: 'N',
+			Rank: 'N',
+			Season: season,
+			SeasonSegment: '',
+			SeasonType: seasonType,
+			VsConference: '',
+			VsDivision: '',
+			Conference: '',
+			Division: '',
+			GameScope: '',
+			LeagueID: '',
+			PORound: '',
+			PlayerExperience: '',
+			PlayerPosition: '',
+			ShotClockRange: '',
+			StarterBench: '',
+			TeamID: '',
+			TwoWay: ''
+		}
+	};
+}
+
+function teamLookupRequiresAdvancedMetrics(metrics: string[]): boolean {
+	return metrics.some((metric) => metric === 'ortg' || metric === 'drtg');
+}
+
+function buildTeamLookupRequests(plan: TeamLookupPlan): EndpointFetchRequest[] {
+	const seasonType = plan.query.filters.seasonType ?? 'Regular Season';
+	const requests = [buildTeamSeasonStatsRequest(plan.season, seasonType, 'Base')];
+
+	if (teamLookupRequiresAdvancedMetrics(plan.query.metrics)) {
+		requests.push(buildTeamSeasonStatsRequest(plan.season, seasonType, 'Advanced'));
+	}
+
+	return requests;
+}
+
 function buildPlayerTrendRequest(plan: TrendPlan): EndpointFetchRequest {
 	return {
 		endpointId: 'playergamelog',
@@ -948,6 +1035,10 @@ function buildTeamRankingRequest(plan: TeamRankingPlan): EndpointFetchRequest {
 function buildEndpointRequests(plan: ExecutionPlan): EndpointFetchRequest[] {
 	if (plan.type === 'player_lookup') {
 		return [buildPlayerLookupRequest(plan)];
+	}
+
+	if (plan.type === 'team_lookup') {
+		return buildTeamLookupRequests(plan);
 	}
 
 	if (plan.type === 'player_ranking') {
@@ -1059,6 +1150,49 @@ function buildMissingPayloadWarning(retrieval: RetrievalOutcome): StatsQueryWarn
 }
 
 function buildMissingLookupRowWarning(plan: ExecutionPlan, retrieval: RetrievalOutcome): StatsQueryWarning | null {
+	if (plan.type === 'team_lookup') {
+		const payloads = retrieval.responses.map((response) => response.result.payload);
+		const missingTeamRow = !payloads.every((payload) => {
+			const candidate = payload as
+				| {
+						resultSet?: { headers?: unknown; rowSet?: unknown };
+						resultSets?: Array<{ name?: string; headers?: unknown; rowSet?: unknown }>;
+				  }
+				| null
+				| undefined;
+			const resultSet =
+				(candidate?.resultSet && Array.isArray(candidate.resultSet.headers) && Array.isArray(candidate.resultSet.rowSet)
+					? candidate.resultSet
+					: null) ??
+				(Array.isArray(candidate?.resultSets)
+					? candidate.resultSets.find(
+							(entry) =>
+								entry.name === 'LeagueDashTeamStats' &&
+								Array.isArray(entry.headers) &&
+								Array.isArray(entry.rowSet)
+						)
+					: null);
+
+			if (!resultSet || !Array.isArray(resultSet.headers) || !Array.isArray(resultSet.rowSet)) {
+				return false;
+			}
+
+			const teamIdIndex = resultSet.headers.indexOf('TEAM_ID');
+			if (teamIdIndex < 0) {
+				return false;
+			}
+
+			return resultSet.rowSet.some((row) => Array.isArray(row) && String(row[teamIdIndex] ?? '') === plan.subject.id);
+		});
+
+		return missingTeamRow
+			? buildWarning(
+					'nightly_data_unavailable',
+					'No stored nightly season row was available for the resolved team lookup subject.'
+				)
+			: null;
+	}
+
 	if (plan.type !== 'player_lookup') {
 		return null;
 	}
@@ -1113,6 +1247,22 @@ function parseExecutionResult(plan: ExecutionPlan, retrieval: RetrievalOutcome):
 			{
 				playerId: plan.subject.id,
 				playerName: plan.subject.name
+			},
+			plan.query.metrics,
+			plan.season,
+			plan.query.filters.seasonType ?? 'Regular Season'
+		);
+	}
+
+	if (plan.type === 'team_lookup') {
+		return extractTeamLookupRow(
+			{
+				base: retrieval.responses[0]?.result.payload,
+				advanced: retrieval.responses[1]?.result.payload ?? retrieval.responses[0]?.result.payload
+			},
+			{
+				teamId: plan.subject.id,
+				teamName: plan.subject.name
 			},
 			plan.query.metrics,
 			plan.season,

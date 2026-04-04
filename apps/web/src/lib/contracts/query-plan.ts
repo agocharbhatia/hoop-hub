@@ -3,6 +3,7 @@
  */
 export type QueryIntent =
 	| 'player_lookup'
+	| 'team_lookup'
 	| 'league_leaders'
 	| 'player_trend'
 	| 'player_compare'

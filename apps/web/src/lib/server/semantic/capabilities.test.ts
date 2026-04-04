@@ -23,6 +23,7 @@ describe('semantic capability registry', () => {
 			})),
 			[
 				{ operation: 'lookup', entity: 'player', kind: 'exactly_one' },
+				{ operation: 'lookup', entity: 'team', kind: 'exactly_one' },
 				{ operation: 'rank', entity: 'player', kind: 'none' },
 				{ operation: 'trend', entity: 'player', kind: 'exactly_one' },
 				{ operation: 'compare', entity: 'player', kind: 'exactly_two' },
@@ -34,6 +35,7 @@ describe('semantic capability registry', () => {
 
 	test('keeps metric validation aligned with the shared capability surface', () => {
 		assert.equal(isSupportedSemanticMetric('lookup', 'player', 'ast'), true);
+		assert.equal(isSupportedSemanticMetric('lookup', 'team', 'wins'), true);
 		assert.equal(isSupportedSemanticMetric('rank', 'player', 'ast'), true);
 		assert.equal(isSupportedSemanticMetric('rank', 'player', 'drtg'), false);
 		assert.equal(isSupportedSemanticMetric('rank', 'team', 'drtg'), true);
