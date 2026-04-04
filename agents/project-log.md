@@ -241,3 +241,10 @@
 - Interface contract: /api/query can execute up to three structured tool requests for one answer | batch execution calls server modules directly instead of route-to-route HTTP | the existing semantic validator and executor remain the grounding authority for each tool request
 - Tests: add batch planner tests for multi-request plans and size limits | add semantic batch executor tests for internal execution wiring | add route tests for compound-question orchestration
 
+## deduplicate_normalized_requests_and_keep_batch_policy_tight
+
+- Title: Deduplicate Normalized Requests And Keep Batch Policy Tight
+- Module scope: request normalization, exact deduplication, batch execution ordering
+- Interface contract: planned requests are normalized before equality comparison | exact normalized duplicates are removed | non-duplicate request order is preserved
+- Tests: add executor tests for exact normalized deduplication | add executor tests for preserved non-duplicate order | add negative tests proving fuzzy merges are out of scope
+

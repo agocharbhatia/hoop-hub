@@ -160,7 +160,7 @@ tasks:
       seam, deduplicate exact normalized equality only, and preserve order for
       non-duplicate requests so execution efficiency does not depend on prompt
       discipline.
-    status: pending
+    status: done
     blocked_by:
       - add_internal_batched_tool_execution_for_compound_questions
     module_scope:
