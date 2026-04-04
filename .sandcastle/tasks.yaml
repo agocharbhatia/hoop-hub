@@ -120,7 +120,7 @@ tasks:
       so /api/query can plan and run up to three structured tool requests in one
       answer without introducing a public batch tool route or an open-ended
       agent loop.
-    status: pending
+    status: done
     blocked_by:
       - ship_answer_first_api_query_for_one_tool_result
       - generalize_single_request_planning_from_capabilities

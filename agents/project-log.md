@@ -234,3 +234,10 @@
 - Module scope: batch planner contract, internal semantic batch executor, query orchestrator
 - Interface contract: `/api/query` can plan and execute up to three internal `stats_query` requests for one answer | each planned request still runs through the canonical semantic validator and executor | `/api/stats/query` stays unchanged as the public single-query structured route
 - Tests: add batch planner contract tests for multi-request and oversized plans | add semantic batch executor tests for internal module wiring | add `/api/query` route coverage for compound-question orchestration
+## add_internal_batched_tool_execution_for_compound_questions
+
+- Title: Add Internal Batched Tool Execution For Compound Questions
+- Module scope: batch planning contract, semantic batch executor, query orchestrator
+- Interface contract: /api/query can execute up to three structured tool requests for one answer | batch execution calls server modules directly instead of route-to-route HTTP | the existing semantic validator and executor remain the grounding authority for each tool request
+- Tests: add batch planner tests for multi-request plans and size limits | add semantic batch executor tests for internal execution wiring | add route tests for compound-question orchestration
+
