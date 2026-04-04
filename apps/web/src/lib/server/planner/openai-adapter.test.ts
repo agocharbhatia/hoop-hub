@@ -15,6 +15,8 @@ describe('openai planner adapter prompt contract', () => {
 		assert.match(systemPrompt, /Use null for implicit current-season asks/i);
 		assert.match(systemPrompt, /always normalize it to exact YYYY-YY form/i);
 		assert.match(systemPrompt, /2023\/24, 2023-2024, and 2023 24 must all become 2023-24/i);
+		assert.match(systemPrompt, /player season lookups, use lookup\/player/i);
+		assert.match(systemPrompt, /team season lookups, use lookup\/team/i);
 	});
 
 	test('derives planner schema enums from the shared public capabilities contract', () => {
@@ -30,6 +32,16 @@ describe('openai planner adapter prompt contract', () => {
 		assert.deepEqual(
 			schema.schema.properties.query.properties.outputMode.enum,
 			[...capabilities.outputModes, null]
+		);
+		assert.deepEqual(
+			schema.schema.properties.warning.properties.code.enum,
+			[
+				'unsupported_query_shape',
+				'unsupported_metric',
+				'clarification_needed',
+				'missing_metric',
+				'compare_requires_two_subjects'
+			]
 		);
 	});
 });

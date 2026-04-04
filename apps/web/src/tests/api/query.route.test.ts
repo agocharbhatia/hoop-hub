@@ -239,6 +239,138 @@ describe('POST /api/query', () => {
 		});
 	});
 
+	test('executes supported player season lookup questions through the planner route', async () => {
+		let executedRequest: SemanticQueryRequest | null = null;
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<PlannerDecision> {
+				return {
+					type: 'planned',
+					query: {
+						operation: 'lookup',
+						entity: 'player',
+						subject: {
+							names: ['Nikola Jokic']
+						},
+						metrics: ['reb'],
+						filters: {
+							season: '2023-24',
+							seasonType: null,
+							window: null,
+							dateFrom: null,
+							dateTo: null
+						},
+						orderBy: null,
+						limit: null,
+						outputMode: 'table'
+					}
+				};
+			},
+			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
+				executedRequest = request;
+				return {
+					status: 'ok',
+					result: {
+						shape: 'table',
+						columns: ['player', 'reb'],
+						rows: [{ player: 'Nikola Jokic', reb: 12.4 }]
+					},
+					citations: [],
+					provenance: {
+						executor: 'semantic_executor',
+						resolvedQuery: request.query,
+						dataFreshnessMode: 'nightly',
+						sourceCalls: []
+					},
+					warnings: [],
+					traceId: 'trace-player-lookup'
+				};
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'How many rebounds did Nikola Jokic average in 2023-24?'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as StatsQueryResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.notEqual(executedRequest, null);
+		assert.equal(executedRequest!.query.operation, 'lookup');
+		assert.equal(executedRequest!.query.entity, 'player');
+		assert.deepEqual(executedRequest!.query.subject.names, ['Nikola Jokic']);
+		assert.equal(executedRequest!.query.filters.season, '2023-24');
+	});
+
+	test('executes supported team season lookup questions through the planner route', async () => {
+		let executedRequest: SemanticQueryRequest | null = null;
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<PlannerDecision> {
+				return {
+					type: 'planned',
+					query: {
+						operation: 'lookup',
+						entity: 'team',
+						subject: {
+							names: ['Boston Celtics']
+						},
+						metrics: ['wins'],
+						filters: {
+							season: '2023-24',
+							seasonType: null,
+							window: null,
+							dateFrom: null,
+							dateTo: null
+						},
+						orderBy: null,
+						limit: null,
+						outputMode: 'table'
+					}
+				};
+			},
+			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
+				executedRequest = request;
+				return {
+					status: 'ok',
+					result: {
+						shape: 'table',
+						columns: ['team', 'wins'],
+						rows: [{ team: 'Boston Celtics', wins: 64 }]
+					},
+					citations: [],
+					provenance: {
+						executor: 'semantic_executor',
+						resolvedQuery: request.query,
+						dataFreshnessMode: 'nightly',
+						sourceCalls: []
+					},
+					warnings: [],
+					traceId: 'trace-team-lookup'
+				};
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'How many wins did the Boston Celtics have in 2023/24?'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as StatsQueryResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.notEqual(executedRequest, null);
+		assert.equal(executedRequest!.query.operation, 'lookup');
+		assert.equal(executedRequest!.query.entity, 'team');
+		assert.deepEqual(executedRequest!.query.subject.names, ['Boston Celtics']);
+		assert.equal(executedRequest!.query.filters.season, '2023-24');
+	});
+
 	test('executes supported scoring-language player trend questions through the planner route', async () => {
 		let executedRequest: SemanticQueryRequest | null = null;
 		_setQueryRouteDependenciesForTests({

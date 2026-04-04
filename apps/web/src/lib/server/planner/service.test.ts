@@ -72,6 +72,27 @@ function buildComparisonQuery(subjectNames: string[], metric: string): SemanticQ
 	};
 }
 
+function buildLookupQuery(entity: 'player' | 'team', subjectName: string, metric: string): SemanticQuery {
+	return {
+		operation: 'lookup',
+		entity,
+		subject: {
+			names: [subjectName]
+		},
+		metrics: [metric],
+		filters: {
+			season: '2023-24',
+			seasonType: null,
+			window: null,
+			dateFrom: null,
+			dateTo: null
+		},
+		orderBy: null,
+		limit: null,
+		outputMode: 'table'
+	};
+}
+
 function buildTeamRankingQuery(metric: string): SemanticQuery {
 	return {
 		operation: 'rank',
@@ -166,6 +187,50 @@ describe('createPlannerService', () => {
 		assert.equal(decision.query.outputMode, 'comparison');
 	});
 
+	test('returns planned decisions for supported player season lookups and preserves the named season', async () => {
+		const planner = createPlannerService(
+			createAdapter({
+				type: 'planned',
+				query: buildLookupQuery('player', 'Nikola Jokic', 'pts')
+			})
+		);
+
+		const decision = await planner.planQuestion('Show Nikola Jokic points for the 2023-24 season');
+
+		assert.equal(decision.type, 'planned');
+		if (decision.type !== 'planned') {
+			throw new Error('Expected planned decision.');
+		}
+		assert.equal(decision.query.operation, 'lookup');
+		assert.equal(decision.query.entity, 'player');
+		assert.deepEqual(decision.query.subject.names, ['Nikola Jokic']);
+		assert.deepEqual(decision.query.metrics, ['pts']);
+		assert.equal(decision.query.filters.season, '2023-24');
+		assert.equal(decision.query.outputMode, 'table');
+	});
+
+	test('returns planned decisions for supported team season lookups and preserves the named season', async () => {
+		const planner = createPlannerService(
+			createAdapter({
+				type: 'planned',
+				query: buildLookupQuery('team', 'Boston Celtics', 'wins')
+			})
+		);
+
+		const decision = await planner.planQuestion('How many wins did the Boston Celtics have in 2023/24?');
+
+		assert.equal(decision.type, 'planned');
+		if (decision.type !== 'planned') {
+			throw new Error('Expected planned decision.');
+		}
+		assert.equal(decision.query.operation, 'lookup');
+		assert.equal(decision.query.entity, 'team');
+		assert.deepEqual(decision.query.subject.names, ['Boston Celtics']);
+		assert.deepEqual(decision.query.metrics, ['wins']);
+		assert.equal(decision.query.filters.season, '2023-24');
+		assert.equal(decision.query.outputMode, 'table');
+	});
+
 	test('returns planned decisions for compare asks without a metric using safe default pts', async () => {
 		const planner = createPlannerService(
 			createAdapter({
@@ -242,6 +307,32 @@ describe('createPlannerService', () => {
 			throw new Error('Expected planned decision.');
 		}
 		assert.equal(decision.query.filters.season, null);
+	});
+
+	test('normalizes explicit season variants for season lookup asks before executor validation', async () => {
+		const planner = createPlannerService(
+			createAdapter({
+				type: 'planned',
+				query: {
+					...buildLookupQuery('player', 'Nikola Jokic', 'reb'),
+					filters: {
+						season: '2023/2024',
+						seasonType: null,
+						window: null,
+						dateFrom: null,
+						dateTo: null
+					}
+				}
+			})
+		);
+
+		const decision = await planner.planQuestion('How many rebounds did Nikola Jokic average in 2023/2024?');
+
+		assert.equal(decision.type, 'planned');
+		if (decision.type !== 'planned') {
+			throw new Error('Expected planned decision.');
+		}
+		assert.equal(decision.query.filters.season, '2023-24');
 	});
 
 	test('returns typed clarification_needed decisions for vague trend asks with no metric', async () => {

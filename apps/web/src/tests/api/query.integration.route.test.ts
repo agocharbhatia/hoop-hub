@@ -245,6 +245,134 @@ describe('POST /api/query integration', () => {
 		});
 	});
 
+	test('executes supported player season lookups end to end and preserves the named season for executor grounding', async () => {
+		usePlannerDecision({
+			type: 'planned',
+			query: {
+				operation: 'lookup',
+				entity: 'player',
+				subject: {
+					names: ['Nikola Jokic']
+				},
+				metrics: ['pts'],
+				filters: {
+					season: '2023-24',
+					seasonType: null,
+					window: null,
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'table'
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'How many points did Nikola Jokic average in 2023-24?'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result:
+				| {
+						shape: string;
+						rows: Array<{ playerId?: string; playerName?: string; season?: string; pts?: number }>;
+				  }
+				| null;
+			provenance: {
+				resolvedQuery: {
+					entity: string;
+					subject: { ids: string[]; names: string[] };
+					filters: { season: string | null; seasonType: string | null };
+				};
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.result?.shape, 'table');
+		assert.equal(payload.result?.rows.length, 1);
+		assert.equal(payload.result?.rows[0]?.playerId, '203999');
+		assert.equal(payload.result?.rows[0]?.playerName, 'Nikola Jokic');
+		assert.equal(payload.result?.rows[0]?.season, '2023-24');
+		assert.equal(typeof payload.result?.rows[0]?.pts, 'number');
+		assert.equal(payload.provenance.resolvedQuery.entity, 'player');
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['203999'],
+			names: ['Nikola Jokic']
+		});
+		assert.equal(payload.provenance.resolvedQuery.filters.season, '2023-24');
+		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+	});
+
+	test('executes supported team season lookups end to end and preserves the named season for executor grounding', async () => {
+		usePlannerDecision({
+			type: 'planned',
+			query: {
+				operation: 'lookup',
+				entity: 'team',
+				subject: {
+					names: ['Boston Celtics']
+				},
+				metrics: ['wins'],
+				filters: {
+					season: '2023-24',
+					seasonType: null,
+					window: null,
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'table'
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'How many wins did the Boston Celtics have in 2023-24?'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result:
+				| {
+						shape: string;
+						rows: Array<{ teamId?: string; teamName?: string; season?: string; wins?: number }>;
+				  }
+				| null;
+			provenance: {
+				resolvedQuery: {
+					entity: string;
+					subject: { ids: string[]; names: string[] };
+					filters: { season: string | null; seasonType: string | null };
+				};
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.result?.shape, 'table');
+		assert.equal(payload.result?.rows.length, 1);
+		assert.equal(payload.result?.rows[0]?.teamId, '1610612738');
+		assert.equal(payload.result?.rows[0]?.teamName, 'Boston Celtics');
+		assert.equal(payload.result?.rows[0]?.season, '2023-24');
+		assert.equal(typeof payload.result?.rows[0]?.wins, 'number');
+		assert.equal(payload.provenance.resolvedQuery.entity, 'team');
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(payload.provenance.resolvedQuery.filters.season, '2023-24');
+		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+	});
+
 	test('resolves curated aliases through the shared player resolver', async () => {
 		usePlannerDecision({
 			type: 'planned',

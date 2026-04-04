@@ -88,30 +88,8 @@ function normalizePlannerDecision(decision: PlannerDecision): PlannerDecision {
 	};
 }
 
-function validateSubject(
-	subject: unknown,
-	requirement: 'empty' | 'non_empty' | 'exactly_two'
-): subject is SemanticQuery['subject'] {
-	if (!isPlainObject(subject)) {
-		return false;
-	}
-
-	const names = subject.names;
-	const ids = subject.ids;
-	if ((names !== undefined && !isStringArray(names)) || (ids !== undefined && !isStringArray(ids))) {
-		return false;
-	}
-
-	const subjectCount = (names?.length ?? 0) + (ids?.length ?? 0);
-	if (requirement === 'empty') {
-		return subjectCount === 0;
-	}
-
-	if (requirement === 'exactly_two') {
-		return subjectCount === 2;
-	}
-
-	return subjectCount > 0;
+function countSubjectValues(subject: SemanticQuery['subject']): number {
+	return (subject.names?.length ?? 0) + (subject.ids?.length ?? 0);
 }
 
 function validateWindow(window: unknown): boolean {
@@ -173,14 +151,24 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 		return false;
 	}
 
-	if (query.entity === 'team') {
-		if (query.operation !== 'rank' || !validateSubject(query.subject, 'empty')) {
-			return false;
-		}
-	} else if (
-		(query.operation === 'rank' && !validateSubject(query.subject, 'empty')) ||
-		(query.operation === 'trend' && !validateSubject(query.subject, 'non_empty')) ||
-		(query.operation === 'compare' && !validateSubject(query.subject, 'exactly_two'))
+	if (!isPlainObject(query.subject)) {
+		return false;
+	}
+
+	const names = query.subject.names;
+	const ids = query.subject.ids;
+	if ((names !== undefined && !isStringArray(names)) || (ids !== undefined && !isStringArray(ids))) {
+		return false;
+	}
+
+	const subject = query.subject as SemanticQuery['subject'];
+	const subjectCount = countSubjectValues(subject);
+	if (
+		(query.operation === 'lookup' && subjectCount !== 1) ||
+		(query.operation === 'rank' && query.entity === 'player' && subjectCount !== 0) ||
+		(query.operation === 'rank' && query.entity === 'team' && subjectCount > 1) ||
+		(query.operation === 'trend' && subjectCount !== 1) ||
+		(query.operation === 'compare' && subjectCount !== 2)
 	) {
 		return false;
 	}
@@ -227,7 +215,11 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 		return false;
 	}
 
-	if (query.entity === 'team' && query.operation !== 'rank') {
+	if (
+		query.entity === 'team' &&
+		query.operation !== 'rank' &&
+		query.operation !== 'lookup'
+	) {
 		return false;
 	}
 
