@@ -2,11 +2,23 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { QueryPlannerToolRequest } from '$lib/contracts/planner';
 import type { SemanticQueryRequest, StatsQueryResponse } from '$lib/contracts/semantic-query';
+import { validateSemanticQueryRequest } from '$lib/server/semantic/query-service';
 import { createSemanticBatchExecutor } from './semantic-batch-executor';
 
 /* Helper functions */
 
-function buildToolRequest(metric: string): QueryPlannerToolRequest {
+function buildToolRequest(
+	metric: string,
+	overrides: Partial<QueryPlannerToolRequest['query']> = {}
+): QueryPlannerToolRequest {
+	const baseFilters = overrides.filters ?? {
+		season: '2023-24',
+		seasonType: null,
+		window: null,
+		dateFrom: null,
+		dateTo: null
+	};
+
 	return {
 		toolName: 'stats_query',
 		query: {
@@ -16,16 +28,11 @@ function buildToolRequest(metric: string): QueryPlannerToolRequest {
 				names: ['Boston Celtics']
 			},
 			metrics: [metric],
-			filters: {
-				season: '2023-24',
-				seasonType: null,
-				window: null,
-				dateFrom: null,
-				dateTo: null
-			},
+			filters: baseFilters,
 			orderBy: null,
 			limit: null,
-			outputMode: 'table'
+			outputMode: 'table',
+			...overrides
 		}
 	};
 }
@@ -106,5 +113,149 @@ describe('createSemanticBatchExecutor', () => {
 			/invalid structured request/i
 		);
 		assert.equal(executeCalls, 0);
+	});
+
+	test('deduplicates only exact normalized requests after semantic validation', async () => {
+		const executedRequests: SemanticQueryRequest[] = [];
+
+		const executor = createSemanticBatchExecutor({
+			validateSemanticQueryRequest,
+			async executeSemanticQuery(request) {
+				executedRequests.push(request);
+				return buildStatsResponse(request, `trace-${request.query.metrics[0]}`);
+			}
+		});
+
+		const result = await executor.execute({
+			question: 'Show Boston wins',
+			toolRequests: [
+				{
+					toolName: 'stats_query',
+					query: {
+						operation: 'lookup',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['wins'],
+						filters: {},
+						outputMode: 'table'
+					}
+				},
+				{
+					toolName: 'stats_query',
+					query: {
+						operation: 'lookup',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: [' Wins '],
+						filters: {
+							season: null,
+							seasonType: '',
+							window: null,
+							dateFrom: '',
+							dateTo: null
+						},
+						orderBy: null,
+						limit: null,
+						outputMode: 'table'
+					}
+				}
+			]
+		});
+
+		assert.equal(executedRequests.length, 1);
+		assert.equal(result.plannedToolRequests.length, 1);
+		assert.equal(result.toolResults.length, 1);
+		assert.deepEqual(executedRequests[0], {
+			question: 'Show Boston wins',
+			query: {
+				operation: 'lookup',
+				entity: 'team',
+				subject: {
+					names: ['Boston'],
+					ids: []
+				},
+				metrics: ['wins'],
+				filters: {
+					season: null,
+					seasonType: null,
+					window: null,
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'table'
+			}
+		});
+	});
+
+	test('preserves original order for distinct normalized requests', async () => {
+		const executedMetrics: string[] = [];
+
+		const executor = createSemanticBatchExecutor({
+			validateSemanticQueryRequest,
+			async executeSemanticQuery(request) {
+				executedMetrics.push(request.query.metrics[0] ?? 'unknown');
+				return buildStatsResponse(request, `trace-${request.query.metrics[0]}`);
+			}
+		});
+
+		const result = await executor.execute({
+			question: 'Show Boston wins, losses, and defensive rating',
+			toolRequests: [buildToolRequest('wins'), buildToolRequest('losses'), buildToolRequest('drtg')]
+		});
+
+		assert.deepEqual(executedMetrics, ['wins', 'losses', 'drtg']);
+		assert.deepEqual(
+			result.plannedToolRequests.map((plannedRequest) => plannedRequest.request.query.metrics[0]),
+			['wins', 'losses', 'drtg']
+		);
+	});
+
+	test('does not collapse similar but distinct normalized requests', async () => {
+		const executedMetrics: string[] = [];
+
+		const executor = createSemanticBatchExecutor({
+			validateSemanticQueryRequest,
+			async executeSemanticQuery(request) {
+				executedMetrics.push(request.query.metrics.join(','));
+				return buildStatsResponse(request, `trace-${request.query.metrics.join('-')}`);
+			}
+		});
+
+		const result = await executor.execute({
+			question: 'Show Boston wins and losses',
+			toolRequests: [
+				buildToolRequest('wins', {
+					subject: {
+						names: ['Boston']
+					},
+					filters: {},
+					orderBy: null,
+					limit: null,
+					outputMode: 'table'
+				}),
+				{
+					toolName: 'stats_query',
+					query: {
+						operation: 'lookup',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['wins', 'losses'],
+						filters: {},
+						outputMode: 'table'
+					}
+				}
+			]
+		});
+
+		assert.deepEqual(executedMetrics, ['wins', 'wins,losses']);
+		assert.equal(result.toolResults.length, 2);
 	});
 });

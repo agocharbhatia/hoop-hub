@@ -59,6 +59,7 @@ export function createSemanticBatchExecutor(
 			const plannedToolRequests: QueryAnswerPlannedToolRequest[] = [];
 			const toolResults: QueryAnswerToolResult[] = [];
 			const executedStructuredTraceIds: string[] = [];
+			const seenNormalizedRequests = new Set<string>();
 
 			for (const toolRequest of input.toolRequests) {
 				const validatedRequest = validatePlannedToolRequest(
@@ -66,6 +67,12 @@ export function createSemanticBatchExecutor(
 					input.question,
 					dependencies.validateSemanticQueryRequest
 				);
+				const normalizedRequestKey = buildNormalizedRequestKey(validatedRequest);
+				if (seenNormalizedRequests.has(normalizedRequestKey)) {
+					continue;
+				}
+				seenNormalizedRequests.add(normalizedRequestKey);
+
 				const response = await dependencies.executeSemanticQuery(validatedRequest);
 				const plannedToolRequest = {
 					toolName: toolRequest.toolName,
@@ -90,6 +97,10 @@ export function createSemanticBatchExecutor(
 }
 
 /* Helper functions */
+
+function buildNormalizedRequestKey(request: SemanticQueryRequest): string {
+	return JSON.stringify(request.query);
+}
 
 function validatePlannedToolRequest(
 	toolRequest: QueryPlannerToolRequest,
