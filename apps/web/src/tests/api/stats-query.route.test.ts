@@ -186,6 +186,77 @@ describe('POST /api/stats/query', () => {
 		});
 	});
 
+	test('returns canonical resolvedQuery names and ids for supported structured team requests', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'rank',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['drtg'],
+						filters: {
+							season: '2023-24'
+						}
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: { rows: unknown[] };
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+					filters: { season: string; seasonType: string };
+				};
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(payload.provenance.resolvedQuery.filters.season, '2023-24');
+		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.deepEqual(payload.result.rows, [{ rank: 1, subject: 'Boston Celtics', metric: 'drtg', value: 110.2 }]);
+	});
+
+	test('returns clarification_needed for ambiguous structured team requests', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'rank',
+						entity: 'team',
+						subject: {
+							names: ['Los Angeles']
+						},
+						metrics: ['drtg'],
+						filters: {}
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: unknown;
+			warnings: { code: string; message: string }[];
+			provenance: { resolvedQuery: unknown };
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'clarification_needed');
+		assert.equal(payload.result, null);
+		assert.equal(payload.warnings[0]?.code, 'ambiguous_subject');
+		assert.match(payload.warnings[0]?.message ?? '', /los angeles lakers/i);
+		assert.equal(payload.provenance.resolvedQuery, null);
+	});
+
 	test('returns 400 when callers send deprecated allowLiveFallback options', async () => {
 		const response = await POST(
 			createPostEvent(

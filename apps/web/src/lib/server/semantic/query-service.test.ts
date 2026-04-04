@@ -81,6 +81,24 @@ describe('validateSemanticQueryRequest', () => {
 		assert.match(result.error, /same canonical player/i);
 	});
 
+	test('rejects conflicting structured team ids and names', () => {
+		const result = validateSemanticQueryRequest({
+			query: {
+				operation: 'rank',
+				entity: 'team',
+				subject: {
+					ids: ['1610612738'],
+					names: ['Knicks']
+				},
+				metrics: ['drtg'],
+				filters: {}
+			}
+		});
+
+		assert.equal(result.ok, false);
+		assert.match(result.error, /same canonical team/i);
+	});
+
 	test('rejects deprecated allowLiveFallback request options', () => {
 		const result = validateSemanticQueryRequest({
 			query: {
@@ -137,6 +155,79 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.result?.rows.length, 20);
 		assert.equal(response.provenance.executor, 'semantic_executor');
 		assert.equal(response.traceId.length > 0, true);
+	});
+
+	test('canonicalizes exact-city team ranking requests in resolvedQuery provenance', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'rank',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['drtg'],
+					filters: {
+						season: '2023-24'
+					}
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2023-24');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+		assert.deepEqual(response.result?.rows, [{ rank: 1, subject: 'Boston Celtics', metric: 'drtg', value: 110.2 }]);
+	});
+
+	test('canonicalizes curated alias team ranking requests in resolvedQuery provenance', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'rank',
+					entity: 'team',
+					subject: {
+						names: ['Wolves']
+					},
+					metrics: ['drtg'],
+					filters: {
+						season: '2023-24'
+					}
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['1610612750'],
+			names: ['Minnesota Timberwolves']
+		});
+	});
+
+	test('returns clarification_needed for ambiguous team ranking requests', async () => {
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'rank',
+				entity: 'team',
+				subject: {
+					names: ['Los Angeles']
+				},
+				metrics: ['drtg'],
+				filters: {}
+			}
+		});
+
+		assert.equal(response.status, 'clarification_needed');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'ambiguous_subject');
+		assert.match(response.warnings[0]?.message ?? '', /los angeles clippers/i);
+		assert.equal(response.provenance.resolvedQuery, null);
 	});
 
 	test('supports multi-metric player trend rows with window limiting', async () => {

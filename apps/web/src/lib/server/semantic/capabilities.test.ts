@@ -25,7 +25,7 @@ describe('semantic capability registry', () => {
 				{ operation: 'rank', entity: 'player', kind: 'none' },
 				{ operation: 'trend', entity: 'player', kind: 'exactly_one' },
 				{ operation: 'compare', entity: 'player', kind: 'exactly_two' },
-				{ operation: 'rank', entity: 'team', kind: 'none' }
+				{ operation: 'rank', entity: 'team', kind: 'zero_or_one' }
 			]
 		);
 		assert.equal(capabilities.metrics.some((metric) => 'requiredSources' in metric), false);

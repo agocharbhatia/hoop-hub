@@ -30,6 +30,11 @@ import {
 	validateStructuredPlayerSubjectPairs
 } from '$lib/server/players/player-directory';
 import {
+	findTeamDirectoryEntriesByNameOrAlias,
+	findTeamDirectoryEntryById,
+	validateStructuredTeamSubjectPairs
+} from '$lib/server/teams/team-directory';
+import {
 	extractPlayerComparisonRows,
 	extractPlayerRankingRows,
 	extractPlayerTrendRows,
@@ -48,6 +53,11 @@ type WarningResult = {
 };
 
 type ResolvedPlayerSubject = {
+	id: string;
+	name: string;
+};
+
+type ResolvedTeamSubject = {
 	id: string;
 	name: string;
 };
@@ -79,6 +89,7 @@ type TeamRankingPlan = {
 	query: SemanticQuery;
 	season: string;
 	limit: number;
+	subject: ResolvedTeamSubject | null;
 };
 
 type ExecutionPlan = RankingPlan | TrendPlan | ComparisonPlan | TeamRankingPlan;
@@ -107,7 +118,7 @@ function isNullableString(value: unknown): value is string | null | undefined {
 }
 
 function isWarningResult(value: WarningResult | ExecutionPlan | SemanticQueryRequest): value is WarningResult {
-	return 'warning' in value;
+	return typeof value === 'object' && value !== null && 'warning' in value;
 }
 
 function parseStringArray(value: unknown, fieldName: string): ValidationResult<string[]> {
@@ -643,6 +654,65 @@ function resolvePlayerEntity(
 	return resolved.value;
 }
 
+function resolveTeamEntity(subject: SemanticQuery['subject']): ResolvedTeamSubject | null | WarningResult {
+	const ids = subject.ids ?? [];
+	const names = subject.names ?? [];
+
+	if (ids.length === 0 && names.length === 0) {
+		return null;
+	}
+
+	if (ids.length > 1 || names.length > 1) {
+		return {
+			type: 'clarification_needed',
+			warning: buildWarning('team_requires_single_subject', 'Team ranking queries support at most one team in this slice.'),
+			resolvedQuery: null
+		};
+	}
+
+	if (names.length === 1) {
+		const matches = findTeamDirectoryEntriesByNameOrAlias(names[0]);
+		if (matches.length > 1) {
+			return {
+				type: 'clarification_needed',
+				warning: buildWarning(
+					'ambiguous_subject',
+					`Alias "${names[0]}" is ambiguous. Matches: ${matches.map((match) => match.canonicalName).join(', ')}.`
+				),
+				resolvedQuery: null
+			};
+		}
+
+		const team = matches[0];
+		if (!team) {
+			return {
+				type: 'coverage_gap',
+				warning: buildWarning('unknown_subject', `Unable to resolve team IDs for: ${names[0]}.`),
+				resolvedQuery: null
+			};
+		}
+
+		return {
+			id: team.teamId,
+			name: team.canonicalName
+		};
+	}
+
+	const team = findTeamDirectoryEntryById(ids[0]);
+	if (!team) {
+		return {
+			type: 'coverage_gap',
+			warning: buildWarning('unknown_subject', `Unable to resolve team IDs for: ${ids[0]}.`),
+			resolvedQuery: null
+		};
+	}
+
+	return {
+		id: team.teamId,
+		name: team.canonicalName
+	};
+}
+
 function defaultMetricForQuery(operation: SemanticQuery['operation'], entity: SemanticQuery['entity']): string[] {
 	if (operation === 'rank' && entity === 'team') {
 		return ['drtg'];
@@ -654,7 +724,8 @@ function defaultMetricForQuery(operation: SemanticQuery['operation'], entity: Se
 function buildCanonicalResolvedQuery(
 	query: SemanticQuery,
 	now: Date,
-	resolvedSubjects: ResolvedPlayerSubject[] = []
+	resolvedSubjects: ResolvedPlayerSubject[] = [],
+	resolvedTeamSubject: ResolvedTeamSubject | null = null
 ): SemanticQuery {
 	const season = query.filters.season ?? resolveCurrentSeason(now);
 	const seasonType = query.filters.seasonType ?? 'Regular Season';
@@ -667,6 +738,11 @@ function buildCanonicalResolvedQuery(
 						ids: resolvedSubjects.map((subject) => subject.id),
 						names: resolvedSubjects.map((subject) => subject.name)
 					}
+				: query.entity === 'team' && resolvedTeamSubject
+					? {
+							ids: [resolvedTeamSubject.id],
+							names: [resolvedTeamSubject.name]
+						}
 				: {
 						names: query.subject.names ?? [],
 						ids: query.subject.ids ?? []
@@ -761,12 +837,9 @@ function determineSupportedPlan(
 	}
 
 	if (query.operation === 'rank' && query.entity === 'team') {
-		if ((query.subject.names?.length ?? 0) > 0 || (query.subject.ids?.length ?? 0) > 0) {
-			return {
-				type: 'coverage_gap',
-				warning: buildWarning('unsupported_subject_filter', 'Team rankings only support league-wide team queries in this slice.'),
-				resolvedQuery: query
-			};
+		const subject = resolveTeamEntity(query.subject);
+		if (subject && 'warning' in subject) {
+			return subject.resolvedQuery === null ? subject : { ...subject, resolvedQuery: query };
 		}
 
 		if (query.metrics.length !== 1) {
@@ -784,9 +857,10 @@ function determineSupportedPlan(
 
 		return {
 			type: 'team_ranking',
-			query: buildCanonicalResolvedQuery(query, now),
+			query: buildCanonicalResolvedQuery(query, now, [], subject),
 			season: query.filters.season ?? resolveCurrentSeason(now),
-			limit: query.limit ?? 10
+			limit: subject ? 1 : query.limit ?? 10,
+			subject
 		};
 	}
 
@@ -975,6 +1049,7 @@ function parseExecutionResult(plan: ExecutionPlan, retrieval: RetrievalOutcome):
 		plan.query.metrics[0],
 		plan.limit,
 		plan.query.orderBy ?? null,
+		plan.subject ? { teamId: plan.subject.id, canonicalName: plan.subject.name } : null,
 		plan.season
 	);
 }
@@ -1211,6 +1286,13 @@ export function validateSemanticQueryRequest(input: unknown): ValidationResult<S
 			if (subjectConflictError) {
 				return { ok: false, error: subjectConflictError };
 			}
+		}
+	}
+
+	if (entity === 'team') {
+		const subjectConflictError = validateStructuredTeamSubjectPairs(subject.value);
+		if (subjectConflictError) {
+			return { ok: false, error: subjectConflictError };
 		}
 	}
 

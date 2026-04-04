@@ -249,9 +249,11 @@ export function extractTeamRankingRows(
 	metric: string,
 	limit: number,
 	orderBy: SemanticQueryOrderBy | null,
+	subjectFilter: { teamId: string; canonicalName: string } | null = null,
 	seasonLabel = 'this season'
 ): StatsQueryResult {
 	const resultSet = extractResultSet(payload, ['LeagueDashTeamStats']);
+	const teamIdIndex = getColumnIndex(resultSet.headers, 'TEAM_ID');
 	const teamNameIndex = getColumnIndex(resultSet.headers, 'TEAM_NAME');
 	const columnName = TEAM_METRIC_COLUMNS[metric];
 	if (!columnName) {
@@ -261,11 +263,13 @@ export function extractTeamRankingRows(
 	const metricIndex = getColumnIndex(resultSet.headers, columnName);
 	const direction = orderBy?.metric === metric ? orderBy.direction : 'asc';
 	const rows = sortRowsByDirection(
-		resultSet.rowSet.map((row) => ({
-			subject: String(row[teamNameIndex] ?? 'Unknown Team'),
-			metric,
-			value: normalizeNumber(row[metricIndex] ?? 0)
-		})),
+		resultSet.rowSet
+			.filter((row) => subjectFilter === null || String(row[teamIdIndex] ?? '') === subjectFilter.teamId)
+			.map((row) => ({
+				subject: subjectFilter?.canonicalName ?? String(row[teamNameIndex] ?? 'Unknown Team'),
+				metric,
+				value: normalizeNumber(row[metricIndex] ?? 0)
+			})),
 		direction
 	)
 		.slice(0, limit)

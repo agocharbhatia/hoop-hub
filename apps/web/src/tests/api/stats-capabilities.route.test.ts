@@ -41,7 +41,7 @@ describe('GET /api/stats/capabilities', () => {
 				'rank/player:none',
 				'trend/player:exactly_one',
 				'compare/player:exactly_two',
-				'rank/team:none'
+				'rank/team:zero_or_one'
 			]
 		);
 		assert.equal(

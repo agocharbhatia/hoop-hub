@@ -255,6 +255,47 @@ describe('GET /api/query-trace/:traceId', () => {
 		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
 	});
 
+	test('returns canonical team resolvedQuery names, ids, and defaulted filters for structured traces', async () => {
+		const statsResponse = await statsPost({
+			request: new Request('http://localhost/api/stats/query', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					query: {
+						operation: 'rank',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['drtg'],
+						filters: {
+							season: '2023-24'
+						}
+					}
+				})
+			})
+		} as Parameters<typeof statsPost>[0]);
+		const stats = (await statsResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(stats.traceId));
+		const payload = (await parseJson(response)) as {
+			status: string;
+			resolvedQuery: {
+				subject: { ids: string[]; names: string[] };
+				filters: { season: string | null; seasonType: string | null };
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.deepEqual(payload.resolvedQuery.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(payload.resolvedQuery.filters.season, '2023-24');
+		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
+	});
+
 	test('returns canonical full-directory player resolution for planner-route traces', async () => {
 		_setQueryRouteDependenciesForTests({
 			async planQuestion() {

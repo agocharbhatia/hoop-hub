@@ -6,7 +6,7 @@ import type {
 } from '$lib/contracts/semantic-query';
 import { listMetricDefinitions } from '$lib/server/metrics/registry';
 
-export type SemanticSubjectRuleKind = 'none' | 'exactly_one' | 'exactly_two';
+export type SemanticSubjectRuleKind = 'none' | 'exactly_one' | 'exactly_two' | 'zero_or_one';
 
 export type SemanticCapabilitySubjectRule = {
 	operation: SemanticQueryOperation;
@@ -70,7 +70,7 @@ const SUPPORTED_SHAPES: SupportedShape[] = [
 		operation: 'rank',
 		entity: 'team',
 		outputModes: ['table'],
-		subjectRule: 'none'
+		subjectRule: 'zero_or_one'
 	}
 ] as const;
 
@@ -128,6 +128,13 @@ function validateStructuredSubjectRule(
 		return {
 			ok: false,
 			error: 'query.subject must include exactly two subjects for this supported query shape.'
+		};
+	}
+
+	if (shape.subjectRule === 'zero_or_one' && subjectCount > 1) {
+		return {
+			ok: false,
+			error: 'query.subject must include at most one subject for this supported query shape.'
 		};
 	}
 
