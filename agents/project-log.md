@@ -209,6 +209,7 @@
 - Issue slicing published as implementation issues `#35` through `#41`, and the approved dependency graph now lives in `.sandcastle/tasks.yaml` as the execution source for this PRD.
 - Slice `ship_answer_first_api_query_for_one_tool_result` ships the narrow answer-first contract on `/api/query`: one planned structured request, one semantic executor result exposed under `toolResults`, one renderer-owned `answer` plus small artifacts, and UI consumption moved off the old top-level raw `StatsQueryResponse` shape.
 - Slice `add_honest_orchestration_traces_for_answer_route_requests` gives `/api/query` its own orchestration trace ids and payloads. Answer-route traces now persist planned tool requests plus executed structured trace ids, aggregate freshness and source-call data from the referenced semantic traces, and stop exposing a fake single `resolvedQuery`.
+- Slice `generalize_single_request_planning_from_capabilities` publishes per-shape planner metadata on the shared stats capabilities contract (`queryShapes` with supported metrics plus ordering/window defaults) and feeds that contract directly into the planner prompt so single-request capability growth comes from one shared source instead of more handwritten prompt families.
 ## ship_answer_first_api_query_for_one_tool_result
 
 - Title: Ship Answer-First /api/query For One Tool Result
@@ -221,4 +222,3 @@
 - Module scope: answer-route trace contract, trace persistence, trace route
 - Interface contract: answer-route traces expose plannedToolRequests and executed structured trace ids | GET /api/query-trace/:traceId returns honest orchestration traces for /api/query | answer-route traces do not expose a fake single resolvedQuery
 - Tests: add /api/query-trace tests for answer-route orchestration traces | add persistence tests for planned tool requests and executed trace ids | keep existing structured trace tests green
-

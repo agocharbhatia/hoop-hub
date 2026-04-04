@@ -17,6 +17,18 @@ describe('GET /api/stats/capabilities', () => {
 			seasonTypes: { supported: string[]; default: string };
 			metrics: Array<{ id: string; entities: string[]; operations: string[] }>;
 			subjectRules: Array<{ operation: string; entity: string; kind: string }>;
+			queryShapes: Array<{
+				operation: string;
+				entity: string;
+				subjectRule: string;
+				outputModes: string[];
+				metrics: string[];
+				planning: {
+					orderBy: string;
+					defaultLimit: number | null;
+					supportsWindow: boolean;
+				};
+			}>;
 		};
 
 		assert.equal(response.status, 200);
@@ -44,6 +56,59 @@ describe('GET /api/stats/capabilities', () => {
 				'trend/player:exactly_one',
 				'compare/player:exactly_two',
 				'rank/team:zero_or_one'
+			]
+		);
+		assert.deepEqual(
+			payload.queryShapes.map((shape) => ({
+				key: `${shape.operation}/${shape.entity}`,
+				metrics: shape.metrics,
+				orderBy: shape.planning.orderBy,
+				defaultLimit: shape.planning.defaultLimit,
+				supportsWindow: shape.planning.supportsWindow
+			})),
+			[
+				{
+					key: 'lookup/player',
+					metrics: ['ast', 'reb', 'pts'],
+					orderBy: 'none',
+					defaultLimit: null,
+					supportsWindow: false
+				},
+				{
+					key: 'lookup/team',
+					metrics: ['reb', 'wins', 'losses', 'win_pct', 'ortg', 'drtg'],
+					orderBy: 'none',
+					defaultLimit: null,
+					supportsWindow: false
+				},
+				{
+					key: 'rank/player',
+					metrics: ['ast', 'reb', 'pts'],
+					orderBy: 'same_metric_desc',
+					defaultLimit: 10,
+					supportsWindow: false
+				},
+				{
+					key: 'trend/player',
+					metrics: ['ast', 'reb', 'pts'],
+					orderBy: 'none',
+					defaultLimit: null,
+					supportsWindow: true
+				},
+				{
+					key: 'compare/player',
+					metrics: ['ast', 'reb', 'pts'],
+					orderBy: 'none',
+					defaultLimit: null,
+					supportsWindow: false
+				},
+				{
+					key: 'rank/team',
+					metrics: ['drtg'],
+					orderBy: 'same_metric_asc',
+					defaultLimit: 10,
+					supportsWindow: false
+				}
 			]
 		);
 		assert.equal(

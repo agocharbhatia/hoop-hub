@@ -231,6 +231,27 @@ describe('createPlannerService', () => {
 		assert.equal(decision.query.outputMode, 'table');
 	});
 
+	test('returns planned decisions for supported team lookups with capability-backed advanced metrics', async () => {
+		const planner = createPlannerService(
+			createAdapter({
+				type: 'planned',
+				query: buildLookupQuery('team', 'Boston Celtics', 'ortg')
+			})
+		);
+
+		const decision = await planner.planQuestion('What was the Boston Celtics offensive rating in 2023-24?');
+
+		assert.equal(decision.type, 'planned');
+		if (decision.type !== 'planned') {
+			throw new Error('Expected planned decision.');
+		}
+		assert.equal(decision.query.operation, 'lookup');
+		assert.equal(decision.query.entity, 'team');
+		assert.deepEqual(decision.query.subject.names, ['Boston Celtics']);
+		assert.deepEqual(decision.query.metrics, ['ortg']);
+		assert.equal(decision.query.filters.season, '2023-24');
+	});
+
 	test('returns planned decisions for compare asks without a metric using safe default pts', async () => {
 		const planner = createPlannerService(
 			createAdapter({

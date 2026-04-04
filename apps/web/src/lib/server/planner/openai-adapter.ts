@@ -5,6 +5,8 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import { getPublicSemanticCapabilities } from '$lib/server/semantic/capabilities';
 import type { PlannerAdapter } from './service';
 
+const PLANNER_CAPABILITY_CONTRACT_PREFIX = 'Single-request stats capability contract: ';
+
 function buildPlannerOutputSchema() {
 	const capabilities = getPublicSemanticCapabilities();
 
@@ -218,30 +220,58 @@ export function _getPlannerOutputSchemaForTests() {
 	return buildPlannerOutputSchema();
 }
 
+function buildSingleRequestPlannerCapabilityContract() {
+	const capabilities = getPublicSemanticCapabilities();
+
+	return {
+		seasons: capabilities.seasons,
+		seasonTypes: capabilities.seasonTypes,
+		queryShapes: capabilities.queryShapes
+	};
+}
+
+function buildShapePlanningGuide() {
+	const contract = buildSingleRequestPlannerCapabilityContract();
+
+	return contract.queryShapes
+		.map((shape) => {
+			const primaryOutputMode = shape.outputModes[0] ?? 'table';
+			return `${shape.operation}/${shape.entity}: subject=${shape.subjectRule}; output=${primaryOutputMode}; metrics=${shape.metrics.join(', ')}; orderBy=${shape.planning.orderBy}; limit=${shape.planning.defaultLimit ?? 'null'}; supportsWindow=${shape.planning.supportsWindow}`;
+		})
+		.join('\n');
+}
+
 export function _buildPlannerMessagesForTests(question: string): ChatCompletionMessageParam[] {
 	const capabilities = getPublicSemanticCapabilities();
-	const metricIds = capabilities.metrics.map((metric) => metric.id).join(', ');
-	const subjectRules = capabilities.subjectRules
-		.map((rule) => `${rule.operation}/${rule.entity}=${rule.kind}`)
-		.join('; ');
+	const capabilityContract = buildSingleRequestPlannerCapabilityContract();
+	const shapePlanningGuide = buildShapePlanningGuide();
 
 	return [
 		{
 			role: 'system',
 			content:
-				`You plan NBA stats questions into a closed contract. Only support ${capabilities.subjectRules
-					.map((rule) => `${rule.operation}/${rule.entity}`)
-					.join(', ')} in this slice. Subject rules: ${subjectRules}. Do not resolve player identity into canonical ids. If the question is unsupported, return coverage_gap.`
+				`You plan NBA stats questions into one supported structured request. Only support ${capabilities.queryShapes
+					.map((shape) => `${shape.operation}/${shape.entity}`)
+					.join(', ')} in this slice. Use the published stats capability contract as your source of truth. Do not resolve player identity into canonical ids. If no single supported query shape fits, return coverage_gap.`
+		},
+		{
+			role: 'system',
+			content: `${PLANNER_CAPABILITY_CONTRACT_PREFIX}${JSON.stringify(capabilityContract)}`
 		},
 		{
 			role: 'system',
 			content:
-				`Allowed metric ids in this slice are canonical executor ids: ${metricIds}. Supported output modes are ${capabilities.outputModes.join(', ')}. Supported season types are ${capabilities.seasonTypes.supported.join(', ')}. Supported seasons are ${capabilities.seasons.supported.join(', ')}, where current season must be encoded as null in filters.season. Always include every schema field. Use empty arrays instead of omitting subject.names or subject.ids. Use null for optional scalar/object fields that do not apply. Season normalization is the planner's responsibility. Never emit season phrases like this season or current season in filters.season. Use null for implicit current-season asks. When the question names a season, always normalize it to exact YYYY-YY form before returning it. For example, 2023/24, 2023-2024, and 2023 24 must all become 2023-24. For player season lookups, use lookup/player, include exactly one raw player name in subject.names, keep subject.ids empty, preserve supported season mentions in filters.season, and use outputMode table. For team season lookups, use lookup/team, include exactly one raw team name in subject.names, keep subject.ids empty, preserve supported season mentions in filters.season, and use outputMode table. For player rankings, use rank/player, keep both subject arrays empty, and set orderBy to the same metric descending. For team defensive rankings, use rank/team, keep both subject arrays empty, normalize any defensive-rating wording to metric drtg, set orderBy to drtg ascending, and use outputMode table. For player trends, use trend/player, include exactly one raw player name in subject.names, keep subject.ids empty, preserve explicit rolling windows like last 5 as filters.window, and use outputMode timeseries. For player comparisons, use compare/player, preserve the two raw player names in subject.names in the same order they appear in the question, keep subject.ids empty, use outputMode comparison, and leave orderBy and limit null.`
+				`Interpret the capability contract generically rather than by memorized families. Per-shape planning rules:\n${shapePlanningGuide}`
 		},
 		{
 			role: 'system',
 			content:
-				"If a trend question uses scoring language like scored or scoring, infer metric pts. If a trend question names a player and window but does not safely imply a metric, return clarification_needed with warning code missing_metric. If a comparison question omits a metric, default safely to pts. If a comparison question does not clearly include exactly two subjects, return clarification_needed with warning code compare_requires_two_subjects. Treat adjacent unsupported team asks such as offensive team rankings, team comparisons, or team trends as coverage_gap. The executor remains the grounding authority."
+				'Always include every schema field. Use empty arrays instead of omitting subject.names or subject.ids. Use null for optional scalar or object fields that do not apply. Season normalization is the planner\'s responsibility. Never emit season phrases like this season or current season in filters.season. Use null for implicit current-season asks. When the question names a season, always normalize it to exact YYYY-YY form before returning it. For example, 2023/24, 2023-2024, and 2023 24 must all become 2023-24. Preserve raw subject name order from the question in subject.names. Keep subject.ids empty in this slice.'
+		},
+		{
+			role: 'system',
+			content:
+				"If a trend question uses scoring language like scored or scoring, infer metric pts. If a trend question names a player and window but does not safely imply a metric, return clarification_needed with warning code missing_metric. If a comparison question omits a metric, default safely to pts. If a comparison question does not clearly include exactly two subjects, return clarification_needed with warning code compare_requires_two_subjects. Multiple materially different plausible plans should return clarification_needed. Clear but unsupported asks should return coverage_gap. The executor remains the grounding authority."
 		},
 		{
 			role: 'user',

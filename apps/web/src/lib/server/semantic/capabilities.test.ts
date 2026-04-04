@@ -33,6 +33,78 @@ describe('semantic capability registry', () => {
 		assert.equal(capabilities.metrics.some((metric) => 'requiredSources' in metric), false);
 	});
 
+	test('publishes query-shape planning metadata derived from the shared capability contract', () => {
+		const capabilities = getPublicSemanticCapabilities();
+
+		assert.deepEqual(
+			capabilities.queryShapes.map((shape) => ({
+				key: `${shape.operation}/${shape.entity}`,
+				subjectRule: shape.subjectRule,
+				outputModes: shape.outputModes,
+				metrics: shape.metrics,
+				orderBy: shape.planning.orderBy,
+				defaultLimit: shape.planning.defaultLimit,
+				supportsWindow: shape.planning.supportsWindow
+			})),
+			[
+				{
+					key: 'lookup/player',
+					subjectRule: 'exactly_one',
+					outputModes: ['table'],
+					metrics: ['ast', 'reb', 'pts'],
+					orderBy: 'none',
+					defaultLimit: null,
+					supportsWindow: false
+				},
+				{
+					key: 'lookup/team',
+					subjectRule: 'exactly_one',
+					outputModes: ['table'],
+					metrics: ['reb', 'wins', 'losses', 'win_pct', 'ortg', 'drtg'],
+					orderBy: 'none',
+					defaultLimit: null,
+					supportsWindow: false
+				},
+				{
+					key: 'rank/player',
+					subjectRule: 'none',
+					outputModes: ['table'],
+					metrics: ['ast', 'reb', 'pts'],
+					orderBy: 'same_metric_desc',
+					defaultLimit: 10,
+					supportsWindow: false
+				},
+				{
+					key: 'trend/player',
+					subjectRule: 'exactly_one',
+					outputModes: ['timeseries'],
+					metrics: ['ast', 'reb', 'pts'],
+					orderBy: 'none',
+					defaultLimit: null,
+					supportsWindow: true
+				},
+				{
+					key: 'compare/player',
+					subjectRule: 'exactly_two',
+					outputModes: ['comparison'],
+					metrics: ['ast', 'reb', 'pts'],
+					orderBy: 'none',
+					defaultLimit: null,
+					supportsWindow: false
+				},
+				{
+					key: 'rank/team',
+					subjectRule: 'zero_or_one',
+					outputModes: ['table'],
+					metrics: ['drtg'],
+					orderBy: 'same_metric_asc',
+					defaultLimit: 10,
+					supportsWindow: false
+				}
+			]
+		);
+	});
+
 	test('keeps metric validation aligned with the shared capability surface', () => {
 		assert.equal(isSupportedSemanticMetric('lookup', 'player', 'ast'), true);
 		assert.equal(isSupportedSemanticMetric('lookup', 'team', 'wins'), true);

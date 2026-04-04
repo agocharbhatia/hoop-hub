@@ -20,6 +20,21 @@ export type PublicSemanticMetricCapability = {
 	entities: SemanticQueryEntity[];
 };
 
+export type PublicSemanticQueryShapePlanning = {
+	orderBy: 'none' | 'same_metric_desc' | 'same_metric_asc';
+	defaultLimit: number | null;
+	supportsWindow: boolean;
+};
+
+export type PublicSemanticQueryShapeCapability = {
+	operation: SemanticQueryOperation;
+	entity: SemanticQueryEntity;
+	outputModes: SemanticQueryOutputMode[];
+	subjectRule: SemanticSubjectRuleKind;
+	metrics: string[];
+	planning: PublicSemanticQueryShapePlanning;
+};
+
 export type PublicSemanticCapabilities = {
 	operations: SemanticQueryOperation[];
 	entities: SemanticQueryEntity[];
@@ -34,6 +49,7 @@ export type PublicSemanticCapabilities = {
 	};
 	metrics: PublicSemanticMetricCapability[];
 	subjectRules: SemanticCapabilitySubjectRule[];
+	queryShapes: PublicSemanticQueryShapeCapability[];
 };
 
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -43,6 +59,7 @@ type SupportedShape = {
 	entity: SemanticQueryEntity;
 	outputModes: SemanticQueryOutputMode[];
 	subjectRule: SemanticSubjectRuleKind;
+	planning: PublicSemanticQueryShapePlanning;
 };
 
 type SupportedShapeKey = 'lookup/player' | 'lookup/team' | 'rank/player' | 'trend/player' | 'compare/player' | 'rank/team';
@@ -52,37 +69,67 @@ const SUPPORTED_SHAPES: SupportedShape[] = [
 		operation: 'lookup',
 		entity: 'player',
 		outputModes: ['table'],
-		subjectRule: 'exactly_one'
+		subjectRule: 'exactly_one',
+		planning: {
+			orderBy: 'none',
+			defaultLimit: null,
+			supportsWindow: false
+		}
 	},
 	{
 		operation: 'lookup',
 		entity: 'team',
 		outputModes: ['table'],
-		subjectRule: 'exactly_one'
+		subjectRule: 'exactly_one',
+		planning: {
+			orderBy: 'none',
+			defaultLimit: null,
+			supportsWindow: false
+		}
 	},
 	{
 		operation: 'rank',
 		entity: 'player',
 		outputModes: ['table'],
-		subjectRule: 'none'
+		subjectRule: 'none',
+		planning: {
+			orderBy: 'same_metric_desc',
+			defaultLimit: 10,
+			supportsWindow: false
+		}
 	},
 	{
 		operation: 'trend',
 		entity: 'player',
 		outputModes: ['timeseries'],
-		subjectRule: 'exactly_one'
+		subjectRule: 'exactly_one',
+		planning: {
+			orderBy: 'none',
+			defaultLimit: null,
+			supportsWindow: true
+		}
 	},
 	{
 		operation: 'compare',
 		entity: 'player',
 		outputModes: ['comparison'],
-		subjectRule: 'exactly_two'
+		subjectRule: 'exactly_two',
+		planning: {
+			orderBy: 'none',
+			defaultLimit: null,
+			supportsWindow: false
+		}
 	},
 	{
 		operation: 'rank',
 		entity: 'team',
 		outputModes: ['table'],
-		subjectRule: 'zero_or_one'
+		subjectRule: 'zero_or_one',
+		planning: {
+			orderBy: 'same_metric_asc',
+			defaultLimit: 10,
+			supportsWindow: false
+		}
 	}
 ] as const;
 
@@ -123,6 +170,26 @@ function countStructuredSubjects(subject: SemanticQuery['subject']): number {
 	const names = subject.names ?? [];
 	const ids = subject.ids ?? [];
 	return Math.max(names.length, ids.length);
+}
+
+function getIntentForShape(shape: Pick<SupportedShape, 'operation' | 'entity'>) {
+	const shapeKey = getShapeKey(shape.operation, shape.entity);
+	return shapeKey ? INTENT_BY_SHAPE.get(shapeKey) : undefined;
+}
+
+function getSupportedMetricIdsForShape(shape: Pick<SupportedShape, 'operation' | 'entity'>): string[] {
+	const shapeIntent = getIntentForShape(shape);
+	if (!shapeIntent) {
+		return [];
+	}
+
+	return listMetricDefinitions()
+		.filter(
+			(metric) =>
+				metric.allowedIntents.includes(shapeIntent) &&
+				metric.allowedEntityScopes.includes(shape.entity as 'player' | 'team')
+		)
+		.map((metric) => metric.id);
 }
 
 function validateStructuredSubjectRule(
@@ -222,6 +289,16 @@ export function getPublicSemanticCapabilities(): PublicSemanticCapabilities {
 			operation: shape.operation,
 			entity: shape.entity,
 			kind: shape.subjectRule
+		})),
+		queryShapes: SUPPORTED_SHAPES.map((shape) => ({
+			operation: shape.operation,
+			entity: shape.entity,
+			outputModes: [...shape.outputModes],
+			subjectRule: shape.subjectRule,
+			metrics: getSupportedMetricIdsForShape(shape),
+			planning: {
+				...shape.planning
+			}
 		}))
 	};
 }
