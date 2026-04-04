@@ -158,3 +158,10 @@
 - Module scope: team directory snapshot, team alias overlay, team resolver, structured/team trace resolution contract
 - Interface contract: team resolution supports canonical names, city names, short names, abbreviations, and curated aliases | ambiguous team inputs return clarification_needed | canonical team identity is reflected in resolvedQuery once grounding is proven
 - Tests: add team resolver unit tests for exact, alias, and ambiguous cases | add contract tests for canonical resolvedQuery behavior
+## upgrade_deterministic_lookup_fixtures_and_bootstrap_sources
+
+- Title: Upgrade Deterministic Lookup Fixtures And Bootstrap Sources
+- Module scope: deterministic season fixtures, semantic cache seed helper, fixture bootstrap fetcher, lookup data coverage tests
+- Interface contract: deterministic data covers the shipped player and team lookup metric surface | seed and bootstrap fixture paths use the same season payload shapes | fixture coverage stays honest to the supported lookup contract
+- Tests: update deterministic fixture coverage tests | add bootstrap fixture parity tests | keep default tests fully fixture-backed
+
