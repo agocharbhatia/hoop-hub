@@ -279,7 +279,7 @@ tasks:
     summary: >
       Lock the before-and-after bootstrap behavior for supported lookup asks
       across the planner route, structured route, and trace surface.
-    status: pending
+    status: done
     blocked_by:
       - materialize_lookup_season_source_variants
       - ship_structured_player_season_lookup

@@ -193,3 +193,10 @@
 - Interface contract: planner lookup support is derived from the shared capabilities contract | planner preserves supported season input and stops before canonical grounding | vague asks clarify and unsupported adjacent asks remain coverage gaps
 - Tests: add planner service tests for lookup phrasing and season normalization | add /api/query integration tests for supported and unsupported lookup asks | add prompt/schema coverage sourced from shared capabilities
 
+## lock_empty_db_and_bootstrap_lookup_e2e_coverage
+
+- Title: Lock Empty-DB And Bootstrap Lookup E2E Coverage
+- Module scope: empty DB route coverage, post-bootstrap route coverage, cross-route trace verification, bootstrap e2e tests
+- Interface contract: supported lookup asks return nightly_data_unavailable before bootstrap | supported lookup asks return ok after the intended bootstrap path | traces remain canonical and trustworthy before and after bootstrap
+- Tests: add empty-DB integration tests for lookup on /api/query and /api/stats/query | add post-bootstrap integration tests for supported lookup asks | add trace verification across the bootstrap boundary
+
