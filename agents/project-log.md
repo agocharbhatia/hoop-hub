@@ -186,3 +186,10 @@
 - Interface contract: POST /api/stats/query accepts canonical lookup/team requests | lookup/team returns one table row with canonical team identity and season metadata | team lookup can merge approved base and advanced metrics into one response row
 - Tests: add semantic executor tests for team lookup output and source merging | add stats route tests for direct lookup/team requests | add trace and resolver tests for team lookup grounding behavior
 
+## expand_planner_to_season_lookup_phrasing
+
+- Title: Expand Planner To Season Lookup Phrasing
+- Module scope: planner service, planner schema/prompt construction, /api/query integration path, planner lookup tests
+- Interface contract: planner lookup support is derived from the shared capabilities contract | planner preserves supported season input and stops before canonical grounding | vague asks clarify and unsupported adjacent asks remain coverage gaps
+- Tests: add planner service tests for lookup phrasing and season normalization | add /api/query integration tests for supported and unsupported lookup asks | add prompt/schema coverage sourced from shared capabilities
+

@@ -238,7 +238,7 @@ tasks:
       Expand the planner route so supported player and team season-stat phrasing
       maps into the new structured lookup contract sourced from shared
       capabilities.
-    status: pending
+    status: done
     blocked_by:
       - unify_semantic_metrics_and_capabilities
       - add_team_directory_and_ambiguity_safe_resolution
