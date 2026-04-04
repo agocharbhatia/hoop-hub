@@ -197,7 +197,7 @@ tasks:
       Deliver end-to-end lookup/team support on the stats tool contract with
       ambiguity-safe team grounding, one-row table output, and merged base plus
       advanced team season metrics.
-    status: pending
+    status: done
     blocked_by:
       - unify_semantic_metrics_and_capabilities
       - add_team_directory_and_ambiguity_safe_resolution

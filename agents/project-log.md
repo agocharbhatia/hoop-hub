@@ -179,3 +179,10 @@
 - Module scope: semantic executor lookup planning, player lookup extraction, structured route contract, trace and provenance behavior
 - Interface contract: POST /api/stats/query accepts canonical lookup/player requests | lookup/player returns one table row with canonical identity and season metadata | unsupported metrics, seasons, season types, and empty stored data fail honestly
 - Tests: add semantic executor tests for player lookup output and warnings | add stats route tests for direct lookup/player requests | add trace tests for canonical player lookup provenance
+## ship_structured_team_season_lookup
+
+- Title: Ship Structured Team Season Lookup
+- Module scope: semantic executor lookup planning, team lookup extraction and source merging, structured route contract, team trace and provenance behavior
+- Interface contract: POST /api/stats/query accepts canonical lookup/team requests | lookup/team returns one table row with canonical team identity and season metadata | team lookup can merge approved base and advanced metrics into one response row
+- Tests: add semantic executor tests for team lookup output and source merging | add stats route tests for direct lookup/team requests | add trace and resolver tests for team lookup grounding behavior
+
