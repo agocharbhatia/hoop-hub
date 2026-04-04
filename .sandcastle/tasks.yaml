@@ -194,7 +194,7 @@ tasks:
       Implement the agreed partial-answer policy so /api/query returns ok plus
       warnings when at least one batched tool request succeeds, and returns
       typed non-ok behavior only when no usable tool result exists.
-    status: pending
+    status: done
     blocked_by:
       - add_internal_batched_tool_execution_for_compound_questions
       - deduplicate_normalized_requests_and_keep_batch_policy_tight

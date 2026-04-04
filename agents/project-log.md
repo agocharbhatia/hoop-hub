@@ -248,3 +248,10 @@
 - Module scope: request normalization, exact deduplication, batch execution ordering
 - Interface contract: planned requests are normalized before equality comparison | exact normalized duplicates are removed | non-duplicate request order is preserved
 - Tests: add executor tests for exact normalized deduplication | add executor tests for preserved non-duplicate order | add negative tests proving fuzzy merges are out of scope
+## return_partial_answers_for_mixed_batch_outcomes
+
+- Title: Return Partial Answers For Mixed Batch Outcomes
+- Module scope: partial-answer orchestration policy, warning aggregation, answer-route status handling
+- Interface contract: partial answers use top-level status ok plus warnings | zero-success valid batches return typed non-ok behavior | failed tool requests do not erase successful grounded tool results
+- Tests: add route tests for mixed success and failure batches | add executor tests for warning aggregation and zero-success behavior | add answer-path tests for grounded partial responses
+
