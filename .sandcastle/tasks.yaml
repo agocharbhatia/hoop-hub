@@ -1,419 +1,292 @@
 tasks:
-  - id: planner_runtime_rankings
-    title: Establish /api/query planner runtime for player rankings and typed
-      unsupported gaps
-    summary: >
-      Add the new primary natural-language route and planner boundary, but land
-      only the supported player-ranking flow plus typed planner-side
-      unsupported-gap behavior.
-    status: done
+  - id: unify_semantic_metrics_and_capabilities
+    title: Unify Semantic Metrics And Capabilities
+    github_issue: 26
     blocked_by: []
+    type: afk
+    status: pending
+    summary: >
+      Establish one shared semantic metric and capability contract for the stats
+      runtime, expose it through the public capabilities route, and make active
+      runtime validation read from the same source of truth.
     module_scope:
-      - planner contracts and schema
-      - OpenAI planner adapter
+      - semantic metric registry
+      - capability registry
+      - public capabilities route
+      - semantic query validation
+      - planner capability wiring
+    interface_contract:
+      - public stats tool capabilities expose only supported operations, entities,
+        metrics, output modes, seasons, season types, and subject rules
+      - executor validation and orchestration discovery read from the same shared
+        contract
+      - internal source variants and raw source fields remain private
+    acceptance_criteria:
+      - the active runtime uses one shared semantic capability source of truth
+      - GET /api/stats/capabilities returns the public tool contract for this slice
+      - contract tests prove capabilities and executor validation stay aligned
+    test_plan:
+      - add capability registry contract tests
+      - add capabilities route tests
+      - add validation tests proving supported lookup boundaries come from the
+        shared contract
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    notes: []
+
+  - id: add_team_directory_and_ambiguity_safe_resolution
+    title: Add Team Directory And Ambiguity-Safe Resolution
+    github_issue: 27
+    blocked_by:
+      - unify_semantic_metrics_and_capabilities
+    type: afk
+    status: pending
+    summary: >
+      Add the shared team identity layer and ambiguity-safe resolution behavior
+      so team lookups can ground to canonical subjects without guessing.
+    module_scope:
+      - team directory snapshot
+      - team alias overlay
+      - team resolver
+      - structured/team trace resolution contract
+    interface_contract:
+      - team resolution supports canonical names, city names, short names,
+        abbreviations, and curated aliases
+      - ambiguous team inputs return clarification_needed
+      - canonical team identity is reflected in resolvedQuery once grounding is proven
+    acceptance_criteria:
+      - the runtime resolves supported team naming forms to canonical team identity
+      - ambiguous team inputs do not guess and return typed clarification behavior
+      - resolver tests lock canonical identity and ambiguity semantics
+    test_plan:
+      - add team resolver unit tests for exact, alias, and ambiguous cases
+      - add contract tests for canonical resolvedQuery behavior
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    notes: []
+
+  - id: upgrade_deterministic_lookup_fixtures_and_bootstrap_sources
+    title: Upgrade Deterministic Lookup Fixtures And Bootstrap Sources
+    github_issue: 28
+    blocked_by:
+      - unify_semantic_metrics_and_capabilities
+    type: afk
+    status: pending
+    summary: >
+      Replace the skinny deterministic season fixtures with lookup-ready season
+      payloads and make cache seeding plus fixture-backed bootstrap consume the
+      same supported metric surface.
+    module_scope:
+      - deterministic season fixtures
+      - semantic cache seed helper
+      - fixture bootstrap fetcher
+      - lookup data coverage tests
+    interface_contract:
+      - deterministic data covers the shipped player and team lookup metric surface
+      - seed and bootstrap fixture paths use the same season payload shapes
+      - fixture coverage stays honest to the supported lookup contract
+    acceptance_criteria:
+      - deterministic fixtures cover the committed lookup metric surface
+      - cache seeding and fixture bootstrap read from the same richer payload set
+      - tests fail if the supported lookup metric surface drifts from fixture support
+    test_plan:
+      - update deterministic fixture coverage tests
+      - add bootstrap fixture parity tests
+      - keep default tests fully fixture-backed
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    notes: []
+
+  - id: materialize_lookup_season_source_variants
+    title: Materialize Lookup Season Source Variants
+    github_issue: 29
+    blocked_by:
+      - unify_semantic_metrics_and_capabilities
+      - upgrade_deterministic_lookup_fixtures_and_bootstrap_sources
+    type: afk
+    status: pending
+    summary: >
+      Expand nightly and historical materialization so current season and 2023-24
+      lookup source variants are written to stored data for player base and team
+      base plus advanced season rows.
+    module_scope:
+      - nightly request planning
+      - historical backfill planning
+      - materialization service
+      - stored-data lookup support
+    interface_contract:
+      - supported lookup source variants are available from nightly materialized data
+      - current season and 2023-24 support use the same generalized seams
+      - empty DB recovery remains nightly_data_unavailable until bootstrap
+    acceptance_criteria:
+      - nightly and backfill paths materialize the supported lookup source variants
+      - supported lookup reads succeed after bootstrap from stored data only
+      - bootstrap tests lock source-variant materialization and empty-DB recovery
+    test_plan:
+      - add bootstrap service tests for lookup source variants
+      - add historical backfill tests for 2023-24 lookup support
+      - add stored-read tests for supported lookup shapes after bootstrap
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    notes: []
+
+  - id: ship_structured_player_season_lookup
+    title: Ship Structured Player Season Lookup
+    github_issue: 30
+    blocked_by:
+      - unify_semantic_metrics_and_capabilities
+      - upgrade_deterministic_lookup_fixtures_and_bootstrap_sources
+      - materialize_lookup_season_source_variants
+    type: afk
+    status: pending
+    summary: >
+      Deliver end-to-end lookup/player support on the stats tool contract with
+      one-subject validation, canonical player grounding, one-row table output,
+      supported-season behavior, warnings, and traces.
+    module_scope:
+      - semantic executor lookup planning
+      - player lookup extraction
+      - structured route contract
+      - trace and provenance behavior
+    interface_contract:
+      - POST /api/stats/query accepts canonical lookup/player requests
+      - lookup/player returns one table row with canonical identity and season metadata
+      - unsupported metrics, seasons, season types, and empty stored data fail honestly
+    acceptance_criteria:
+      - structured player lookup executes successfully for supported asks
+      - canonical resolvedQuery identity and supported season behavior are preserved
+      - route, executor, and trace tests lock the full player lookup contract
+    test_plan:
+      - add semantic executor tests for player lookup output and warnings
+      - add stats route tests for direct lookup/player requests
+      - add trace tests for canonical player lookup provenance
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    notes: []
+
+  - id: ship_structured_team_season_lookup
+    title: Ship Structured Team Season Lookup
+    github_issue: 31
+    blocked_by:
+      - unify_semantic_metrics_and_capabilities
+      - add_team_directory_and_ambiguity_safe_resolution
+      - upgrade_deterministic_lookup_fixtures_and_bootstrap_sources
+      - materialize_lookup_season_source_variants
+    type: afk
+    status: pending
+    summary: >
+      Deliver end-to-end lookup/team support on the stats tool contract with
+      ambiguity-safe team grounding, one-row table output, and merged base plus
+      advanced team season metrics.
+    module_scope:
+      - semantic executor lookup planning
+      - team lookup extraction and source merging
+      - structured route contract
+      - team trace and provenance behavior
+    interface_contract:
+      - POST /api/stats/query accepts canonical lookup/team requests
+      - lookup/team returns one table row with canonical team identity and season metadata
+      - team lookup can merge approved base and advanced metrics into one response row
+    acceptance_criteria:
+      - structured team lookup executes successfully for supported asks
+      - record metrics and merged team metrics are returned in one canonical row
+      - route, resolver, executor, and trace tests lock the full team lookup contract
+    test_plan:
+      - add semantic executor tests for team lookup output and source merging
+      - add stats route tests for direct lookup/team requests
+      - add trace and resolver tests for team lookup grounding behavior
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    notes: []
+
+  - id: expand_planner_to_season_lookup_phrasing
+    title: Expand Planner To Season Lookup Phrasing
+    github_issue: 32
+    blocked_by:
+      - unify_semantic_metrics_and_capabilities
+      - add_team_directory_and_ambiguity_safe_resolution
+      - ship_structured_player_season_lookup
+      - ship_structured_team_season_lookup
+    type: afk
+    status: pending
+    summary: >
+      Expand the planner route so supported player and team season-stat phrasing
+      maps into the new structured lookup contract sourced from shared capabilities.
+    module_scope:
       - planner service
-      - query route orchestration
-      - trace persistence for planner non-ok responses
+      - planner schema/prompt construction
+      - /api/query integration path
+      - planner lookup tests
     interface_contract:
-      - "POST /api/query accepts { question: string }"
-      - public response remains StatsQueryResponse
-      - POST /api/stats/query remains the direct structured executor route
-      - planner outputs a closed validated decision contract before executor
-        delegation
+      - planner lookup support is derived from the shared capabilities contract
+      - planner preserves supported season input and stops before canonical grounding
+      - vague asks clarify and unsupported adjacent asks remain coverage gaps
     acceptance_criteria:
-      - /api/query executes supported player-ranking asks through the semantic
-        executor
-      - unsupported asks return typed coverage_gap with no executor call
-      - planner output is revalidated before executor use
-      - planner outages or invalid structured output return server errors
+      - supported player and team season lookup asks plan into valid structured lookup queries
+      - planner preserves supported season mentions and safe clarification behavior
+      - planner and /api/query tests lock lookup planning end to end
     test_plan:
-      - add deterministic planner service tests for planned and coverage-gap
-        decisions
-      - add /api/query route tests for rankings, unsupported asks, and
-        server-error behavior
-      - keep existing executor tests green
+      - add planner service tests for lookup phrasing and season normalization
+      - add /api/query integration tests for supported and unsupported lookup asks
+      - add prompt/schema coverage sourced from shared capabilities
     quality_gates:
       - bun run check
       - bun run test
       - bun run build
     retry_limit: 2
-    attempts: 0
     notes: []
-    github_issue: 10
-    type: afk
-  - id: planner_player_trends
-    title: Add player trend planning with safe metric clarification
-    summary: >
-      Extend the planner runtime to support player-trend asks, safe scoring
-      inference, rolling-window planning, and planner-side clarification for
-      vague trend questions.
-    status: done
+
+  - id: lock_empty_db_and_bootstrap_lookup_e2e_coverage
+    title: Lock Empty-DB And Bootstrap Lookup E2E Coverage
+    github_issue: 33
     blocked_by:
-      - planner_runtime_rankings
-    module_scope:
-      - planner service
-      - planner schema
-      - query route tests
-      - semantic executor integration path
-    interface_contract:
-      - player trend questions plan into canonical metric ids and supported
-        semantic filters
-      - vague trend asks return clarification_needed with no executor call
-      - executor remains the canonical grounding authority
-    acceptance_criteria:
-      - scoring-language trend asks execute successfully through /api/query
-      - last-N window filters are preserved through planning
-      - vague trend asks return typed clarification_needed
-    test_plan:
-      - add deterministic planner tests for scoring inference and missing_metric
-      - add /api/query route tests for supported and clarification-needed trend
-        asks
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 11
+      - materialize_lookup_season_source_variants
+      - ship_structured_player_season_lookup
+      - ship_structured_team_season_lookup
+      - expand_planner_to_season_lookup_phrasing
     type: afk
-  - id: planner_player_comparisons
-    title: Add player comparison planning with subject-order guarantees
+    status: pending
     summary: >
-      Extend the planner runtime to support player-comparison asks, safe default
-      metrics, preserved subject order, and planner-side clarification when two
-      subjects are not present.
-    status: done
-    blocked_by:
-      - planner_runtime_rankings
+      Lock the before-and-after bootstrap behavior for supported lookup asks
+      across the planner route, structured route, and trace surface.
     module_scope:
-      - planner service
-      - planner schema
-      - query route tests
-      - comparison integration path
+      - empty DB route coverage
+      - post-bootstrap route coverage
+      - cross-route trace verification
+      - bootstrap e2e tests
     interface_contract:
-      - comparison asks preserve subject order from the user question
-      - compare-without-metric defaults safely to pts
-      - incomplete comparison asks return clarification_needed with no executor
-        call
+      - supported lookup asks return nightly_data_unavailable before bootstrap
+      - supported lookup asks return ok after the intended bootstrap path
+      - traces remain canonical and trustworthy before and after bootstrap
     acceptance_criteria:
-      - comparison asks execute successfully through /api/query
-      - subject order is stable in planned semantic queries
-      - incomplete comparison asks return typed clarification_needed
+      - supported lookup asks fail honestly before bootstrap and recover after bootstrap
+      - cross-route lookup traces remain canonical across the bootstrap boundary
+      - end-to-end tests lock the shipped lookup bootstrap behavior
     test_plan:
-      - add deterministic planner tests for compare planning and subject order
-      - add /api/query route tests for compare success and
-        compare_requires_two_subjects
+      - add empty-DB integration tests for lookup on /api/query and /api/stats/query
+      - add post-bootstrap integration tests for supported lookup asks
+      - add trace verification across the bootstrap boundary
     quality_gates:
       - bun run check
       - bun run test
       - bun run build
     retry_limit: 2
-    attempts: 0
     notes: []
-    github_issue: 12
-    type: afk
-  - id: planner_team_defense_rankings
-    title: Add team defensive ranking planning to the new runtime
-    summary: >
-      Complete the current supported stats domain on the planner path by adding
-      team defensive-ranking planning and adjacent unsupported-gap handling.
-    status: done
-    blocked_by:
-      - planner_runtime_rankings
-    module_scope:
-      - planner service
-      - planner schema
-      - query route tests
-      - team ranking integration path
-    interface_contract:
-      - team defensive ranking asks plan into rank/team with canonical drtg
-        metric
-      - unsupported adjacent team asks still fail as typed coverage gaps
-      - public response and trace semantics remain unchanged
-    acceptance_criteria:
-      - supported team defensive ranking asks execute through /api/query
-      - planner normalizes to drtg and a supported team ranking shape
-      - unsupported adjacent team asks return typed coverage_gap
-    test_plan:
-      - add deterministic planner tests for supported and unsupported team asks
-      - add /api/query route tests for team defensive ranking behavior
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 13
-    type: afk
-  - id: migrate_ui_and_remove_chat_route
-    title: Remove /api/chat/query and switch the app UI to /api/query
-    summary: >
-      Remove the old natural-language route, point the app UI at /api/query, and
-      delete fake follow-up and memory cues while preserving current results and
-      trace UX.
-    status: done
-    blocked_by:
-      - planner_player_trends
-      - planner_player_comparisons
-      - planner_team_defense_rankings
-    module_scope:
-      - natural-language route boundary
-      - UI query flow
-      - route and trace tests
-    interface_contract:
-      - UI posts { question } to /api/query
-      - no sessionId remains in the public natural-language route contract
-      - /api/chat/query is removed as a production path
-    acceptance_criteria:
-      - the app uses /api/query end to end for natural-language stats asks
-      - fake follow-up and memory cues are removed
-      - natural-language route and trace tests target /api/query
-    test_plan:
-      - migrate route tests from /api/chat/query to /api/query
-      - update UI tests or smoke coverage if present
-      - rerun the full repo verification surface after route removal
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 14
-    type: afk
-  - id: nightly_snapshot_reads_and_lazy_planner_cleanup
-    title: Make nightly snapshots readable across days and lazily isolate the
-      planner route
-    summary: >
-      Add the storage/read contract that selects the latest stored nightly
-      snapshot up to the query date, and lazily instantiate the default planner
-      so route tests and tooling stop depending on eager OpenAI imports.
-    status: done
-    blocked_by: []
-    module_scope:
-      - raw endpoint cache read semantics
-      - data store latest-row lookup
-      - query-time endpoint adapter reads
-      - query route dependency wiring
-    interface_contract:
-      - query-time stored reads select the latest matching snapshot where
-        snapshot date is less than or equal to the query date
-      - public query and trace contracts remain unchanged
-      - test dependency injection for /api/query does not eagerly instantiate
-        the default planner adapter
-    acceptance_criteria:
-      - previous-day nightly snapshots can satisfy next-day queries through the
-        existing runtime
-      - the data store owns latest-snapshot selection semantics for raw cache
-        reads
-      - /api/query can be imported in tests without eager OpenAI planner
-        instantiation
-    test_plan:
-      - add data-store tests for latest-row lookup across snapshot dates
-      - add integration or route-level regression coverage for previous-day
-        snapshot reuse
-      - add route import or dependency-injection coverage for lazy planner
-        creation
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 17
-    type: afk
-  - id: nightly_current_season_rankings_and_team_defense
-    title: Bootstrap current-season league-wide nightly data for rankings and team
-      defense
-    summary: >
-      Add the nightly bootstrap CLI and service path for the current-season
-      league-wide request shapes needed by player rankings and team defensive
-      rankings, including honest nightly run bookkeeping.
-    status: done
-    blocked_by:
-      - nightly_snapshot_reads_and_lazy_planner_cleanup
-    module_scope:
-      - nightly bootstrap service
-      - bootstrap CLI entrypoint
-      - nightly run bookkeeping
-      - current-season league-wide request planning
-    interface_contract:
-      - bootstrap command accepts a required slate date
-      - current-season league-wide ranking and team-defense request shapes are
-        written as authoritative nightly cache rows
-      - run status reports completed, partial, or failed honestly
-    acceptance_criteria:
-      - an empty DB can be bootstrapped into working current-season player
-        ranking queries
-      - an empty DB can be bootstrapped into working current-season team
-        defensive ranking queries
-      - current-season league-wide writes are marked as authoritative nightly
-        data
-    test_plan:
-      - add bootstrap service tests for completed, partial, and failed run status
-      - add ingest tests for authoritative nightly cache writes
-      - add end-to-end coverage that ranking and team-defense queries work after
-        bootstrap
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 18
-    type: afk
-  - id: nightly_player_cohort_and_comparisons
-    title: Derive the nightly player cohort and bootstrap regular-season comparisons
-    summary: >
-      Derive the nightly player cohort from current-season league-wide player
-      stats plus a checked-in demo allowlist, then materialize regular-season
-      comparison source data for that cohort.
-    status: done
-    blocked_by:
-      - nightly_current_season_rankings_and_team_defense
-    module_scope:
-      - player cohort derivation
-      - checked-in demo allowlist
-      - player comparison nightly materialization
-    interface_contract:
-      - the cohort derives from current-season league-wide player stats plus a
-        deterministic allowlist
-      - comparison bootstrap remains regular-season-only
-      - public comparison query contracts remain unchanged
-    acceptance_criteria:
-      - the bootstrap service derives a deterministic player cohort
-      - regular-season comparison source rows are materialized for the full
-        cohort
-      - comparison asks work from an empty DB after bootstrap
-    test_plan:
-      - add tests for cohort derivation from league-wide player stats plus the
-        demo allowlist
-      - add bootstrap service tests for comparison materialization
-      - add integration coverage that supported comparison queries return ok
-        after bootstrap
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 19
-    type: afk
-  - id: nightly_current_season_player_trends
-    title: Bootstrap current-season player trends for the derived cohort
-    summary: >
-      Materialize current-season regular-season player trend source data for the
-      already-derived nightly cohort so supported trend asks work from stored
-      nightly data.
-    status: done
-    blocked_by:
-      - nightly_player_cohort_and_comparisons
-    module_scope:
-      - current-season player trend materialization
-      - trend-oriented nightly request planning
-      - empty-payload success handling
-    interface_contract:
-      - the bootstrap service writes current-season regular-season player trend
-        rows for the full cohort
-      - valid empty payloads are treated as successful nightly materialization
-      - the public trend response contract remains unchanged
-    acceptance_criteria:
-      - supported current-season trend asks work from an empty DB after bootstrap
-      - trend materialization covers the full derived cohort
-      - empty but valid trend payloads do not mark the overall run as failed by
-        themselves
-    test_plan:
-      - add bootstrap service tests for current-season trend materialization
-      - add ingest tests for empty trend payload success handling
-      - add integration coverage that supported trend queries return ok after
-        bootstrap
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 20
-    type: afk
-  - id: nightly_backfill_2023_24_demo_season
-    title: Backfill 2023-24 demo-season support on miss
-    summary: >
-      Add guaranteed regular-season 2023-24 demo coverage by backfilling the
-      approved ranking, team-defense, and trend request shapes on miss while
-      keeping current-season refresh behavior unchanged.
-    status: done
-    blocked_by:
-      - nightly_current_season_rankings_and_team_defense
-      - nightly_player_cohort_and_comparisons
-      - nightly_current_season_player_trends
-    module_scope:
-      - historical backfill-on-miss planning
-      - 2023-24 nightly cache writes
-      - skip-on-hit historical refresh policy
-    interface_contract:
-      - 2023-24 regular-season ranking, team-defense, and trend shapes are
-        backfilled on miss only
-      - current-season refresh behavior remains unchanged
-      - no new public route or warning contracts are introduced
-    acceptance_criteria:
-      - supported 2023-24 ranking, team-defense, and trend asks work after
-        backfill
-      - valid historical rows are skipped rather than refetched on every run
-      - the historical path remains regular-season-only
-    test_plan:
-      - add bootstrap service tests for 2023-24 backfill-on-miss behavior
-      - add regression coverage that current-season refresh policy is unchanged
-      - add integration coverage that supported 2023-24 queries return ok after
-        backfill
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 21
-    type: afk
-  - id: nightly_bootstrap_e2e_and_docs_refresh
-    title: Lock end-to-end nightly bootstrap coverage and refresh docs
-    summary: >
-      Lock the empty-DB-to-working-runtime contract with end-to-end nightly
-      bootstrap coverage and refresh repo docs so the shipped runtime and
-      bootstrap workflow are described accurately.
-    status: done
-    blocked_by:
-      - nightly_backfill_2023_24_demo_season
-    module_scope:
-      - empty-DB integration coverage
-      - cross-day snapshot regression coverage
-      - runtime and bootstrap documentation
-    interface_contract:
-      - an empty DB returns the existing nightly coverage gap before bootstrap
-      - supported current routes return ok after bootstrap
-      - docs and planning mirrors match the shipped runtime and nightly
-        bootstrap workflow
-    acceptance_criteria:
-      - end-to-end tests prove bootstrap turns supported queries from
-        nightly_data_unavailable into ok responses
-      - regressions prove previous-day snapshots remain readable on later days
-      - repo docs are consistent with the current runtime and nightly bootstrap
-        path
-    test_plan:
-      - add empty-DB integration tests for before-and-after bootstrap behavior
-      - add cross-day snapshot reuse regression coverage
-      - rerun the full repo verification surface after doc updates
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 22
-    type: afk
