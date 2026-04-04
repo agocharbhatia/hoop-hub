@@ -208,10 +208,10 @@
 - Workflow assumptions: keep `/api/stats/query` as the stable single-query tool contract, split planning and answer rendering into separate LLM steps, cap `/api/query` batches at three structured requests, allow partial answers as `ok` plus warnings, and model `/api/query` traces as orchestration traces with planned tool requests plus executed structured trace references instead of one fake `resolvedQuery`.
 - Issue slicing published as implementation issues `#35` through `#41`, and the approved dependency graph now lives in `.sandcastle/tasks.yaml` as the execution source for this PRD.
 - Slice `ship_answer_first_api_query_for_one_tool_result` ships the narrow answer-first contract on `/api/query`: one planned structured request, one semantic executor result exposed under `toolResults`, one renderer-owned `answer` plus small artifacts, and UI consumption moved off the old top-level raw `StatsQueryResponse` shape.
+- Slice `add_honest_orchestration_traces_for_answer_route_requests` gives `/api/query` its own orchestration trace ids and payloads. Answer-route traces now persist planned tool requests plus executed structured trace ids, aggregate freshness and source-call data from the referenced semantic traces, and stop exposing a fake single `resolvedQuery`.
 ## ship_answer_first_api_query_for_one_tool_result
 
 - Title: Ship Answer-First /api/query For One Tool Result
 - Module scope: query route orchestration, planner and renderer service boundaries, answer response contract, app query UI
 - Interface contract: POST /api/query returns an answer-first payload instead of raw StatsQueryResponse | POST /api/stats/query remains the stable single-query structured tool contract | the one-request path uses separate planning and answer-rendering steps
 - Tests: add route contract tests for one-request answer responses | add deterministic planner and renderer boundary tests for the one-tool path | update UI-facing tests or helpers to consume the new answer payload
-

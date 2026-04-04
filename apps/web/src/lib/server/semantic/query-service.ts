@@ -4,7 +4,7 @@ import type {
 	DataFreshnessMode,
 	TraceSourceCall
 } from '$lib/contracts/chat';
-import type { QueryTraceResponse } from '$lib/contracts/query-trace';
+import type { QueryTraceResponse, SemanticQueryTraceResponse } from '$lib/contracts/query-trace';
 import type {
 	SemanticQuery,
 	SemanticQueryFilters,
@@ -1067,7 +1067,7 @@ function buildTraceFromResponse(
 	warnings: StatsQueryWarning[],
 	latencyMs: QueryTraceResponse['latencyMs'],
 	cache: QueryTraceResponse['cache']
-): QueryTraceResponse {
+): SemanticQueryTraceResponse {
 	return {
 		traceId,
 		normalizedQuestion,

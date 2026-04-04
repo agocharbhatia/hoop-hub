@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
+import type { QueryAnswerPlannedToolRequest } from '$lib/contracts/answer-response';
 import type { DataFreshnessMode, TraceSourceCall } from '$lib/contracts/chat';
 import { computePayloadChecksum, stableStringify } from './cache-key';
 
@@ -70,6 +71,23 @@ const SCHEMA_STATEMENTS = [
 		created_at TEXT NOT NULL
 	)`,
 	'CREATE INDEX IF NOT EXISTS idx_query_trace_source_calls_trace ON query_trace_source_calls (trace_id, id)',
+	`CREATE TABLE IF NOT EXISTS query_trace_orchestration_plans (
+		trace_id TEXT NOT NULL,
+		request_order INTEGER NOT NULL,
+		tool_name TEXT NOT NULL,
+		request_json TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (trace_id, request_order)
+	)`,
+	'CREATE INDEX IF NOT EXISTS idx_query_trace_orchestration_plans_trace ON query_trace_orchestration_plans (trace_id, request_order)',
+	`CREATE TABLE IF NOT EXISTS query_trace_orchestration_executed_traces (
+		trace_id TEXT NOT NULL,
+		trace_order INTEGER NOT NULL,
+		structured_trace_id TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (trace_id, trace_order)
+	)`,
+	'CREATE INDEX IF NOT EXISTS idx_query_trace_orchestration_executed_traces_trace ON query_trace_orchestration_executed_traces (trace_id, trace_order)',
 	`CREATE TABLE IF NOT EXISTS player_directory_entries (
 		player_id TEXT PRIMARY KEY,
 		canonical_name TEXT NOT NULL,
@@ -155,6 +173,17 @@ type TraceSourceCallRow = {
 	parser_version: string;
 	source_status: TraceSourceCall['sourceStatus'];
 	data_freshness_mode: DataFreshnessMode;
+};
+
+type OrchestrationTracePlanRow = {
+	request_order: number;
+	tool_name: QueryAnswerPlannedToolRequest['toolName'];
+	request_json: string;
+};
+
+type OrchestrationTraceExecutedTraceRow = {
+	trace_order: number;
+	structured_trace_id: string;
 };
 
 type PlayerDirectoryEntryRow = {
@@ -299,6 +328,11 @@ type TraceSourceBundle = {
 	sourceCalls: TraceSourceCall[];
 };
 
+export type OrchestrationTraceReferenceBundle = {
+	plannedToolRequests: QueryAnswerPlannedToolRequest[];
+	executedStructuredTraceIds: string[];
+};
+
 function resolveDbPath(pathOverride?: string): string {
 	return pathOverride ?? process.env.HOOP_HUB_DB_PATH ?? DEFAULT_DB_FILE;
 }
@@ -396,6 +430,36 @@ function mapTraceSourceRows(rows: TraceSourceCallRow[]): TraceSourceBundle {
 	};
 }
 
+function clonePlannedToolRequests(
+	plannedToolRequests: QueryAnswerPlannedToolRequest[]
+): QueryAnswerPlannedToolRequest[] {
+	return plannedToolRequests.map((plannedToolRequest) => ({
+		toolName: plannedToolRequest.toolName,
+		request: JSON.parse(stableStringify(plannedToolRequest.request))
+	}));
+}
+
+function cloneExecutedStructuredTraceIds(executedStructuredTraceIds: string[]): string[] {
+	return executedStructuredTraceIds.map((traceId) => `${traceId}`);
+}
+
+function mapOrchestrationTraceReferences(
+	planRows: OrchestrationTracePlanRow[],
+	executedTraceRows: OrchestrationTraceExecutedTraceRow[]
+): OrchestrationTraceReferenceBundle {
+	return {
+		plannedToolRequests: planRows
+			.sort((left, right) => left.request_order - right.request_order)
+			.map<QueryAnswerPlannedToolRequest>((row) => ({
+				toolName: row.tool_name,
+				request: JSON.parse(row.request_json)
+			})),
+		executedStructuredTraceIds: executedTraceRows
+			.sort((left, right) => left.trace_order - right.trace_order)
+			.map((row) => row.structured_trace_id)
+	};
+}
+
 function mapPlayerDirectoryEntryRow(row: PlayerDirectoryEntryRow): PlayerDirectoryEntryRecord {
 	return {
 		playerId: row.player_id,
@@ -421,6 +485,7 @@ export class DataStore {
 	private readonly nightlyRunsMemory = new Map<string, NightlyRunRecord>();
 	private readonly nightlyRunRequestsMemory = new Map<string, NightlyRunRequestRecord>();
 	private readonly traceSourceCallsMemory = new Map<string, TraceSourceBundle>();
+	private readonly orchestrationTraceReferencesMemory = new Map<string, OrchestrationTraceReferenceBundle>();
 	private readonly playerDirectoryByIdMemory = new Map<string, PlayerDirectoryEntryRecord>();
 	private readonly playerDirectoryByNormalizedNameMemory = new Map<string, PlayerDirectoryEntryRecord[]>();
 
@@ -1007,6 +1072,98 @@ export class DataStore {
 		);
 		const rows = statement.all(traceId);
 		return mapTraceSourceRows(rows);
+	}
+
+	replaceOrchestrationTraceReferences(
+		traceId: string,
+		plannedToolRequests: QueryAnswerPlannedToolRequest[],
+		executedStructuredTraceIds: string[]
+	): void {
+		if (!this.sqlite) {
+			this.orchestrationTraceReferencesMemory.set(traceId, {
+				plannedToolRequests: clonePlannedToolRequests(plannedToolRequests),
+				executedStructuredTraceIds: cloneExecutedStructuredTraceIds(executedStructuredTraceIds)
+			});
+			return;
+		}
+
+		const deletePlanRows = this.sqlite.query<unknown, string>('DELETE FROM query_trace_orchestration_plans WHERE trace_id = ?');
+		const deleteExecutedTraceRows = this.sqlite.query<unknown, string>(
+			'DELETE FROM query_trace_orchestration_executed_traces WHERE trace_id = ?'
+		);
+		const insertPlanRow = this.sqlite.query<unknown, Record<string, string | number>>(`
+			INSERT INTO query_trace_orchestration_plans (
+				trace_id,
+				request_order,
+				tool_name,
+				request_json,
+				created_at
+			) VALUES (
+				@traceId,
+				@requestOrder,
+				@toolName,
+				@requestJson,
+				@createdAt
+			)
+		`);
+		const insertExecutedTraceRow = this.sqlite.query<unknown, Record<string, string | number>>(`
+			INSERT INTO query_trace_orchestration_executed_traces (
+				trace_id,
+				trace_order,
+				structured_trace_id,
+				created_at
+			) VALUES (
+				@traceId,
+				@traceOrder,
+				@structuredTraceId,
+				@createdAt
+			)
+		`);
+
+		const tx = this.sqlite.transaction((createdAt: string) => {
+			deletePlanRows.run(traceId);
+			deleteExecutedTraceRows.run(traceId);
+
+			for (const [requestOrder, plannedToolRequest] of plannedToolRequests.entries()) {
+				insertPlanRow.run({
+					traceId,
+					requestOrder,
+					toolName: plannedToolRequest.toolName,
+					requestJson: stableStringify(plannedToolRequest.request),
+					createdAt
+				});
+			}
+
+			for (const [traceOrder, structuredTraceId] of executedStructuredTraceIds.entries()) {
+				insertExecutedTraceRow.run({
+					traceId,
+					traceOrder,
+					structuredTraceId,
+					createdAt
+				});
+			}
+		});
+
+		tx(new Date().toISOString());
+	}
+
+	getOrchestrationTraceReferences(traceId: string): OrchestrationTraceReferenceBundle {
+		if (!this.sqlite) {
+			const references = this.orchestrationTraceReferencesMemory.get(traceId);
+			return {
+				plannedToolRequests: clonePlannedToolRequests(references?.plannedToolRequests ?? []),
+				executedStructuredTraceIds: cloneExecutedStructuredTraceIds(references?.executedStructuredTraceIds ?? [])
+			};
+		}
+
+		const planStatement = this.sqlite.query<OrchestrationTracePlanRow, string>(
+			'SELECT request_order, tool_name, request_json FROM query_trace_orchestration_plans WHERE trace_id = ? ORDER BY request_order ASC'
+		);
+		const executedTraceStatement = this.sqlite.query<OrchestrationTraceExecutedTraceRow, string>(
+			'SELECT trace_order, structured_trace_id FROM query_trace_orchestration_executed_traces WHERE trace_id = ? ORDER BY trace_order ASC'
+		);
+
+		return mapOrchestrationTraceReferences(planStatement.all(traceId), executedTraceStatement.all(traceId));
 	}
 
 	replacePlayerDirectorySnapshot(

@@ -323,6 +323,85 @@ describe('data-store', () => {
 		}
 	});
 
+	test('replaces and reads orchestration trace tool requests and executed trace ids', () => {
+		const store = new DataStore({ dbPath: ':memory:' });
+		try {
+			store.replaceOrchestrationTraceReferences(
+				'orchestration-trace-1',
+				[
+					{
+						toolName: 'stats_query',
+						request: {
+							question: 'Who averaged the most assists in 2023-24?',
+							query: {
+								operation: 'rank',
+								entity: 'player',
+								subject: {},
+								metrics: ['ast'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: {
+									metric: 'ast',
+									direction: 'desc'
+								},
+								limit: 10,
+								outputMode: 'table'
+							}
+						}
+					}
+				],
+				['semantic-trace-1', 'semantic-trace-2']
+			);
+
+			store.replaceOrchestrationTraceReferences(
+				'orchestration-trace-1',
+				[
+					{
+						toolName: 'stats_query',
+						request: {
+							question: 'How many wins did the Celtics have in 2023-24?',
+							query: {
+								operation: 'lookup',
+								entity: 'team',
+								subject: {
+									names: ['Boston Celtics']
+								},
+								metrics: ['wins'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'table'
+							}
+						}
+					}
+				],
+				['semantic-trace-3']
+			);
+
+			const references = store.getOrchestrationTraceReferences('orchestration-trace-1');
+			assert.equal(references.plannedToolRequests.length, 1);
+			assert.equal(references.plannedToolRequests[0]?.toolName, 'stats_query');
+			assert.equal(
+				references.plannedToolRequests[0]?.request.question,
+				'How many wins did the Celtics have in 2023-24?'
+			);
+			assert.deepEqual(references.executedStructuredTraceIds, ['semantic-trace-3']);
+		} finally {
+			store.close();
+		}
+	});
+
 	test('replaces and looks up player directory entries', () => {
 		const store = new DataStore({ dbPath: ':memory:' });
 		try {

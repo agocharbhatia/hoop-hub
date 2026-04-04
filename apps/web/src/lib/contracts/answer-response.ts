@@ -19,9 +19,12 @@ export type QueryAnswerArtifact =
 			text: string;
 	  };
 
-export type QueryAnswerToolResult = {
+export type QueryAnswerPlannedToolRequest = {
 	toolName: 'stats_query';
 	request: SemanticQueryRequest;
+};
+
+export type QueryAnswerToolResult = QueryAnswerPlannedToolRequest & {
 	response: StatsQueryResponse;
 };
 

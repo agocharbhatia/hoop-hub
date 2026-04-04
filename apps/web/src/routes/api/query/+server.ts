@@ -1,10 +1,15 @@
 import { json } from '@sveltejs/kit';
-import type { QueryAnswerResponse, QueryAnswerToolResult } from '$lib/contracts/answer-response';
+import type {
+	QueryAnswerPlannedToolRequest,
+	QueryAnswerResponse,
+	QueryAnswerToolResult
+} from '$lib/contracts/answer-response';
 import type { AnswerRendererService } from '$lib/server/answer-renderer/service';
 import { createDefaultAnswerRendererService } from '$lib/server/answer-renderer/service';
 import type { PlannerService } from '$lib/server/planner/service';
 import { createPlannerService } from '$lib/server/planner/service';
 import type { SemanticQueryRequest, StatsQueryResponse } from '$lib/contracts/semantic-query';
+import { saveOrchestrationTrace } from '$lib/server/semantic/trace-store';
 import {
 	buildSemanticNonOkResponse,
 	executeSemanticQuery,
@@ -80,6 +85,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	try {
 		const dependencies = getDependencies();
+		const orchestrationTraceId = crypto.randomUUID();
 		const planningStartedAt = performance.now();
 		const decision = await dependencies.planner.planQuestion(parsed.value.question);
 		const planningLatencyMs = Math.round(performance.now() - planningStartedAt);
@@ -92,7 +98,8 @@ export const POST: RequestHandler = async ({ request }) => {
 				null,
 				planningLatencyMs
 			);
-			return json(buildAnswerResponseFromSemanticResponse([], result), { status: 200 });
+			saveQueryOrchestrationTrace(orchestrationTraceId, parsed.value.question, result.status, [], [], result.warnings, planningLatencyMs, 0);
+			return json(buildAnswerResponseFromSemanticResponse(orchestrationTraceId, [], result), { status: 200 });
 		}
 
 		const validated = dependencies.validateSemanticQueryRequest({
@@ -105,15 +112,38 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		const result = await dependencies.executeSemanticQuery(validated.value);
 		const toolResult = buildToolResult(validated.value, result);
+		const plannedToolRequests = [buildPlannedToolRequest(validated.value)];
 
 		if (result.status !== 'ok' || result.result === null) {
-			return json(buildAnswerResponseFromSemanticResponse([toolResult], result), { status: 200 });
+			saveQueryOrchestrationTrace(
+				orchestrationTraceId,
+				parsed.value.question,
+				result.status,
+				plannedToolRequests,
+				[result.traceId],
+				result.warnings,
+				planningLatencyMs,
+				0
+			);
+			return json(buildAnswerResponseFromSemanticResponse(orchestrationTraceId, [toolResult], result), { status: 200 });
 		}
 
+		const renderStartedAt = performance.now();
 		const rendered = await dependencies.renderer.renderAnswer({
 			question: parsed.value.question,
 			toolResults: [toolResult]
 		});
+		const renderLatencyMs = Math.round(performance.now() - renderStartedAt);
+		saveQueryOrchestrationTrace(
+			orchestrationTraceId,
+			parsed.value.question,
+			result.status,
+			plannedToolRequests,
+			[result.traceId],
+			result.warnings,
+			planningLatencyMs,
+			renderLatencyMs
+		);
 
 		return json(
 			{
@@ -123,7 +153,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				toolResults: [toolResult],
 				citations: result.citations,
 				warnings: result.warnings,
-				traceId: result.traceId
+				traceId: orchestrationTraceId
 			} satisfies QueryAnswerResponse,
 			{ status: 200 }
 		);
@@ -203,7 +233,40 @@ function buildToolResult(request: SemanticQueryRequest, response: StatsQueryResp
 	};
 }
 
+function buildPlannedToolRequest(request: SemanticQueryRequest): QueryAnswerPlannedToolRequest {
+	return {
+		toolName: 'stats_query',
+		request
+	};
+}
+
+function saveQueryOrchestrationTrace(
+	traceId: string,
+	question: string,
+	status: StatsQueryResponse['status'],
+	plannedToolRequests: QueryAnswerPlannedToolRequest[],
+	executedStructuredTraceIds: string[],
+	warnings: StatsQueryResponse['warnings'],
+	planningLatencyMs: number,
+	renderLatencyMs: number
+): void {
+	saveOrchestrationTrace({
+		traceId,
+		normalizedQuestion: question,
+		status,
+		plannedToolRequests,
+		executedStructuredTraceIds,
+		warnings,
+		computations: [],
+		latencyMs: {
+			planning: planningLatencyMs,
+			render: renderLatencyMs
+		}
+	});
+}
+
 function buildAnswerResponseFromSemanticResponse(
+	traceId: string,
 	toolResults: QueryAnswerToolResult[],
 	response: StatsQueryResponse
 ): QueryAnswerResponse {
@@ -214,6 +277,6 @@ function buildAnswerResponseFromSemanticResponse(
 		toolResults,
 		citations: response.citations,
 		warnings: response.warnings,
-		traceId: response.traceId
+		traceId
 	};
 }

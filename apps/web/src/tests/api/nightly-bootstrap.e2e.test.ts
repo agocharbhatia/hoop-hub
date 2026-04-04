@@ -396,7 +396,15 @@ describe('nightly bootstrap end-to-end coverage', () => {
 			)
 		);
 		const beforePlannerLookupPayload = (await parseJson(beforePlannerLookupResponse)) as QueryAnswerResponse;
-		const beforePlannerTraceResponse = await queryTraceGet(createTraceGetEvent(beforePlannerLookupPayload.traceId));
+		const beforePlannerOrchestrationTraceResponse = await queryTraceGet(createTraceGetEvent(beforePlannerLookupPayload.traceId));
+		const beforePlannerOrchestrationTracePayload = (await parseJson(beforePlannerOrchestrationTraceResponse)) as {
+			status: string;
+			executedStructuredTraceIds: string[];
+			warnings: Array<{ code: string }>;
+		};
+		const beforePlannerTraceResponse = await queryTraceGet(
+			createTraceGetEvent(beforePlannerOrchestrationTracePayload.executedStructuredTraceIds[0])
+		);
 		const beforePlannerTracePayload = (await parseJson(beforePlannerTraceResponse)) as {
 			status: string;
 			resolvedQuery: {
@@ -409,6 +417,12 @@ describe('nightly bootstrap end-to-end coverage', () => {
 			warnings: Array<{ code: string }>;
 		};
 
+		assert.equal(beforePlannerOrchestrationTraceResponse.status, 200);
+		assert.equal(beforePlannerOrchestrationTracePayload.status, 'coverage_gap');
+		assert.deepEqual(beforePlannerOrchestrationTracePayload.executedStructuredTraceIds, [
+			beforePlannerLookupPayload.toolResults[0]?.response.traceId
+		]);
+		assert.equal(beforePlannerOrchestrationTracePayload.warnings[0]?.code, 'nightly_data_unavailable');
 		assert.equal(beforePlannerTraceResponse.status, 200);
 		assert.equal(beforePlannerTracePayload.status, 'coverage_gap');
 		assert.equal(beforePlannerTracePayload.resolvedQuery.operation, 'lookup');
@@ -480,7 +494,15 @@ describe('nightly bootstrap end-to-end coverage', () => {
 			)
 		);
 		const afterPlannerLookupPayload = (await parseJson(afterPlannerLookupResponse)) as QueryAnswerResponse;
-		const afterPlannerTraceResponse = await queryTraceGet(createTraceGetEvent(afterPlannerLookupPayload.traceId));
+		const afterPlannerOrchestrationTraceResponse = await queryTraceGet(createTraceGetEvent(afterPlannerLookupPayload.traceId));
+		const afterPlannerOrchestrationTracePayload = (await parseJson(afterPlannerOrchestrationTraceResponse)) as {
+			status: string;
+			executedStructuredTraceIds: string[];
+			warnings: Array<{ code: string }>;
+		};
+		const afterPlannerTraceResponse = await queryTraceGet(
+			createTraceGetEvent(afterPlannerOrchestrationTracePayload.executedStructuredTraceIds[0])
+		);
 		const afterPlannerTracePayload = (await parseJson(afterPlannerTraceResponse)) as {
 			status: string;
 			resolvedQuery: {
@@ -493,6 +515,12 @@ describe('nightly bootstrap end-to-end coverage', () => {
 			warnings: Array<{ code: string }>;
 		};
 
+		assert.equal(afterPlannerOrchestrationTraceResponse.status, 200);
+		assert.equal(afterPlannerOrchestrationTracePayload.status, 'ok');
+		assert.deepEqual(afterPlannerOrchestrationTracePayload.executedStructuredTraceIds, [
+			afterPlannerLookupPayload.toolResults[0]?.response.traceId
+		]);
+		assert.deepEqual(afterPlannerOrchestrationTracePayload.warnings, []);
 		assert.equal(afterPlannerTraceResponse.status, 200);
 		assert.equal(afterPlannerTracePayload.status, 'ok');
 		assert.deepEqual(afterPlannerTracePayload.resolvedQuery, beforePlannerTracePayload.resolvedQuery);

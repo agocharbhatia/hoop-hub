@@ -144,7 +144,9 @@ describe('POST /api/query', () => {
 		assert.equal(payload.toolResults.length, 1);
 		assert.equal(payload.artifacts.length, 1);
 		assert.equal(payload.citations.length, 1);
-		assert.equal(payload.traceId, 'trace-ranked');
+		assert.notEqual(payload.traceId.length, 0);
+		assert.notEqual(payload.traceId, payload.toolResults[0]?.response.traceId);
+		assert.equal(payload.toolResults[0]?.response.traceId, 'trace-ranked');
 		assert.notEqual(executedRequest, null);
 		assert.equal(executedRequest!.question, 'Who averaged the most assists in 2023-24?');
 		assert.deepEqual(executedRequest!.query.metrics, ['ast']);
@@ -633,7 +635,9 @@ describe('POST /api/query', () => {
 		assert.equal(payload.answer, 'No stored nightly endpoint payload was available for one or more required requests.');
 		assert.equal(payload.toolResults.length, 1);
 		assert.equal(payload.artifacts.length, 0);
-		assert.equal(payload.traceId, 'trace-coverage');
+		assert.notEqual(payload.traceId.length, 0);
+		assert.notEqual(payload.traceId, payload.toolResults[0]?.response.traceId);
+		assert.equal(payload.toolResults[0]?.response.traceId, 'trace-coverage');
 		assert.equal(rendererCalls, 0);
 	});
 });

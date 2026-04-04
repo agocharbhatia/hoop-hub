@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getSemanticTraceById } from '$lib/server/semantic/trace-store';
+import { getQueryTraceById } from '$lib/server/semantic/trace-store';
 
 export const GET: RequestHandler = ({ params }) => {
 	const traceId = params.traceId?.trim();
@@ -8,7 +8,7 @@ export const GET: RequestHandler = ({ params }) => {
 		return json({ error: 'traceId is required.' }, { status: 400 });
 	}
 
-	const trace = getSemanticTraceById(traceId);
+	const trace = getQueryTraceById(traceId);
 	if (!trace) {
 		return json({ error: 'Trace not found.' }, { status: 404 });
 	}
