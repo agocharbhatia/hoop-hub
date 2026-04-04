@@ -2,130 +2,142 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import { getPublicSemanticCapabilities } from '$lib/server/semantic/capabilities';
 import type { PlannerAdapter } from './service';
 
-const PLANNER_OUTPUT_SCHEMA = {
-	name: 'stats_planner_decision',
-	strict: true,
-	schema: {
-		type: 'object',
-		additionalProperties: false,
-		properties: {
-			type: {
-				type: 'string',
-				enum: ['planned', 'coverage_gap', 'clarification_needed']
-			},
-			query: {
-				type: ['object', 'null'],
-				additionalProperties: false,
-				properties: {
-					operation: {
-						type: 'string',
-						enum: ['rank', 'trend', 'compare']
-					},
-					entity: {
-						type: 'string',
-						enum: ['player', 'team']
-					},
-					subject: {
-						type: 'object',
-						additionalProperties: false,
-						properties: {
-							names: {
-								type: 'array',
-								items: { type: 'string' }
-							},
-							ids: {
-								type: 'array',
-								items: { type: 'string' }
-							}
+function buildPlannerOutputSchema() {
+	const capabilities = getPublicSemanticCapabilities();
+
+	return {
+		name: 'stats_planner_decision',
+		strict: true,
+		schema: {
+			type: 'object',
+			additionalProperties: false,
+			properties: {
+				type: {
+					type: 'string',
+					enum: ['planned', 'coverage_gap', 'clarification_needed']
+				},
+				query: {
+					type: ['object', 'null'],
+					additionalProperties: false,
+					properties: {
+						operation: {
+							type: 'string',
+							enum: capabilities.operations
 						},
-						required: ['names', 'ids']
-					},
-					metrics: {
-						type: 'array',
-						items: { type: 'string' },
-						minItems: 1
-					},
-					filters: {
-						type: 'object',
-						additionalProperties: false,
-						properties: {
-							season: {
-								type: ['string', 'null']
-							},
-							seasonType: {
-								type: ['string', 'null']
-							},
-							window: {
-								type: ['object', 'null'],
-								additionalProperties: false,
-								properties: {
-									type: {
-										type: 'string',
-										enum: ['last_n_games']
-									},
-									n: {
-										type: 'integer',
-										minimum: 1
-									}
+						entity: {
+							type: 'string',
+							enum: capabilities.entities
+						},
+						subject: {
+							type: 'object',
+							additionalProperties: false,
+							properties: {
+								names: {
+									type: 'array',
+									items: { type: 'string' }
 								},
-								required: ['type', 'n']
+								ids: {
+									type: 'array',
+									items: { type: 'string' }
+								}
 							},
-							dateFrom: {
-								type: 'null'
-							},
-							dateTo: {
-								type: 'null'
-							}
+							required: ['names', 'ids']
 						},
-						required: ['season', 'seasonType', 'window', 'dateFrom', 'dateTo']
-					},
-					orderBy: {
-						type: ['object', 'null'],
-						additionalProperties: false,
-						properties: {
-							metric: { type: 'string' },
-							direction: {
+						metrics: {
+							type: 'array',
+							items: {
 								type: 'string',
-								enum: ['asc', 'desc']
-							}
+								enum: capabilities.metrics.map((metric) => metric.id)
+							},
+							minItems: 1
 						},
-						required: ['metric', 'direction']
+						filters: {
+							type: 'object',
+							additionalProperties: false,
+							properties: {
+								season: {
+									type: ['string', 'null']
+								},
+								seasonType: {
+									type: ['string', 'null'],
+									enum: [...capabilities.seasonTypes.supported, null]
+								},
+								window: {
+									type: ['object', 'null'],
+									additionalProperties: false,
+									properties: {
+										type: {
+											type: 'string',
+											enum: ['last_n_games']
+										},
+										n: {
+											type: 'integer',
+											minimum: 1
+										}
+									},
+									required: ['type', 'n']
+								},
+								dateFrom: {
+									type: 'null'
+								},
+								dateTo: {
+									type: 'null'
+								}
+							},
+							required: ['season', 'seasonType', 'window', 'dateFrom', 'dateTo']
+						},
+						orderBy: {
+							type: ['object', 'null'],
+							additionalProperties: false,
+							properties: {
+								metric: {
+									type: 'string',
+									enum: capabilities.metrics.map((metric) => metric.id)
+								},
+								direction: {
+									type: 'string',
+									enum: ['asc', 'desc']
+								}
+							},
+							required: ['metric', 'direction']
+						},
+						limit: {
+							type: ['integer', 'null'],
+							minimum: 1
+						},
+						outputMode: {
+							type: ['string', 'null'],
+							enum: [...capabilities.outputModes, null]
+						}
 					},
-					limit: {
-						type: ['integer', 'null'],
-						minimum: 1
-					},
-					outputMode: {
-						type: ['string', 'null'],
-						enum: ['table', 'summary', 'timeseries', 'comparison', null]
-					}
+					required: ['operation', 'entity', 'subject', 'metrics', 'filters', 'orderBy', 'limit', 'outputMode']
 				},
-				required: ['operation', 'entity', 'subject', 'metrics', 'filters', 'orderBy', 'limit', 'outputMode']
+				warning: {
+					type: ['object', 'null'],
+					additionalProperties: false,
+					properties: {
+						code: {
+							type: 'string',
+							enum: [
+								'unsupported_query_shape',
+								'unsupported_metric',
+								'clarification_needed',
+								'missing_metric',
+								'compare_requires_two_subjects'
+							]
+						},
+						message: { type: 'string' }
+					},
+					required: ['code', 'message']
+				}
 			},
-			warning: {
-				type: ['object', 'null'],
-				additionalProperties: false,
-				properties: {
-					code: {
-						type: 'string',
-						enum: [
-							'unsupported_query_shape',
-							'unsupported_metric',
-							'clarification_needed',
-							'missing_metric',
-							'compare_requires_two_subjects'
-						]
-					},
-					message: { type: 'string' }
-				},
-				required: ['code', 'message']
-			}
-		},
-		required: ['type', 'query', 'warning']
-	}
-} as const;
+			required: ['type', 'query', 'warning']
+		}
+	} as const;
+}
 
 /**
  * Isolates the OpenAI call so planner prompting and model upgrades stay outside route orchestration.
@@ -152,7 +164,7 @@ export function createOpenAIPlannerAdapter(): PlannerAdapter {
 				messages: buildPlannerMessages(question),
 				response_format: {
 					type: 'json_schema',
-					json_schema: PLANNER_OUTPUT_SCHEMA
+					json_schema: buildPlannerOutputSchema()
 				}
 			});
 			const content = completion.choices[0]?.message?.content;
@@ -202,17 +214,29 @@ function readPlannerEnv(name: 'OPENAI_API_KEY' | 'OPENAI_PLANNER_MODEL'): string
 	return loadedValue && loadedValue.length > 0 ? loadedValue : undefined;
 }
 
+export function _getPlannerOutputSchemaForTests() {
+	return buildPlannerOutputSchema();
+}
+
 export function _buildPlannerMessagesForTests(question: string): ChatCompletionMessageParam[] {
+	const capabilities = getPublicSemanticCapabilities();
+	const metricIds = capabilities.metrics.map((metric) => metric.id).join(', ');
+	const subjectRules = capabilities.subjectRules
+		.map((rule) => `${rule.operation}/${rule.entity}=${rule.kind}`)
+		.join('; ');
+
 	return [
 		{
 			role: 'system',
 			content:
-				'You plan NBA stats questions into a closed contract. Only support player ranking, player trend, player comparison, and team defensive ranking questions in this slice. Do not resolve player identity into canonical ids. If the question is unsupported, return coverage_gap.'
+				`You plan NBA stats questions into a closed contract. Only support ${capabilities.subjectRules
+					.map((rule) => `${rule.operation}/${rule.entity}`)
+					.join(', ')} in this slice. Subject rules: ${subjectRules}. Do not resolve player identity into canonical ids. If the question is unsupported, return coverage_gap.`
 		},
 		{
 			role: 'system',
 			content:
-				"Allowed metric ids in this slice are canonical executor ids such as pts, ast, reb, and drtg. Always include every schema field. Use empty arrays instead of omitting subject.names or subject.ids. Use null for optional scalar/object fields that do not apply. Season normalization is the planner's responsibility. Never emit season phrases like this season or current season in filters.season. Use null for implicit current-season asks. When the question names a season, always normalize it to exact YYYY-YY form before returning it. For example, 2023/24, 2023-2024, and 2023 24 must all become 2023-24. For player rankings, use rank/player, keep both subject arrays empty, and set orderBy to the same metric descending. For team defensive rankings, use rank/team, keep both subject arrays empty, normalize any defensive-rating wording to metric drtg, set orderBy to drtg ascending, and use outputMode table. For player trends, use trend/player, include exactly one raw player name in subject.names, keep subject.ids empty, preserve explicit rolling windows like last 5 as filters.window, and use outputMode timeseries. For player comparisons, use compare/player, preserve the two raw player names in subject.names in the same order they appear in the question, keep subject.ids empty, use outputMode comparison, and leave orderBy and limit null."
+				`Allowed metric ids in this slice are canonical executor ids: ${metricIds}. Supported output modes are ${capabilities.outputModes.join(', ')}. Supported season types are ${capabilities.seasonTypes.supported.join(', ')}. Supported seasons are ${capabilities.seasons.supported.join(', ')}, where current season must be encoded as null in filters.season. Always include every schema field. Use empty arrays instead of omitting subject.names or subject.ids. Use null for optional scalar/object fields that do not apply. Season normalization is the planner's responsibility. Never emit season phrases like this season or current season in filters.season. Use null for implicit current-season asks. When the question names a season, always normalize it to exact YYYY-YY form before returning it. For example, 2023/24, 2023-2024, and 2023 24 must all become 2023-24. For player rankings, use rank/player, keep both subject arrays empty, and set orderBy to the same metric descending. For team defensive rankings, use rank/team, keep both subject arrays empty, normalize any defensive-rating wording to metric drtg, set orderBy to drtg ascending, and use outputMode table. For player trends, use trend/player, include exactly one raw player name in subject.names, keep subject.ids empty, preserve explicit rolling windows like last 5 as filters.window, and use outputMode timeseries. For player comparisons, use compare/player, preserve the two raw player names in subject.names in the same order they appear in the question, keep subject.ids empty, use outputMode comparison, and leave orderBy and limit null.`
 		},
 		{
 			role: 'system',

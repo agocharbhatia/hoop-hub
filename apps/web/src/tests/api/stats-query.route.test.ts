@@ -105,7 +105,7 @@ describe('POST /api/stats/query', () => {
 		assert.equal(payload.traceId.length > 0, true);
 	});
 
-	test('returns 200 coverage_gap for valid but unsupported structured queries', async () => {
+	test('returns 400 for structured queries outside the shared runtime capability contract', async () => {
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
@@ -119,18 +119,10 @@ describe('POST /api/stats/query', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as {
-			status: string;
-			result: unknown;
-			warnings: { code: string }[];
-			traceId: string;
-		};
+		const payload = (await parseJson(response)) as { error: string };
 
-		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'coverage_gap');
-		assert.equal(payload.result, null);
-		assert.equal(payload.warnings[0]?.code, 'unsupported_query_shape');
-		assert.equal(payload.traceId.length > 0, true);
+		assert.equal(response.status, 400);
+		assert.match(payload.error, /supported semantic operation/i);
 	});
 
 	test('returns 200 coverage_gap when no stored query data exists', async () => {

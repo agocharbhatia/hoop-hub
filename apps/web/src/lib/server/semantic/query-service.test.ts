@@ -25,6 +25,23 @@ describe('validateSemanticQueryRequest', () => {
 		assert.equal(result.ok, true);
 	});
 
+	test('rejects unsupported query shapes outside the shared runtime capability contract', () => {
+		const result = validateSemanticQueryRequest({
+			query: {
+				operation: 'lookup',
+				entity: 'player',
+				subject: {
+					names: ['Nikola Jokic']
+				},
+				metrics: ['pts'],
+				filters: {}
+			}
+		});
+
+		assert.equal(result.ok, false);
+		assert.match(result.error, /supported semantic operation/i);
+	});
+
 	test('rejects invalid window shapes', () => {
 		const result = validateSemanticQueryRequest({
 			query: {

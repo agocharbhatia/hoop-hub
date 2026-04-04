@@ -36,6 +36,7 @@ import {
 	extractTeamRankingRows,
 	SemanticExtractionError
 } from './extractors';
+import { validateSemanticCapabilityQueryShape } from './capabilities';
 import { saveSemanticTrace } from './trace-store';
 
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -1211,6 +1212,18 @@ export function validateSemanticQueryRequest(input: unknown): ValidationResult<S
 				return { ok: false, error: subjectConflictError };
 			}
 		}
+	}
+
+	const capabilityValidation = validateSemanticCapabilityQueryShape({
+		operation,
+		entity,
+		subject: subject.value,
+		metrics: metrics.value,
+		filters: filters.value,
+		outputMode: outputMode.value
+	});
+	if (!capabilityValidation.ok) {
+		return capabilityValidation;
 	}
 
 	return {

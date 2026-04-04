@@ -1,5 +1,11 @@
 import type { PlannerDecision } from '$lib/contracts/planner';
-import type { SemanticQuery } from '$lib/contracts/semantic-query';
+import type {
+	SemanticQuery,
+	SemanticQueryEntity,
+	SemanticQueryOperation,
+	SemanticQuerySubject
+} from '$lib/contracts/semantic-query';
+import { validateSemanticCapabilityQueryShape } from '$lib/server/semantic/capabilities';
 
 export type PlannerAdapter = {
 	planQuestion(question: string): Promise<unknown>;
@@ -159,14 +165,6 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 		return false;
 	}
 
-	if (query.entity !== 'player' && query.entity !== 'team') {
-		return false;
-	}
-
-	if (query.operation !== 'rank' && query.operation !== 'trend' && query.operation !== 'compare') {
-		return false;
-	}
-
 	if (!isStringArray(query.metrics) || query.metrics.length === 0) {
 		return false;
 	}
@@ -233,7 +231,22 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 		return false;
 	}
 
-	return true;
+	const normalizedQuery: SemanticQuery = {
+		...(query as SemanticQuery),
+		filters: {
+			...query.filters,
+			season: normalizeSeasonFilter(query.filters.season)
+		}
+	};
+
+	return validateSemanticCapabilityQueryShape({
+		operation: normalizedQuery.operation as SemanticQueryOperation,
+		entity: normalizedQuery.entity as SemanticQueryEntity,
+		subject: normalizedQuery.subject as SemanticQuerySubject,
+		metrics: normalizedQuery.metrics,
+		filters: normalizedQuery.filters,
+		outputMode: normalizedQuery.outputMode
+	}).ok;
 }
 
 function validatePlannerDecision(input: unknown): { ok: true; value: PlannerDecision } | { ok: false; error: string } {
