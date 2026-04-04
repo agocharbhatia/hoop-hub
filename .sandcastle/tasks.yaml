@@ -44,7 +44,7 @@ tasks:
     summary: >
       Add the shared team identity layer and ambiguity-safe resolution behavior
       so team lookups can ground to canonical subjects without guessing.
-    status: pending
+    status: done
     blocked_by:
       - unify_semantic_metrics_and_capabilities
     module_scope:

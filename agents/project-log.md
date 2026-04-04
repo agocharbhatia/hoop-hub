@@ -151,3 +151,10 @@
 - Module scope: semantic metric registry, capability registry, public capabilities route, semantic query validation, planner capability wiring
 - Interface contract: public stats tool capabilities expose only supported operations, entities, metrics, output modes, seasons, season types, and subject rules | executor validation and orchestration discovery read from the same shared contract | internal source variants and raw source fields remain private
 - Tests: add capability registry contract tests | add capabilities route tests | add validation tests proving supported lookup boundaries come from the shared contract
+## add_team_directory_and_ambiguity_safe_resolution
+
+- Title: Add Team Directory And Ambiguity-Safe Resolution
+- Module scope: team directory snapshot, team alias overlay, team resolver, structured/team trace resolution contract
+- Interface contract: team resolution supports canonical names, city names, short names, abbreviations, and curated aliases | ambiguous team inputs return clarification_needed | canonical team identity is reflected in resolvedQuery once grounding is proven
+- Tests: add team resolver unit tests for exact, alias, and ambiguous cases | add contract tests for canonical resolvedQuery behavior
+
