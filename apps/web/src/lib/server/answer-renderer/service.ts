@@ -2,6 +2,7 @@ import type {
 	QueryAnswerArtifact,
 	QueryAnswerToolResult
 } from '$lib/contracts/answer-response';
+import { getMetricById } from '$lib/server/metrics/registry';
 
 export type AnswerRendererInput = {
 	question: string;
@@ -58,7 +59,7 @@ export function createDefaultAnswerRendererService(): AnswerRendererService {
 			}
 
 			return {
-				answer: buildCombinedAnswerText(successfulResults),
+				answer: buildCombinedAnswerText(toolResults),
 				artifacts: successfulResults.map((result) => ({
 					type: 'table',
 					shape: result.shape,
@@ -138,8 +139,101 @@ function buildAnswerText(summary: string | undefined, rowCount: number): string 
 	return rowCount > 0 ? `Returned ${rowCount} result${rowCount === 1 ? '' : 's'}.` : 'No rows returned for this query.';
 }
 
-function buildCombinedAnswerText(
-	results: Array<NonNullable<QueryAnswerToolResult['response']['result']>>
-): string {
-	return results.map((result) => buildAnswerText(result.summary, result.rows.length)).join(' ');
+function buildCombinedAnswerText(toolResults: QueryAnswerToolResult[]): string {
+	return toolResults
+		.map((toolResult) => buildToolResultAnswerText(toolResult))
+		.filter((answer) => answer.length > 0)
+		.join(' ');
+}
+
+function buildToolResultAnswerText(toolResult: QueryAnswerToolResult): string {
+	const result = toolResult.response.result;
+	if (!result) {
+		return '';
+	}
+
+	const synthesizedLookupAnswer = buildLookupAnswerText(toolResult);
+	if (synthesizedLookupAnswer) {
+		return synthesizedLookupAnswer;
+	}
+
+	return buildAnswerText(result.summary, result.rows.length);
+}
+
+function buildLookupAnswerText(toolResult: QueryAnswerToolResult): string | null {
+	const resolvedQuery = toolResult.response.provenance.resolvedQuery;
+	const result = toolResult.response.result;
+	if (!resolvedQuery || !result) {
+		return null;
+	}
+
+	if (resolvedQuery.operation !== 'lookup' || result.shape !== 'table' || result.rows.length !== 1) {
+		return null;
+	}
+
+	const row = result.rows[0];
+	if (!row) {
+		return null;
+	}
+
+	const subjectName =
+		typeof row.playerName === 'string'
+			? row.playerName
+			: typeof row.teamName === 'string'
+				? row.teamName
+				: resolvedQuery.subject.names?.[0];
+	if (!subjectName) {
+		return null;
+	}
+
+	const metricPhrases = resolvedQuery.metrics
+		.map((metricId) => {
+			const value = row[metricId];
+			if (typeof value !== 'number' && typeof value !== 'string') {
+				return null;
+			}
+
+			return formatMetricPhrase(metricId, value);
+		})
+		.filter((phrase): phrase is string => phrase !== null);
+	if (metricPhrases.length === 0) {
+		return null;
+	}
+
+	const season =
+		typeof row.season === 'string' && row.season.trim().length > 0
+			? row.season.trim()
+			: resolvedQuery.filters.season ?? 'the current';
+	const seasonType =
+		typeof row.seasonType === 'string' && row.seasonType.trim().length > 0
+			? row.seasonType.trim().toLowerCase()
+			: resolvedQuery.filters.seasonType?.trim().toLowerCase() ?? 'season';
+
+	if (resolvedQuery.entity === 'player') {
+		return `${subjectName} averaged ${joinPhrases(metricPhrases)} in the ${season} ${seasonType}.`;
+	}
+
+	return `The ${subjectName} had ${joinPhrases(metricPhrases)} in the ${season} ${seasonType}.`;
+}
+
+function formatMetricPhrase(metricId: string, value: number | string): string {
+	const definition = getMetricById(metricId);
+	const label = definition?.aliases[0] ?? metricId;
+	if (metricId === 'win_pct' && typeof value === 'number') {
+		return `${value} ${label}`;
+	}
+
+	return `${value} ${label}`;
+}
+
+function joinPhrases(parts: string[]): string {
+	if (parts.length === 1) {
+		return parts[0] ?? '';
+	}
+
+	if (parts.length === 2) {
+		return `${parts[0]} and ${parts[1]}`;
+	}
+
+	return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
 }

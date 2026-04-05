@@ -183,6 +183,90 @@ describe('createAnswerRendererService', () => {
 });
 
 describe('createDefaultAnswerRendererService', () => {
+	test('synthesizes a natural sentence for single-row lookup results instead of reusing generic lookup summaries', async () => {
+		const renderer = createDefaultAnswerRendererService();
+		const teamLookupRequest: SemanticQueryRequest = {
+			question: 'Show the Boston Celtics offensive and defensive rating in 2023-24',
+			query: {
+				operation: 'lookup',
+				entity: 'team',
+				subject: {
+					names: ['Boston Celtics']
+				},
+				metrics: ['ortg', 'drtg'],
+				filters: {
+					season: '2023-24',
+					seasonType: 'Regular Season',
+					window: null,
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'table'
+			}
+		};
+
+		const rendered = await renderer.renderAnswer({
+			question: teamLookupRequest.question!,
+			toolResults: [
+				{
+					toolName: 'stats_query',
+					request: teamLookupRequest,
+					response: {
+						status: 'ok',
+						result: {
+							shape: 'table',
+							columns: ['teamId', 'teamName', 'season', 'seasonType', 'ortg', 'drtg'],
+							rows: [
+								{
+									teamId: '1610612738',
+									teamName: 'Boston Celtics',
+									season: '2023-24',
+									seasonType: 'Regular Season',
+									ortg: 122.2,
+									drtg: 110.6
+								}
+							],
+							summary: 'Returned Boston Celtics season metrics for 2023-24.'
+						},
+						citations: [{ source: 'stats.nba.com', detail: 'team lookup' }],
+						provenance: {
+							executor: 'semantic_executor',
+							resolvedQuery: teamLookupRequest.query,
+							dataFreshnessMode: 'nightly',
+							sourceCalls: []
+						},
+						warnings: [],
+						traceId: 'trace-team-lookup'
+					}
+				}
+			]
+		});
+
+		assert.equal(
+			rendered.answer,
+			'The Boston Celtics had 122.2 offensive rating and 110.6 defensive rating in the 2023-24 regular season.'
+		);
+		assert.deepEqual(rendered.artifacts, [
+			{
+				type: 'table',
+				shape: 'table',
+				columns: ['teamId', 'teamName', 'season', 'seasonType', 'ortg', 'drtg'],
+				rows: [
+					{
+						teamId: '1610612738',
+						teamName: 'Boston Celtics',
+						season: '2023-24',
+						seasonType: 'Regular Season',
+						ortg: 122.2,
+						drtg: 110.6
+					}
+				]
+			}
+		]);
+	});
+
 	test('combines grounded summaries and preserves one table artifact per successful batched tool result', async () => {
 		const renderer = createDefaultAnswerRendererService();
 		const offensiveRequest = buildRequest('ortg');

@@ -78,6 +78,31 @@ describe('getPrimaryTableArtifact', () => {
 
 		assert.deepEqual(getPrimaryTableArtifact(payload), payload.artifacts[0]);
 	});
+
+	test('suppresses single-row lookup tables when the answer already covers the result in prose', () => {
+		const payload = buildOkResponse({
+			answer: 'The Boston Celtics had a 122.2 offensive rating and a 110.6 defensive rating in 2023-24.',
+			artifacts: [
+				{
+					type: 'table',
+					shape: 'table',
+					columns: ['teamId', 'teamName', 'season', 'seasonType', 'ortg', 'drtg'],
+					rows: [
+						{
+							teamId: '1610612738',
+							teamName: 'Boston Celtics',
+							season: '2023-24',
+							seasonType: 'Regular Season',
+							ortg: 122.2,
+							drtg: 110.6
+						}
+					]
+				}
+			]
+		});
+
+		assert.equal(getPrimaryTableArtifact(payload), null);
+	});
 });
 
 describe('getSupportingTableArtifacts', () => {
@@ -90,15 +115,21 @@ describe('getSupportingTableArtifacts', () => {
 				},
 				{
 					type: 'table',
-					shape: 'table',
-					columns: ['team', 'ortg'],
-					rows: [{ team: 'Boston Celtics', ortg: 123.2 }]
+					shape: 'ranking',
+					columns: ['rank', 'team', 'ortg'],
+					rows: [
+						{ rank: 1, team: 'Boston Celtics', ortg: 123.2 },
+						{ rank: 2, team: 'Indiana Pacers', ortg: 122.1 }
+					]
 				},
 				{
 					type: 'table',
-					shape: 'table',
-					columns: ['team', 'drtg'],
-					rows: [{ team: 'Boston Celtics', drtg: 111.6 }]
+					shape: 'ranking',
+					columns: ['rank', 'team', 'drtg'],
+					rows: [
+						{ rank: 1, team: 'Minnesota Timberwolves', drtg: 108.4 },
+						{ rank: 2, team: 'Boston Celtics', drtg: 110.6 }
+					]
 				}
 			]
 		});
@@ -106,11 +137,39 @@ describe('getSupportingTableArtifacts', () => {
 		assert.deepEqual(getSupportingTableArtifacts(payload), [
 			{
 				type: 'table',
-				shape: 'table',
-				columns: ['team', 'drtg'],
-				rows: [{ team: 'Boston Celtics', drtg: 111.6 }]
+				shape: 'ranking',
+				columns: ['rank', 'team', 'drtg'],
+				rows: [
+					{ rank: 1, team: 'Minnesota Timberwolves', drtg: 108.4 },
+					{ rank: 2, team: 'Boston Celtics', drtg: 110.6 }
+				]
 			}
 		]);
+	});
+
+	test('does not surface suppressed single-row lookup tables as supporting tables', () => {
+		const payload = buildOkResponse({
+			answer: 'The Boston Celtics had a 122.2 offensive rating and a 110.6 defensive rating in 2023-24.',
+			artifacts: [
+				{
+					type: 'table',
+					shape: 'table',
+					columns: ['teamId', 'teamName', 'season', 'seasonType', 'ortg', 'drtg'],
+					rows: [
+						{
+							teamId: '1610612738',
+							teamName: 'Boston Celtics',
+							season: '2023-24',
+							seasonType: 'Regular Season',
+							ortg: 122.2,
+							drtg: 110.6
+						}
+					]
+				}
+			]
+		});
+
+		assert.deepEqual(getSupportingTableArtifacts(payload), []);
 	});
 });
 

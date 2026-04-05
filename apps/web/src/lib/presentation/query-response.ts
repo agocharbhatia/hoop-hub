@@ -1,6 +1,22 @@
 import type { QueryAnswerResponse, QueryAnswerArtifact } from '$lib/contracts/answer-response';
 import type { ErrorResponse } from '$lib/contracts/chat';
 
+function isVisibleTableArtifact(
+	artifact: QueryAnswerArtifact
+): artifact is Extract<QueryAnswerArtifact, { type: 'table' }> {
+	if (artifact.type !== 'table') {
+		return false;
+	}
+
+	// Suppress trivial one-row lookup tables in the main chat UI when the answer
+	// can already be expressed cleanly in prose.
+	if (artifact.shape === 'table' && artifact.rows.length <= 1) {
+		return false;
+	}
+
+	return true;
+}
+
 export function getAssistantMessageContent(
 	responseOk: boolean,
 	payload: QueryAnswerResponse | ErrorResponse
@@ -32,18 +48,16 @@ export function getAssistantMessageContent(
 export function getPrimaryTableArtifact(
 	payload: QueryAnswerResponse
 ): Extract<QueryAnswerArtifact, { type: 'table' }> | null {
-	return payload.artifacts.find((artifact): artifact is Extract<QueryAnswerArtifact, { type: 'table' }> => artifact.type === 'table') ?? null;
+	return payload.artifacts.find(isVisibleTableArtifact) ?? null;
 }
 
 export function getSupportingTableArtifacts(
 	payload: QueryAnswerResponse
 ): Array<Extract<QueryAnswerArtifact, { type: 'table' }>> {
-	const primaryTable = getPrimaryTableArtifact(payload);
+	const visibleTables = payload.artifacts.filter(isVisibleTableArtifact);
+	const primaryTable = visibleTables[0] ?? null;
 
-	return payload.artifacts.filter(
-		(artifact): artifact is Extract<QueryAnswerArtifact, { type: 'table' }> =>
-			artifact.type === 'table' && artifact !== primaryTable
-	);
+	return visibleTables.filter((artifact) => artifact !== primaryTable);
 }
 
 export function getTextBlockArtifacts(
