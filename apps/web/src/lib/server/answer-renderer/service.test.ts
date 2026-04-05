@@ -246,7 +246,7 @@ describe('createDefaultAnswerRendererService', () => {
 
 		assert.equal(
 			rendered.answer,
-			'The Boston Celtics had 122.2 offensive rating and 110.6 defensive rating in the 2023-24 regular season.'
+			'The Boston Celtics finished the 2023-24 regular season with an offensive rating of 122.2 and a defensive rating of 110.6.'
 		);
 		assert.deepEqual(rendered.artifacts, [
 			{
@@ -265,6 +265,73 @@ describe('createDefaultAnswerRendererService', () => {
 				]
 			}
 		]);
+	});
+
+	test('synthesizes natural player lookup prose with plural metric labels', async () => {
+		const renderer = createDefaultAnswerRendererService();
+		const playerLookupRequest: SemanticQueryRequest = {
+			question: 'Show Nikola Jokic points and rebounds this season',
+			query: {
+				operation: 'lookup',
+				entity: 'player',
+				subject: {
+					names: ['Nikola Jokic']
+				},
+				metrics: ['pts', 'reb'],
+				filters: {
+					season: '2025-26',
+					seasonType: 'Regular Season',
+					window: null,
+					dateFrom: null,
+					dateTo: null
+				},
+				orderBy: null,
+				limit: null,
+				outputMode: 'table'
+			}
+		};
+
+		const rendered = await renderer.renderAnswer({
+			question: playerLookupRequest.question!,
+			toolResults: [
+				{
+					toolName: 'stats_query',
+					request: playerLookupRequest,
+					response: {
+						status: 'ok',
+						result: {
+							shape: 'table',
+							columns: ['playerId', 'playerName', 'season', 'seasonType', 'pts', 'reb'],
+							rows: [
+								{
+									playerId: '203999',
+									playerName: 'Nikola Jokic',
+									season: '2025-26',
+									seasonType: 'Regular Season',
+									pts: 27.7,
+									reb: 13
+								}
+							],
+							summary: 'Returned Nikola Jokic season metrics for 2025-26.'
+						},
+						citations: [{ source: 'stats.nba.com', detail: 'player lookup' }],
+						provenance: {
+							executor: 'semantic_executor',
+							resolvedQuery: playerLookupRequest.query,
+							dataFreshnessMode: 'nightly',
+							sourceCalls: []
+						},
+						warnings: [],
+						traceId: 'trace-player-lookup'
+					}
+				}
+			]
+		});
+
+		assert.equal(
+			rendered.answer,
+			'Nikola Jokic averaged 27.7 points and 13 rebounds in the 2025-26 regular season.'
+		);
 	});
 
 	test('combines grounded summaries and preserves one table artifact per successful batched tool result', async () => {

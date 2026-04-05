@@ -213,17 +213,33 @@ function buildLookupAnswerText(toolResult: QueryAnswerToolResult): string | null
 		return `${subjectName} averaged ${joinPhrases(metricPhrases)} in the ${season} ${seasonType}.`;
 	}
 
-	return `The ${subjectName} had ${joinPhrases(metricPhrases)} in the ${season} ${seasonType}.`;
+	return `The ${subjectName} finished the ${season} ${seasonType} with ${joinPhrases(metricPhrases)}.`;
 }
 
 function formatMetricPhrase(metricId: string, value: number | string): string {
-	const definition = getMetricById(metricId);
-	const label = definition?.aliases[0] ?? metricId;
-	if (metricId === 'win_pct' && typeof value === 'number') {
-		return `${value} ${label}`;
+	switch (metricId) {
+		case 'pts':
+			return `${value} points`;
+		case 'reb':
+			return `${value} rebounds`;
+		case 'ast':
+			return `${value} assists`;
+		case 'wins':
+			return `${value} wins`;
+		case 'losses':
+			return `${value} losses`;
+		case 'win_pct':
+			return `a win percentage of ${value}`;
+		case 'ortg':
+			return `an offensive rating of ${value}`;
+		case 'drtg':
+			return `a defensive rating of ${value}`;
+		default: {
+			const definition = getMetricById(metricId);
+			const label = definition?.aliases.at(-1) ?? definition?.aliases[0] ?? metricId;
+			return `${value} ${label}`;
+		}
 	}
-
-	return `${value} ${label}`;
 }
 
 function joinPhrases(parts: string[]): string {
