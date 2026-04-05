@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
 import type { ErrorResponse } from '$lib/contracts/chat';
-import { getAssistantMessageContent, getPrimaryTableArtifact } from './query-response';
+import {
+	getAssistantMessageContent,
+	getPrimaryTableArtifact,
+	getSupportingTableArtifacts,
+	getVisibleWarningMessages
+} from './query-response';
 
 function buildOkResponse(overrides: Partial<QueryAnswerResponse> = {}): QueryAnswerResponse {
 	return {
@@ -72,5 +77,61 @@ describe('getPrimaryTableArtifact', () => {
 		const payload = buildOkResponse();
 
 		assert.deepEqual(getPrimaryTableArtifact(payload), payload.artifacts[0]);
+	});
+});
+
+describe('getSupportingTableArtifacts', () => {
+	test('returns supporting grounded tables after the primary table', () => {
+		const payload = buildOkResponse({
+			artifacts: [
+				{
+					type: 'text_block',
+					text: 'Boston led the league in offense and finished near the top on defense.'
+				},
+				{
+					type: 'table',
+					shape: 'table',
+					columns: ['team', 'ortg'],
+					rows: [{ team: 'Boston Celtics', ortg: 123.2 }]
+				},
+				{
+					type: 'table',
+					shape: 'table',
+					columns: ['team', 'drtg'],
+					rows: [{ team: 'Boston Celtics', drtg: 111.6 }]
+				}
+			]
+		});
+
+		assert.deepEqual(getSupportingTableArtifacts(payload), [
+			{
+				type: 'table',
+				shape: 'table',
+				columns: ['team', 'drtg'],
+				rows: [{ team: 'Boston Celtics', drtg: 111.6 }]
+			}
+		]);
+	});
+});
+
+describe('getVisibleWarningMessages', () => {
+	test('returns warning messages in payload order for UI presentation', () => {
+		const payload = buildOkResponse({
+			warnings: [
+				{
+					code: 'nightly_data_unavailable',
+					message: 'Defensive rating was unavailable in the latest nightly snapshot.'
+				},
+				{
+					code: 'partial_answer',
+					message: 'The answer is based on the available offensive rating result only.'
+				}
+			]
+		});
+
+		assert.deepEqual(getVisibleWarningMessages(payload), [
+			'Defensive rating was unavailable in the latest nightly snapshot.',
+			'The answer is based on the available offensive rating result only.'
+		]);
 	});
 });

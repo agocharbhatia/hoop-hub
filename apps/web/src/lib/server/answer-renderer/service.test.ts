@@ -2,18 +2,22 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { QueryAnswerResponse, QueryAnswerToolResult } from '$lib/contracts/answer-response';
 import type { SemanticQueryRequest, StatsQueryResponse } from '$lib/contracts/semantic-query';
-import { createAnswerRendererService, type AnswerRendererAdapter } from './service';
+import {
+	createAnswerRendererService,
+	createDefaultAnswerRendererService,
+	type AnswerRendererAdapter
+} from './service';
 
 /* Helper functions */
 
-function buildRequest(): SemanticQueryRequest {
+function buildRequest(metric = 'ast'): SemanticQueryRequest {
 	return {
 		question: 'Who averaged the most assists in 2023-24?',
 		query: {
 			operation: 'rank',
 			entity: 'player',
 			subject: {},
-			metrics: ['ast'],
+			metrics: [metric],
 			filters: {
 				season: '2023-24',
 				seasonType: null,
@@ -22,7 +26,7 @@ function buildRequest(): SemanticQueryRequest {
 				dateTo: null
 			},
 			orderBy: {
-				metric: 'ast',
+				metric,
 				direction: 'desc'
 			},
 			limit: 10,
@@ -70,6 +74,27 @@ function createAdapter(output: unknown): AnswerRendererAdapter {
 }
 
 describe('createAnswerRendererService', () => {
+	test('accepts text_block artifacts as the minimal v1 narrative artifact shape', async () => {
+		const renderer = createAnswerRendererService(
+			createAdapter({
+				answer: 'Boston posted strong two-way ratings in 2023-24.',
+				artifacts: [{ type: 'text_block', text: 'Boston finished first in offense and top tier on defense.' }]
+			})
+		);
+
+		const rendered = await renderer.renderAnswer({
+			question: buildRequest().question!,
+			toolResults: [buildToolResult()]
+		});
+
+		assert.deepEqual(rendered.artifacts, [
+			{
+				type: 'text_block',
+				text: 'Boston finished first in offense and top tier on defense.'
+			}
+		]);
+	});
+
 	test('returns grounded answer text and table artifacts for one successful tool result', async () => {
 		const renderer = createAnswerRendererService(
 			createAdapter({
@@ -154,5 +179,75 @@ describe('createAnswerRendererService', () => {
 		assert.equal(answerPayload.toolResults.length, 1);
 		assert.equal(answerPayload.citations.length, 1);
 		assert.equal(answerPayload.traceId, 'trace-ranked');
+	});
+});
+
+describe('createDefaultAnswerRendererService', () => {
+	test('combines grounded summaries and preserves one table artifact per successful batched tool result', async () => {
+		const renderer = createDefaultAnswerRendererService();
+		const offensiveRequest = buildRequest('ortg');
+		const defensiveRequest = buildRequest('drtg');
+
+		const rendered = await renderer.renderAnswer({
+			question: offensiveRequest.question!,
+			toolResults: [
+				buildToolResult({
+					result: {
+						shape: 'table',
+						columns: ['team', 'ortg'],
+						rows: [{ team: 'Boston Celtics', ortg: 123.2 }],
+						summary: 'Boston posted a 123.2 offensive rating in 2023-24.'
+					},
+					provenance: {
+						executor: 'semantic_executor',
+						resolvedQuery: offensiveRequest.query,
+						dataFreshnessMode: 'nightly',
+						sourceCalls: []
+					},
+					traceId: 'trace-ortg'
+				}),
+				{
+					toolName: 'stats_query',
+					request: defensiveRequest,
+					response: {
+						status: 'ok',
+						result: {
+							shape: 'table',
+							columns: ['team', 'drtg'],
+							rows: [{ team: 'Boston Celtics', drtg: 111.6 }],
+							summary: 'Boston allowed a 111.6 defensive rating in 2023-24.'
+						},
+						citations: [{ source: 'stats.nba.com', detail: 'drtg' }],
+						provenance: {
+							executor: 'semantic_executor',
+							resolvedQuery: defensiveRequest.query,
+							dataFreshnessMode: 'nightly',
+							sourceCalls: []
+						},
+						warnings: [],
+						traceId: 'trace-drtg'
+					}
+				}
+			]
+		});
+
+		assert.equal(
+			rendered.answer,
+			'Boston posted a 123.2 offensive rating in 2023-24. Boston allowed a 111.6 defensive rating in 2023-24.'
+		);
+		assert.deepEqual(rendered.artifacts, [
+			{
+				type: 'table',
+				shape: 'table',
+				columns: ['team', 'ortg'],
+				rows: [{ team: 'Boston Celtics', ortg: 123.2 }]
+			},
+			{
+				type: 'table',
+				shape: 'table',
+				columns: ['team', 'drtg'],
+				rows: [{ team: 'Boston Celtics', drtg: 111.6 }]
+			}
+		]);
 	});
 });

@@ -39,7 +39,8 @@ export function createAnswerRendererService(adapter: AnswerRendererAdapter): Ans
 }
 
 /**
- * Provides a stable grounded renderer for the one-tool slice without coupling the route to response-shaping rules.
+ * Provides a stable grounded renderer so the answer route can return answer text plus minimal artifacts
+ * even when one question fans out into multiple structured tool results.
  */
 export function createDefaultAnswerRendererService(): AnswerRendererService {
 	return createAnswerRendererService({
@@ -95,8 +96,8 @@ function isTableArtifact(value: unknown): value is Extract<QueryAnswerArtifact, 
 	);
 }
 
-function isTextArtifact(value: unknown): value is Extract<QueryAnswerArtifact, { type: 'text' }> {
-	return isPlainObject(value) && value.type === 'text' && typeof value.text === 'string';
+function isTextBlockArtifact(value: unknown): value is Extract<QueryAnswerArtifact, { type: 'text_block' }> {
+	return isPlainObject(value) && value.type === 'text_block' && typeof value.text === 'string';
 }
 
 function validateAnswerRendererOutput(
@@ -110,7 +111,12 @@ function validateAnswerRendererOutput(
 		return { ok: false, error: 'Answer renderer output must include a non-empty answer.' };
 	}
 
-	if (!Array.isArray(input.artifacts) || !input.artifacts.every((artifact) => isTableArtifact(artifact) || isTextArtifact(artifact))) {
+	if (
+		!Array.isArray(input.artifacts) ||
+		!input.artifacts.every(
+			(artifact) => isTableArtifact(artifact) || isTextBlockArtifact(artifact)
+		)
+	) {
 		return { ok: false, error: 'Answer renderer output artifacts failed validation.' };
 	}
 

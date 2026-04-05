@@ -34,3 +34,29 @@ export function getPrimaryTableArtifact(
 ): Extract<QueryAnswerArtifact, { type: 'table' }> | null {
 	return payload.artifacts.find((artifact): artifact is Extract<QueryAnswerArtifact, { type: 'table' }> => artifact.type === 'table') ?? null;
 }
+
+export function getSupportingTableArtifacts(
+	payload: QueryAnswerResponse
+): Array<Extract<QueryAnswerArtifact, { type: 'table' }>> {
+	const primaryTable = getPrimaryTableArtifact(payload);
+
+	return payload.artifacts.filter(
+		(artifact): artifact is Extract<QueryAnswerArtifact, { type: 'table' }> =>
+			artifact.type === 'table' && artifact !== primaryTable
+	);
+}
+
+export function getTextBlockArtifacts(
+	payload: QueryAnswerResponse
+): Array<Extract<QueryAnswerArtifact, { type: 'text_block' }>> {
+	return payload.artifacts.filter(
+		(artifact): artifact is Extract<QueryAnswerArtifact, { type: 'text_block' }> =>
+			artifact.type === 'text_block'
+	);
+}
+
+export function getVisibleWarningMessages(payload: QueryAnswerResponse): string[] {
+	return payload.warnings
+		.map((warning) => warning.message.trim())
+		.filter((message) => message.length > 0);
+}

@@ -593,6 +593,198 @@ describe('POST /api/query', () => {
 		assert.equal(payload.citations.length, 2);
 	});
 
+	test('uses the default renderer to return grounded batched artifacts while keeping raw toolResults visible', async () => {
+		const executedRequests: SemanticQueryRequest[] = [];
+
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<BatchPlannerDecision> {
+				return {
+					type: 'planned',
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'lookup',
+								entity: 'team',
+								subject: {
+									names: ['Boston Celtics']
+								},
+								metrics: ['ortg'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'table'
+							}
+						},
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'lookup',
+								entity: 'team',
+								subject: {
+									names: ['Boston Celtics']
+								},
+								metrics: ['drtg'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'table'
+							}
+						}
+					]
+				};
+			},
+			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
+				executedRequests.push(request);
+				const metric = request.query.metrics[0] ?? 'metric';
+				const value = metric === 'ortg' ? 123.2 : 111.6;
+				const label = metric === 'ortg' ? 'offensive' : 'defensive';
+
+				return buildStatsResponse(request, {
+					result: {
+						shape: 'table',
+						columns: ['team', metric],
+						rows: [{ team: 'Boston Celtics', [metric]: value }],
+						summary: `Boston posted a ${value} ${label} rating in 2023-24.`
+					},
+					citations: [{ source: 'stats.nba.com', detail: metric }],
+					traceId: `trace-${metric}`
+				});
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'Show the Boston Celtics offensive and defensive rating in 2023-24'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(
+			payload.answer,
+			'Boston posted a 123.2 offensive rating in 2023-24. Boston posted a 111.6 defensive rating in 2023-24.'
+		);
+		assert.equal(payload.toolResults.length, 2);
+		assert.deepEqual(
+			payload.toolResults.map((toolResult) => toolResult.response.traceId),
+			['trace-ortg', 'trace-drtg']
+		);
+		assert.deepEqual(
+			payload.artifacts.map((artifact) => artifact.type),
+			['table', 'table']
+		);
+		assert.deepEqual(
+			payload.artifacts.filter((artifact) => artifact.type === 'table').map((artifact) => artifact.columns),
+			[
+				['team', 'ortg'],
+				['team', 'drtg']
+			]
+		);
+		assert.equal(executedRequests.length, 2);
+	});
+
+	test('preserves text_block artifacts from the renderer in the public answer payload', async () => {
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<BatchPlannerDecision> {
+				return {
+					type: 'planned',
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'lookup',
+								entity: 'team',
+								subject: {
+									names: ['Boston Celtics']
+								},
+								metrics: ['ortg'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'table'
+							}
+						}
+					]
+				};
+			},
+			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
+				return buildStatsResponse(request, {
+					result: {
+						shape: 'table',
+						columns: ['team', 'ortg'],
+						rows: [{ team: 'Boston Celtics', ortg: 123.2 }]
+					},
+					traceId: 'trace-ortg'
+				});
+			},
+			async renderAnswer() {
+				return {
+					answer: 'Boston posted a 123.2 offensive rating in 2023-24.',
+					artifacts: [
+						{
+							type: 'text_block',
+							text: 'Supporting note: the answer is grounded in the 2023-24 nightly snapshot.'
+						},
+						{
+							type: 'table',
+							shape: 'table',
+							columns: ['team', 'ortg'],
+							rows: [{ team: 'Boston Celtics', ortg: 123.2 }]
+						}
+					]
+				};
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'Show the Boston Celtics offensive rating in 2023-24'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.deepEqual(payload.artifacts, [
+			{
+				type: 'text_block',
+				text: 'Supporting note: the answer is grounded in the 2023-24 nightly snapshot.'
+			},
+			{
+				type: 'table',
+				shape: 'table',
+				columns: ['team', 'ortg'],
+				rows: [{ team: 'Boston Celtics', ortg: 123.2 }]
+			}
+		]);
+		assert.equal(payload.toolResults.length, 1);
+		assert.equal(payload.toolResults[0]?.response.traceId, 'trace-ortg');
+	});
+
 	test('returns ok plus warnings when a mixed batch keeps at least one grounded tool result', async () => {
 		let rendererCalls = 0;
 		let rendererInput: { question: string; toolResults: QueryAnswerToolResult[] } | null = null;

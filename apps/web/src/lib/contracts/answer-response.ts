@@ -15,7 +15,7 @@ export type QueryAnswerArtifact =
 			rows: StatsQueryRow[];
 	  }
 	| {
-			type: 'text';
+			type: 'text_block';
 			text: string;
 	  };
 

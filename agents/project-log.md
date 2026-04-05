@@ -211,6 +211,7 @@
 - Slice `add_honest_orchestration_traces_for_answer_route_requests` gives `/api/query` its own orchestration trace ids and payloads. Answer-route traces now persist planned tool requests plus executed structured trace ids, aggregate freshness and source-call data from the referenced semantic traces, and stop exposing a fake single `resolvedQuery`.
 - Slice `generalize_single_request_planning_from_capabilities` publishes per-shape planner metadata on the shared stats capabilities contract (`queryShapes` with supported metrics plus ordering/window defaults) and feeds that contract directly into the planner prompt so single-request capability growth comes from one shared source instead of more handwritten prompt families.
 - Slice `return_partial_answers_for_mixed_batch_outcomes` locks the `/api/query` partial-answer policy at the orchestration boundary: a planned batch now stays top-level `ok` when at least one structured tool result is usable, failed sibling requests only surface as aggregated warnings, and zero-success batches collapse to one honest typed non-ok response instead of erasing success or fabricating an `ok`.
+- Slice `harden_answer_rendering_and_grounding_surfaces_for_batched_results` locks the v1 answer artifact contract to `table` plus `text_block`, keeps raw `toolResults` in the public `/api/query` payload, and teaches the UI-facing presentation layer to surface supporting tables and warning messages from that main answer payload instead of assuming one primary table only.
 ## ship_answer_first_api_query_for_one_tool_result
 
 - Title: Ship Answer-First /api/query For One Tool Result
@@ -254,4 +255,3 @@
 - Module scope: partial-answer orchestration policy, warning aggregation, answer-route status handling
 - Interface contract: partial answers use top-level status ok plus warnings | zero-success valid batches return typed non-ok behavior | failed tool requests do not erase successful grounded tool results
 - Tests: add route tests for mixed success and failure batches | add executor tests for warning aggregation and zero-success behavior | add answer-path tests for grounded partial responses
-

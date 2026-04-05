@@ -6,7 +6,13 @@
 	import { IconSend2, IconBallBasketball } from '@tabler/icons-svelte';
 	import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
 	import type { ErrorResponse } from '$lib/contracts/chat';
-	import { getAssistantMessageContent, getPrimaryTableArtifact } from '$lib/presentation/query-response';
+	import {
+		getAssistantMessageContent,
+		getPrimaryTableArtifact,
+		getSupportingTableArtifacts,
+		getTextBlockArtifacts,
+		getVisibleWarningMessages
+	} from '$lib/presentation/query-response';
 
 	interface Message {
 		id: string;
@@ -98,6 +104,24 @@
 	function getMessageTable(message: Message) {
 		return message.data ? getPrimaryTableArtifact(message.data) : null;
 	}
+
+	function getMessageSupportingTables(message: Message) {
+		return message.data ? getSupportingTableArtifacts(message.data) : [];
+	}
+
+	function getMessageTextBlocks(message: Message) {
+		if (!message.data) {
+			return [];
+		}
+
+		return getTextBlockArtifacts(message.data).filter(
+			(artifact) => artifact.text.trim() !== message.content.trim()
+		);
+	}
+
+	function getMessageWarnings(message: Message) {
+		return message.data ? getVisibleWarningMessages(message.data) : [];
+	}
 </script>
 
 <svelte:head>
@@ -139,6 +163,16 @@
 						>
 							<p class="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
 
+							{#if getMessageTextBlocks(message).length > 0}
+								<div class="mt-3 space-y-2">
+									{#each getMessageTextBlocks(message) as artifact}
+										<p class="text-xs leading-relaxed whitespace-pre-wrap text-foreground/80">
+											{artifact.text}
+										</p>
+									{/each}
+								</div>
+							{/if}
+
 							{#if getMessageTable(message)?.rows.length}
 								<div class="mt-3 overflow-x-auto">
 									<table class="w-full text-xs border-collapse">
@@ -159,6 +193,46 @@
 											{/each}
 										</tbody>
 									</table>
+								</div>
+							{/if}
+
+							{#if getMessageSupportingTables(message).length > 0}
+								<div class="mt-3 space-y-3">
+									{#each getMessageSupportingTables(message) as tableArtifact, index}
+										<div class="overflow-x-auto">
+											<p class="mb-1 text-[11px] font-medium uppercase tracking-[0.14em] text-foreground/60">
+												Supporting Table {index + 1}
+											</p>
+											<table class="w-full text-xs border-collapse">
+												<thead>
+													<tr class="border-b border-current/10">
+														{#each tableArtifact.columns as column}
+															<th class="px-2 py-1.5 text-left font-medium opacity-70">{column}</th>
+														{/each}
+													</tr>
+												</thead>
+												<tbody>
+													{#each tableArtifact.rows as row}
+														<tr class="border-b border-current/5 last:border-0">
+															{#each tableArtifact.columns as column}
+																<td class="px-2 py-1.5">{row[column] ?? '—'}</td>
+															{/each}
+														</tr>
+													{/each}
+												</tbody>
+											</table>
+										</div>
+									{/each}
+								</div>
+							{/if}
+
+							{#if getMessageWarnings(message).length > 0}
+								<div class="mt-3 space-y-1">
+									{#each getMessageWarnings(message) as warning}
+										<p class="text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/90">
+											{warning}
+										</p>
+									{/each}
 								</div>
 							{/if}
 						</div>
