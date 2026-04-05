@@ -678,7 +678,7 @@ describe('POST /api/query', () => {
 		assert.equal(payload.status, 'ok');
 		assert.equal(
 			payload.answer,
-			'Boston posted a 123.2 offensive rating in 2023-24. Boston posted a 111.6 defensive rating in 2023-24.'
+			'The Boston Celtics finished the 2023-24 season with an offensive rating of 123.2. The Boston Celtics finished the 2023-24 season with a defensive rating of 111.6.'
 		);
 		assert.equal(payload.toolResults.length, 2);
 		assert.deepEqual(

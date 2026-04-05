@@ -212,6 +212,7 @@
 - Slice `generalize_single_request_planning_from_capabilities` publishes per-shape planner metadata on the shared stats capabilities contract (`queryShapes` with supported metrics plus ordering/window defaults) and feeds that contract directly into the planner prompt so single-request capability growth comes from one shared source instead of more handwritten prompt families.
 - Slice `return_partial_answers_for_mixed_batch_outcomes` locks the `/api/query` partial-answer policy at the orchestration boundary: a planned batch now stays top-level `ok` when at least one structured tool result is usable, failed sibling requests only surface as aggregated warnings, and zero-success batches collapse to one honest typed non-ok response instead of erasing success or fabricating an `ok`.
 - Slice `harden_answer_rendering_and_grounding_surfaces_for_batched_results` locks the v1 answer artifact contract to `table` plus `text_block`, keeps raw `toolResults` in the public `/api/query` payload, and teaches the UI-facing presentation layer to surface supporting tables and warning messages from that main answer payload instead of assuming one primary table only.
+- Simple one-row lookup answers should be prose-first at both layers: the default answer renderer should synthesize natural sentences from grounded row values instead of reusing generic `Returned ... season metrics ...` summaries, and the chat UI should suppress trivial single-row lookup tables while still keeping `toolResults` and traces intact underneath.
 ## ship_answer_first_api_query_for_one_tool_result
 
 - Title: Ship Answer-First /api/query For One Tool Result
@@ -261,4 +262,3 @@
 - Module scope: answer renderer, answer artifact contract, app answer presentation
 - Interface contract: /api/query returns answer text, minimal artifacts, and raw toolResults | v1 artifacts stay limited to table and text_block | the UI can surface supporting tables and warnings from the main payload
 - Tests: add renderer tests for grounded answer shaping from multiple tool results | add route tests for answer payload artifacts and toolResults | add UI tests for supporting tables and warnings
-
