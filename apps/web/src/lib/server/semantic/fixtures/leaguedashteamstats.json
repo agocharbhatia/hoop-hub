@@ -1,14 +1,15 @@
 {
+	"resource": "leaguedashteamstats",
 	"resultSets": [
 		{
 			"name": "LeagueDashTeamStats",
-			"headers": ["TEAM_ID", "TEAM_NAME", "DEF_RATING"],
+			"headers": ["TEAM_ID", "TEAM_NAME", "OFF_RATING", "DEF_RATING"],
 			"rowSet": [
-				["1610612750", "Minnesota Timberwolves", 108.4],
-				["1610612738", "Boston Celtics", 110.2],
-				["1610612752", "New York Knicks", 111.1],
-				["1610612760", "Oklahoma City Thunder", 111.4],
-				["1610612743", "Denver Nuggets", 112.0]
+				["1610612750", "Minnesota Timberwolves", 114.8, 108.4],
+				["1610612738", "Boston Celtics", 121.7, 110.2],
+				["1610612752", "New York Knicks", 117.3, 111.1],
+				["1610612760", "Oklahoma City Thunder", 119.6, 111.4],
+				["1610612743", "Denver Nuggets", 118.1, 112.0]
 			]
 		}
 	]

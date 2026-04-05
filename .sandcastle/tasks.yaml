@@ -1,413 +1,34 @@
 tasks:
-  - id: planner_runtime_rankings
-    title: Establish /api/query planner runtime for player rankings and typed
-      unsupported gaps
+  - id: ship_answer_first_api_query_for_one_tool_result
+    title: Ship Answer-First /api/query For One Tool Result
     summary: >
-      Add the new primary natural-language route and planner boundary, but land
-      only the supported player-ranking flow plus typed planner-side
-      unsupported-gap behavior.
+      Replace the current raw structured /api/query response path with an
+      answer-first orchestration flow for the narrowest viable path: one planned
+      structured tool request, one semantic execution, and one rendered answer
+      visible in the app.
     status: done
     blocked_by: []
     module_scope:
-      - planner contracts and schema
-      - OpenAI planner adapter
-      - planner service
       - query route orchestration
-      - trace persistence for planner non-ok responses
+      - planner and renderer service boundaries
+      - answer response contract
+      - app query UI
     interface_contract:
-      - "POST /api/query accepts { question: string }"
-      - public response remains StatsQueryResponse
-      - POST /api/stats/query remains the direct structured executor route
-      - planner outputs a closed validated decision contract before executor
-        delegation
+      - POST /api/query returns an answer-first payload instead of raw
+        StatsQueryResponse
+      - POST /api/stats/query remains the stable single-query structured tool
+        contract
+      - the one-request path uses separate planning and answer-rendering steps
     acceptance_criteria:
-      - /api/query executes supported player-ranking asks through the semantic
+      - supported one-tool-request questions return the new answer-first payload
+      - the route delegates actual data execution to the existing semantic
         executor
-      - unsupported asks return typed coverage_gap with no executor call
-      - planner output is revalidated before executor use
-      - planner outages or invalid structured output return server errors
+      - the app renders the returned answer and supporting grounded data
     test_plan:
-      - add deterministic planner service tests for planned and coverage-gap
-        decisions
-      - add /api/query route tests for rankings, unsupported asks, and
-        server-error behavior
-      - keep existing executor tests green
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 10
-    type: afk
-  - id: planner_player_trends
-    title: Add player trend planning with safe metric clarification
-    summary: >
-      Extend the planner runtime to support player-trend asks, safe scoring
-      inference, rolling-window planning, and planner-side clarification for
-      vague trend questions.
-    status: done
-    blocked_by:
-      - planner_runtime_rankings
-    module_scope:
-      - planner service
-      - planner schema
-      - query route tests
-      - semantic executor integration path
-    interface_contract:
-      - player trend questions plan into canonical metric ids and supported
-        semantic filters
-      - vague trend asks return clarification_needed with no executor call
-      - executor remains the canonical grounding authority
-    acceptance_criteria:
-      - scoring-language trend asks execute successfully through /api/query
-      - last-N window filters are preserved through planning
-      - vague trend asks return typed clarification_needed
-    test_plan:
-      - add deterministic planner tests for scoring inference and missing_metric
-      - add /api/query route tests for supported and clarification-needed trend
-        asks
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 11
-    type: afk
-  - id: planner_player_comparisons
-    title: Add player comparison planning with subject-order guarantees
-    summary: >
-      Extend the planner runtime to support player-comparison asks, safe default
-      metrics, preserved subject order, and planner-side clarification when two
-      subjects are not present.
-    status: done
-    blocked_by:
-      - planner_runtime_rankings
-    module_scope:
-      - planner service
-      - planner schema
-      - query route tests
-      - comparison integration path
-    interface_contract:
-      - comparison asks preserve subject order from the user question
-      - compare-without-metric defaults safely to pts
-      - incomplete comparison asks return clarification_needed with no executor
-        call
-    acceptance_criteria:
-      - comparison asks execute successfully through /api/query
-      - subject order is stable in planned semantic queries
-      - incomplete comparison asks return typed clarification_needed
-    test_plan:
-      - add deterministic planner tests for compare planning and subject order
-      - add /api/query route tests for compare success and
-        compare_requires_two_subjects
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 12
-    type: afk
-  - id: planner_team_defense_rankings
-    title: Add team defensive ranking planning to the new runtime
-    summary: >
-      Complete the current supported stats domain on the planner path by adding
-      team defensive-ranking planning and adjacent unsupported-gap handling.
-    status: done
-    blocked_by:
-      - planner_runtime_rankings
-    module_scope:
-      - planner service
-      - planner schema
-      - query route tests
-      - team ranking integration path
-    interface_contract:
-      - team defensive ranking asks plan into rank/team with canonical drtg
-        metric
-      - unsupported adjacent team asks still fail as typed coverage gaps
-      - public response and trace semantics remain unchanged
-    acceptance_criteria:
-      - supported team defensive ranking asks execute through /api/query
-      - planner normalizes to drtg and a supported team ranking shape
-      - unsupported adjacent team asks return typed coverage_gap
-    test_plan:
-      - add deterministic planner tests for supported and unsupported team asks
-      - add /api/query route tests for team defensive ranking behavior
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 13
-    type: afk
-  - id: migrate_ui_and_remove_chat_route
-    title: Remove /api/chat/query and switch the app UI to /api/query
-    summary: >
-      Remove the old natural-language route, point the app UI at /api/query, and
-      delete fake follow-up and memory cues while preserving current results and
-      trace UX.
-    status: done
-    blocked_by:
-      - planner_player_trends
-      - planner_player_comparisons
-      - planner_team_defense_rankings
-    module_scope:
-      - natural-language route boundary
-      - UI query flow
-      - route and trace tests
-    interface_contract:
-      - UI posts { question } to /api/query
-      - no sessionId remains in the public natural-language route contract
-      - /api/chat/query is removed as a production path
-    acceptance_criteria:
-      - the app uses /api/query end to end for natural-language stats asks
-      - fake follow-up and memory cues are removed
-      - natural-language route and trace tests target /api/query
-    test_plan:
-      - migrate route tests from /api/chat/query to /api/query
-      - update UI tests or smoke coverage if present
-      - rerun the full repo verification surface after route removal
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 14
-    type: afk
-  - id: nightly_snapshot_reads_and_lazy_planner_cleanup
-    title: Make nightly snapshots readable across days and lazily isolate the
-      planner route
-    summary: >
-      Add the storage/read contract that selects the latest stored nightly
-      snapshot up to the query date, and lazily instantiate the default planner
-      so route tests and tooling stop depending on eager OpenAI imports.
-    status: done
-    blocked_by: []
-    module_scope:
-      - raw endpoint cache read semantics
-      - data store latest-row lookup
-      - query-time endpoint adapter reads
-      - query route dependency wiring
-    interface_contract:
-      - query-time stored reads select the latest matching snapshot where
-        snapshot date is less than or equal to the query date
-      - public query and trace contracts remain unchanged
-      - test dependency injection for /api/query does not eagerly instantiate
-        the default planner adapter
-    acceptance_criteria:
-      - previous-day nightly snapshots can satisfy next-day queries through the
-        existing runtime
-      - the data store owns latest-snapshot selection semantics for raw cache
-        reads
-      - /api/query can be imported in tests without eager OpenAI planner
-        instantiation
-    test_plan:
-      - add data-store tests for latest-row lookup across snapshot dates
-      - add integration or route-level regression coverage for previous-day
-        snapshot reuse
-      - add route import or dependency-injection coverage for lazy planner
-        creation
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 17
-    type: afk
-  - id: nightly_current_season_rankings_and_team_defense
-    title: Bootstrap current-season league-wide nightly data for rankings and team
-      defense
-    summary: >
-      Add the nightly bootstrap CLI and service path for the current-season
-      league-wide request shapes needed by player rankings and team defensive
-      rankings, including honest nightly run bookkeeping.
-    status: done
-    blocked_by:
-      - nightly_snapshot_reads_and_lazy_planner_cleanup
-    module_scope:
-      - nightly bootstrap service
-      - bootstrap CLI entrypoint
-      - nightly run bookkeeping
-      - current-season league-wide request planning
-    interface_contract:
-      - bootstrap command accepts a required slate date
-      - current-season league-wide ranking and team-defense request shapes are
-        written as authoritative nightly cache rows
-      - run status reports completed, partial, or failed honestly
-    acceptance_criteria:
-      - an empty DB can be bootstrapped into working current-season player
-        ranking queries
-      - an empty DB can be bootstrapped into working current-season team
-        defensive ranking queries
-      - current-season league-wide writes are marked as authoritative nightly
-        data
-    test_plan:
-      - add bootstrap service tests for completed, partial, and failed run status
-      - add ingest tests for authoritative nightly cache writes
-      - add end-to-end coverage that ranking and team-defense queries work after
-        bootstrap
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 18
-    type: afk
-  - id: nightly_player_cohort_and_comparisons
-    title: Derive the nightly player cohort and bootstrap regular-season comparisons
-    summary: >
-      Derive the nightly player cohort from current-season league-wide player
-      stats plus a checked-in demo allowlist, then materialize regular-season
-      comparison source data for that cohort.
-    status: done
-    blocked_by:
-      - nightly_current_season_rankings_and_team_defense
-    module_scope:
-      - player cohort derivation
-      - checked-in demo allowlist
-      - player comparison nightly materialization
-    interface_contract:
-      - the cohort derives from current-season league-wide player stats plus a
-        deterministic allowlist
-      - comparison bootstrap remains regular-season-only
-      - public comparison query contracts remain unchanged
-    acceptance_criteria:
-      - the bootstrap service derives a deterministic player cohort
-      - regular-season comparison source rows are materialized for the full
-        cohort
-      - comparison asks work from an empty DB after bootstrap
-    test_plan:
-      - add tests for cohort derivation from league-wide player stats plus the
-        demo allowlist
-      - add bootstrap service tests for comparison materialization
-      - add integration coverage that supported comparison queries return ok
-        after bootstrap
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 19
-    type: afk
-  - id: nightly_current_season_player_trends
-    title: Bootstrap current-season player trends for the derived cohort
-    summary: >
-      Materialize current-season regular-season player trend source data for the
-      already-derived nightly cohort so supported trend asks work from stored
-      nightly data.
-    status: done
-    blocked_by:
-      - nightly_player_cohort_and_comparisons
-    module_scope:
-      - current-season player trend materialization
-      - trend-oriented nightly request planning
-      - empty-payload success handling
-    interface_contract:
-      - the bootstrap service writes current-season regular-season player trend
-        rows for the full cohort
-      - valid empty payloads are treated as successful nightly materialization
-      - the public trend response contract remains unchanged
-    acceptance_criteria:
-      - supported current-season trend asks work from an empty DB after bootstrap
-      - trend materialization covers the full derived cohort
-      - empty but valid trend payloads do not mark the overall run as failed by
-        themselves
-    test_plan:
-      - add bootstrap service tests for current-season trend materialization
-      - add ingest tests for empty trend payload success handling
-      - add integration coverage that supported trend queries return ok after
-        bootstrap
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 20
-    type: afk
-  - id: nightly_backfill_2023_24_demo_season
-    title: Backfill 2023-24 demo-season support on miss
-    summary: >
-      Add guaranteed regular-season 2023-24 demo coverage by backfilling the
-      approved ranking, team-defense, and trend request shapes on miss while
-      keeping current-season refresh behavior unchanged.
-    status: done
-    blocked_by:
-      - nightly_current_season_rankings_and_team_defense
-      - nightly_player_cohort_and_comparisons
-      - nightly_current_season_player_trends
-    module_scope:
-      - historical backfill-on-miss planning
-      - 2023-24 nightly cache writes
-      - skip-on-hit historical refresh policy
-    interface_contract:
-      - 2023-24 regular-season ranking, team-defense, and trend shapes are
-        backfilled on miss only
-      - current-season refresh behavior remains unchanged
-      - no new public route or warning contracts are introduced
-    acceptance_criteria:
-      - supported 2023-24 ranking, team-defense, and trend asks work after
-        backfill
-      - valid historical rows are skipped rather than refetched on every run
-      - the historical path remains regular-season-only
-    test_plan:
-      - add bootstrap service tests for 2023-24 backfill-on-miss behavior
-      - add regression coverage that current-season refresh policy is unchanged
-      - add integration coverage that supported 2023-24 queries return ok after
-        backfill
-    quality_gates:
-      - bun run check
-      - bun run test
-      - bun run build
-    retry_limit: 2
-    attempts: 0
-    notes: []
-    github_issue: 21
-    type: afk
-  - id: nightly_bootstrap_e2e_and_docs_refresh
-    title: Lock end-to-end nightly bootstrap coverage and refresh docs
-    summary: >
-      Lock the empty-DB-to-working-runtime contract with end-to-end nightly
-      bootstrap coverage and refresh repo docs so the shipped runtime and
-      bootstrap workflow are described accurately.
-    status: done
-    blocked_by:
-      - nightly_backfill_2023_24_demo_season
-    module_scope:
-      - empty-DB integration coverage
-      - cross-day snapshot regression coverage
-      - runtime and bootstrap documentation
-    interface_contract:
-      - an empty DB returns the existing nightly coverage gap before bootstrap
-      - supported current routes return ok after bootstrap
-      - docs and planning mirrors match the shipped runtime and nightly
-        bootstrap workflow
-    acceptance_criteria:
-      - end-to-end tests prove bootstrap turns supported queries from
-        nightly_data_unavailable into ok responses
-      - regressions prove previous-day snapshots remain readable on later days
-      - repo docs are consistent with the current runtime and nightly bootstrap
+      - add route contract tests for one-request answer responses
+      - add deterministic planner and renderer boundary tests for the one-tool
         path
-    test_plan:
-      - add empty-DB integration tests for before-and-after bootstrap behavior
-      - add cross-day snapshot reuse regression coverage
-      - rerun the full repo verification surface after doc updates
+      - update UI-facing tests or helpers to consume the new answer payload
     quality_gates:
       - bun run check
       - bun run test
@@ -415,5 +36,226 @@ tasks:
     retry_limit: 2
     attempts: 0
     notes: []
-    github_issue: 22
+    github_issue: 35
+    type: afk
+  - id: add_honest_orchestration_traces_for_answer_route_requests
+    title: Add Honest Orchestration Traces For Answer-Route Requests
+    summary: >
+      Introduce an orchestration-trace model for answer-route requests so the
+      trace API records planned tool requests, executed structured trace
+      references, and aggregated source-call data without pretending the whole
+      answer had one resolved query.
+    status: done
+    blocked_by:
+      - ship_answer_first_api_query_for_one_tool_result
+    module_scope:
+      - answer-route trace contract
+      - trace persistence
+      - trace route
+    interface_contract:
+      - answer-route traces expose plannedToolRequests and executed structured
+        trace ids
+      - GET /api/query-trace/:traceId returns honest orchestration traces for
+        /api/query
+      - answer-route traces do not expose a fake single resolvedQuery
+    acceptance_criteria:
+      - answer-route traces persist planned tool requests and structured trace
+        references
+      - trace reads aggregate the right source-call and freshness data
+      - contract tests lock the orchestration-trace payload shape
+    test_plan:
+      - add /api/query-trace tests for answer-route orchestration traces
+      - add persistence tests for planned tool requests and executed trace ids
+      - keep existing structured trace tests green
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 36
+    type: afk
+  - id: generalize_single_request_planning_from_capabilities
+    title: Generalize Single-Request Planning From Capabilities
+    summary: >
+      Replace family-specific single-request planner logic with
+      capability-driven planning so any clear question that maps to one
+      supported structured query can be answered without adding another
+      handwritten natural-language slice.
+    status: done
+    blocked_by:
+      - ship_answer_first_api_query_for_one_tool_result
+    module_scope:
+      - query batch planner
+      - planning schema and validation
+      - capability-driven planning rules
+    interface_contract:
+      - clear one-request questions map to supported structured tool requests
+      - ambiguous asks return clarification_needed with no executor call
+      - clear but unsupported asks return coverage_gap with no executor call
+    acceptance_criteria:
+      - single-request planning uses the published capabilities contract as its
+        source of truth
+      - supported one-request lookup, ranking, trend, and compare asks plan
+        successfully
+      - typed non-ok planner behavior stays conservative and explicit
+    test_plan:
+      - add planner tests for clear supported one-request asks
+      - add planner tests for ambiguity and unsupported asks
+      - add coverage proving planning derives from shared capabilities
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 37
+    type: afk
+  - id: add_internal_batched_tool_execution_for_compound_questions
+    title: Add Internal Batched Tool Execution For Compound Questions
+    summary: >
+      Add the new batch planning contract and internal semantic batch executor
+      so /api/query can plan and run up to three structured tool requests in one
+      answer without introducing a public batch tool route or an open-ended
+      agent loop.
+    status: done
+    blocked_by:
+      - ship_answer_first_api_query_for_one_tool_result
+      - generalize_single_request_planning_from_capabilities
+    module_scope:
+      - batch planning contract
+      - semantic batch executor
+      - query orchestrator
+    interface_contract:
+      - /api/query can execute up to three structured tool requests for one
+        answer
+      - batch execution calls server modules directly instead of route-to-route
+        HTTP
+      - the existing semantic validator and executor remain the grounding
+        authority for each tool request
+    acceptance_criteria:
+      - compound questions can execute a bounded batch through the new internal
+        executor
+      - the batch path is fully internal and keeps /api/stats/query unchanged
+      - tests lock the new batch planning and execution seam
+    test_plan:
+      - add batch planner tests for multi-request plans and size limits
+      - add semantic batch executor tests for internal execution wiring
+      - add route tests for compound-question orchestration
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 38
+    type: afk
+  - id: deduplicate_normalized_requests_and_keep_batch_policy_tight
+    title: Deduplicate Normalized Requests And Keep Batch Policy Tight
+    summary: >
+      Normalize all planned structured requests through the existing validator
+      seam, deduplicate exact normalized equality only, and preserve order for
+      non-duplicate requests so execution efficiency does not depend on prompt
+      discipline.
+    status: done
+    blocked_by:
+      - add_internal_batched_tool_execution_for_compound_questions
+    module_scope:
+      - request normalization
+      - exact deduplication
+      - batch execution ordering
+    interface_contract:
+      - planned requests are normalized before equality comparison
+      - exact normalized duplicates are removed
+      - non-duplicate request order is preserved
+    acceptance_criteria:
+      - the batch executor removes exact normalized duplicates only
+      - order is preserved for distinct requests
+      - no fuzzy merging or heuristic request collapsing is introduced
+    test_plan:
+      - add executor tests for exact normalized deduplication
+      - add executor tests for preserved non-duplicate order
+      - add negative tests proving fuzzy merges are out of scope
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 39
+    type: afk
+  - id: return_partial_answers_for_mixed_batch_outcomes
+    title: Return Partial Answers For Mixed Batch Outcomes
+    summary: >
+      Implement the agreed partial-answer policy so /api/query returns ok plus
+      warnings when at least one batched tool request succeeds, and returns
+      typed non-ok behavior only when no usable tool result exists.
+    status: done
+    blocked_by:
+      - add_internal_batched_tool_execution_for_compound_questions
+      - deduplicate_normalized_requests_and_keep_batch_policy_tight
+    module_scope:
+      - partial-answer orchestration policy
+      - warning aggregation
+      - answer-route status handling
+    interface_contract:
+      - partial answers use top-level status ok plus warnings
+      - zero-success valid batches return typed non-ok behavior
+      - failed tool requests do not erase successful grounded tool results
+    acceptance_criteria:
+      - mixed success and failure batches return ok plus warnings
+      - zero-success batches do not emit misleading answers
+      - route and executor tests lock the mixed-outcome policy
+    test_plan:
+      - add route tests for mixed success and failure batches
+      - add executor tests for warning aggregation and zero-success behavior
+      - add answer-path tests for grounded partial responses
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 40
+    type: afk
+  - id: harden_answer_rendering_and_grounding_surfaces_for_batched_results
+    title: Harden Answer Rendering And Grounding Surfaces For Batched Results
+    summary: >
+      Finish the answer-first runtime by rendering grounded answer text plus
+      minimal v1 artifacts across batched tool results while keeping toolResults
+      visible in the main payload and usable by the app UI.
+    status: done
+    blocked_by:
+      - add_honest_orchestration_traces_for_answer_route_requests
+      - add_internal_batched_tool_execution_for_compound_questions
+      - return_partial_answers_for_mixed_batch_outcomes
+    module_scope:
+      - answer renderer
+      - answer artifact contract
+      - app answer presentation
+    interface_contract:
+      - /api/query returns answer text, minimal artifacts, and raw toolResults
+      - v1 artifacts stay limited to table and text_block
+      - the UI can surface supporting tables and warnings from the main payload
+    acceptance_criteria:
+      - batched answers render grounded answer text plus minimal v1 artifacts
+      - toolResults remain visible in the answer-route payload
+      - UI and route tests lock the multi-result answer presentation contract
+    test_plan:
+      - add renderer tests for grounded answer shaping from multiple tool results
+      - add route tests for answer payload artifacts and toolResults
+      - add UI tests for supporting tables and warnings
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 41
     type: afk

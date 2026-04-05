@@ -1,12 +1,22 @@
-import type { PlannerDecision } from '$lib/contracts/planner';
-import type { SemanticQuery } from '$lib/contracts/semantic-query';
+import {
+	MAX_BATCH_TOOL_REQUESTS,
+	type BatchPlannerDecision,
+	type QueryPlannerToolRequest
+} from '$lib/contracts/planner';
+import type {
+	SemanticQuery,
+	SemanticQueryEntity,
+	SemanticQueryOperation,
+	SemanticQuerySubject
+} from '$lib/contracts/semantic-query';
+import { validateSemanticCapabilityQueryShape } from '$lib/server/semantic/capabilities';
 
 export type PlannerAdapter = {
 	planQuestion(question: string): Promise<unknown>;
 };
 
 export type PlannerService = {
-	planQuestion(question: string): Promise<PlannerDecision>;
+	planQuestion(question: string): Promise<BatchPlannerDecision>;
 };
 
 /**
@@ -14,14 +24,25 @@ export type PlannerService = {
  */
 export function createPlannerService(adapter: PlannerAdapter): PlannerService {
 	return {
-		async planQuestion(question: string): Promise<PlannerDecision> {
+		async planQuestion(question: string): Promise<BatchPlannerDecision> {
 			const output = await adapter.planQuestion(question);
 			const validated = validatePlannerDecision(output);
 			if (!validated.ok) {
 				throw new Error(validated.error);
 			}
 
-			return normalizePlannerDecision(validated.value);
+			const normalized = normalizePlannerDecision(validated.value);
+			if (normalized.type === 'planned' && normalized.toolRequests.length > MAX_BATCH_TOOL_REQUESTS) {
+				return {
+					type: 'clarification_needed',
+					warning: {
+						code: 'clarification_needed',
+						message: `This question would require more than ${MAX_BATCH_TOOL_REQUESTS} tool requests. Ask a narrower question that needs up to ${MAX_BATCH_TOOL_REQUESTS}.`
+					}
+				};
+			}
+
+			return normalized;
 		}
 	};
 }
@@ -65,47 +86,28 @@ function normalizeSeasonFilter(season: SemanticQuery['filters']['season']): Sema
 	return `${startYear}-${endYear.slice(-2)}`;
 }
 
-function normalizePlannerDecision(decision: PlannerDecision): PlannerDecision {
+function normalizePlannerDecision(decision: BatchPlannerDecision): BatchPlannerDecision {
 	if (decision.type !== 'planned') {
 		return decision;
 	}
 
 	return {
 		type: 'planned',
-		query: {
-			...decision.query,
-			filters: {
-				...decision.query.filters,
-				season: normalizeSeasonFilter(decision.query.filters.season)
+		toolRequests: decision.toolRequests.map((toolRequest) => ({
+			...toolRequest,
+			query: {
+				...toolRequest.query,
+				filters: {
+					...toolRequest.query.filters,
+					season: normalizeSeasonFilter(toolRequest.query.filters.season)
+				}
 			}
-		}
+		}))
 	};
 }
 
-function validateSubject(
-	subject: unknown,
-	requirement: 'empty' | 'non_empty' | 'exactly_two'
-): subject is SemanticQuery['subject'] {
-	if (!isPlainObject(subject)) {
-		return false;
-	}
-
-	const names = subject.names;
-	const ids = subject.ids;
-	if ((names !== undefined && !isStringArray(names)) || (ids !== undefined && !isStringArray(ids))) {
-		return false;
-	}
-
-	const subjectCount = (names?.length ?? 0) + (ids?.length ?? 0);
-	if (requirement === 'empty') {
-		return subjectCount === 0;
-	}
-
-	if (requirement === 'exactly_two') {
-		return subjectCount === 2;
-	}
-
-	return subjectCount > 0;
+function countSubjectValues(subject: SemanticQuery['subject']): number {
+	return (subject.names?.length ?? 0) + (subject.ids?.length ?? 0);
 }
 
 function validateWindow(window: unknown): boolean {
@@ -159,14 +161,6 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 		return false;
 	}
 
-	if (query.entity !== 'player' && query.entity !== 'team') {
-		return false;
-	}
-
-	if (query.operation !== 'rank' && query.operation !== 'trend' && query.operation !== 'compare') {
-		return false;
-	}
-
 	if (!isStringArray(query.metrics) || query.metrics.length === 0) {
 		return false;
 	}
@@ -175,14 +169,24 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 		return false;
 	}
 
-	if (query.entity === 'team') {
-		if (query.operation !== 'rank' || !validateSubject(query.subject, 'empty')) {
-			return false;
-		}
-	} else if (
-		(query.operation === 'rank' && !validateSubject(query.subject, 'empty')) ||
-		(query.operation === 'trend' && !validateSubject(query.subject, 'non_empty')) ||
-		(query.operation === 'compare' && !validateSubject(query.subject, 'exactly_two'))
+	if (!isPlainObject(query.subject)) {
+		return false;
+	}
+
+	const names = query.subject.names;
+	const ids = query.subject.ids;
+	if ((names !== undefined && !isStringArray(names)) || (ids !== undefined && !isStringArray(ids))) {
+		return false;
+	}
+
+	const subject = query.subject as SemanticQuery['subject'];
+	const subjectCount = countSubjectValues(subject);
+	if (
+		(query.operation === 'lookup' && subjectCount !== 1) ||
+		(query.operation === 'rank' && query.entity === 'player' && subjectCount !== 0) ||
+		(query.operation === 'rank' && query.entity === 'team' && subjectCount > 1) ||
+		(query.operation === 'trend' && subjectCount !== 1) ||
+		(query.operation === 'compare' && subjectCount !== 2)
 	) {
 		return false;
 	}
@@ -229,28 +233,57 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 		return false;
 	}
 
-	if (query.entity === 'team' && query.operation !== 'rank') {
+	if (
+		query.entity === 'team' &&
+		query.operation !== 'rank' &&
+		query.operation !== 'lookup'
+	) {
 		return false;
 	}
 
-	return true;
+	const normalizedQuery: SemanticQuery = {
+		...(query as SemanticQuery),
+		filters: {
+			...query.filters,
+			season: normalizeSeasonFilter(query.filters.season)
+		}
+	};
+
+	return validateSemanticCapabilityQueryShape({
+		operation: normalizedQuery.operation as SemanticQueryOperation,
+		entity: normalizedQuery.entity as SemanticQueryEntity,
+		subject: normalizedQuery.subject as SemanticQuerySubject,
+		metrics: normalizedQuery.metrics,
+		filters: normalizedQuery.filters,
+		outputMode: normalizedQuery.outputMode
+	}).ok;
 }
 
-function validatePlannerDecision(input: unknown): { ok: true; value: PlannerDecision } | { ok: false; error: string } {
+function validatePlannerToolRequest(input: unknown): input is QueryPlannerToolRequest {
+	return isPlainObject(input) && input.toolName === 'stats_query' && validateSemanticQueryShape(input.query);
+}
+
+function validatePlannerDecision(
+	input: unknown
+): { ok: true; value: BatchPlannerDecision } | { ok: false; error: string } {
 	if (!isPlainObject(input)) {
 		return { ok: false, error: 'Planner output must be an object.' };
 	}
 
 	if (input.type === 'planned') {
-		if (!validateSemanticQueryShape(input.query)) {
-			return { ok: false, error: 'Planner planned query failed validation.' };
+		if (!Array.isArray(input.toolRequests) || input.toolRequests.length === 0) {
+			return { ok: false, error: 'Planner planned toolRequests failed validation.' };
+		}
+
+		if (!input.toolRequests.every((toolRequest) => validatePlannerToolRequest(toolRequest))) {
+			return { ok: false, error: 'Planner planned toolRequests failed validation.' };
 		}
 
 		return {
 			ok: true,
 			value: {
 				type: 'planned',
-				query: input.query
+				toolRequests: input.toolRequests
 			}
 		};
 	}

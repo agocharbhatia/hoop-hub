@@ -1,11 +1,11 @@
 import type { Citation, DataFreshnessMode, TraceSourceCall } from './chat';
+import type { QueryAnswerPlannedToolRequest } from './answer-response';
 import type { SemanticQuery, StatsQueryStatus, StatsQueryWarning } from './semantic-query';
 
-export type QueryTraceResponse = {
+type QueryTraceShared = {
 	traceId: string;
 	normalizedQuestion: string;
 	status: StatsQueryStatus;
-	resolvedQuery: SemanticQuery | null;
 	dataFreshnessMode: DataFreshnessMode;
 	sourceCalls: TraceSourceCall[];
 	executedSources: Citation[];
@@ -27,3 +27,14 @@ export type QueryTraceResponse = {
 		misses: number;
 	};
 };
+
+export type SemanticQueryTraceResponse = QueryTraceShared & {
+	resolvedQuery: SemanticQuery | null;
+};
+
+export type OrchestrationQueryTraceResponse = QueryTraceShared & {
+	plannedToolRequests: QueryAnswerPlannedToolRequest[];
+	executedStructuredTraceIds: string[];
+};
+
+export type QueryTraceResponse = SemanticQueryTraceResponse | OrchestrationQueryTraceResponse;

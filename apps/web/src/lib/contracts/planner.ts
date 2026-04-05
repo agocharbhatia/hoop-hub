@@ -1,5 +1,7 @@
 import type { SemanticQuery, StatsQueryWarning } from './semantic-query';
 
+export const MAX_BATCH_TOOL_REQUESTS = 3;
+
 export type PlannerWarningCode =
 	| 'unsupported_query_shape'
 	| 'unsupported_metric'
@@ -7,15 +9,22 @@ export type PlannerWarningCode =
 	| 'missing_metric'
 	| 'compare_requires_two_subjects';
 
-export type PlannerDecision =
+export type QueryPlannerToolRequest = {
+	toolName: 'stats_query';
+	query: SemanticQuery;
+};
+
+export type BatchPlannerDecision =
 	| {
 			type: 'planned';
-			query: SemanticQuery;
+			toolRequests: QueryPlannerToolRequest[];
 	  }
 	| {
 			type: 'coverage_gap' | 'clarification_needed';
 			warning: StatsQueryWarning & { code: PlannerWarningCode };
 	  };
+
+export type PlannerDecision = BatchPlannerDecision;
 
 export type QueryQuestionRequest = {
 	question: string;

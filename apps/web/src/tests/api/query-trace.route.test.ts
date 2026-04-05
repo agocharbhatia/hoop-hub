@@ -67,44 +67,59 @@ describe('GET /api/query-trace/:traceId', () => {
 		assert.equal(payload.error, 'Trace not found.');
 	});
 
-	test('returns migrated rich trace payload for supported query traces', async () => {
+	test('returns honest orchestration trace payloads for supported /api/query requests', async () => {
 		_setQueryRouteDependenciesForTests({
 			async planQuestion() {
 				return {
 					type: 'planned',
-					query: {
-						operation: 'rank',
-						entity: 'player',
-						subject: {},
-						metrics: ['ast'],
-						filters: {
-							season: '2023-24',
-							seasonType: null,
-							window: null,
-							dateFrom: null,
-							dateTo: null
-						},
-						orderBy: {
-							metric: 'ast',
-							direction: 'desc'
-						},
-						limit: 10,
-						outputMode: 'table'
-					}
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'rank',
+								entity: 'player',
+								subject: {},
+								metrics: ['ast'],
+								filters: {
+									season: '2023-24',
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: {
+									metric: 'ast',
+									direction: 'desc'
+								},
+								limit: 10,
+								outputMode: 'table'
+							}
+						}
+					]
 				};
 			},
 			executeSemanticQuery
 		});
 
 		const queryResponse = await queryPost(createQueryPostEvent('Who averaged the most assists in 2023-24?'));
-		const query = (await queryResponse.json()) as { traceId: string };
+		const query = (await queryResponse.json()) as {
+			traceId: string;
+			toolResults: Array<{ response: { traceId: string } }>;
+		};
 
 		const response = await GET(createTraceEvent(query.traceId));
 		const payload = (await parseJson(response)) as {
 			traceId: string;
 			normalizedQuestion: string;
-			resolvedQuery: { operation: string; entity: string; metrics: string[] };
 			status: string;
+			plannedToolRequests: Array<{
+				toolName: string;
+				request: {
+					question: string;
+					query: { operation: string; entity: string; metrics: string[] };
+				};
+			}>;
+			executedStructuredTraceIds: string[];
 			dataFreshnessMode: string;
 			sourceCalls: { endpointId: string; cacheStatus: string }[];
 			executedSources: unknown[];
@@ -112,21 +127,29 @@ describe('GET /api/query-trace/:traceId', () => {
 			computations: unknown[];
 			latencyMs: { planning: number; retrieval: number; compute: number; render: number; total: number };
 			cache: { hits: number; misses: number };
+			resolvedQuery?: unknown;
 		};
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.traceId, query.traceId);
 		assert.equal(payload.normalizedQuestion.length > 0, true);
 		assert.equal(payload.status, 'ok');
-		assert.equal(payload.resolvedQuery.operation, 'rank');
-		assert.equal(payload.resolvedQuery.entity, 'player');
-		assert.deepEqual(payload.resolvedQuery.metrics, ['ast']);
+		assert.equal(payload.plannedToolRequests.length, 1);
+		assert.equal(payload.plannedToolRequests[0]?.toolName, 'stats_query');
+		assert.equal(payload.plannedToolRequests[0]?.request.question, 'Who averaged the most assists in 2023-24?');
+		assert.equal(payload.plannedToolRequests[0]?.request.query.operation, 'rank');
+		assert.equal(payload.plannedToolRequests[0]?.request.query.entity, 'player');
+		assert.deepEqual(payload.plannedToolRequests[0]?.request.query.metrics, ['ast']);
+		assert.equal(payload.executedStructuredTraceIds.length, 1);
+		assert.equal(payload.executedStructuredTraceIds[0]?.length > 0, true);
+		assert.equal(payload.executedStructuredTraceIds[0], query.toolResults[0]?.response.traceId);
 		assert.equal(payload.dataFreshnessMode, 'nightly');
 		assert.equal(payload.sourceCalls.length > 0, true);
 		assert.equal(payload.sourceCalls.some((source) => source.endpointId === 'leaguedashplayerstats'), true);
 		assert.equal(payload.executedSources.length > 0, true);
 		assert.deepEqual(payload.warnings, []);
 		assert.deepEqual(payload.computations, []);
+		assert.equal('resolvedQuery' in payload, false);
 		assert.equal(
 			payload.latencyMs.total,
 			payload.latencyMs.planning + payload.latencyMs.retrieval + payload.latencyMs.compute + payload.latencyMs.render
@@ -134,7 +157,7 @@ describe('GET /api/query-trace/:traceId', () => {
 		assert.equal(payload.cache.hits + payload.cache.misses > 0, true);
 	});
 
-	test('returns migrated rich trace payload for unsupported query traces', async () => {
+	test('returns honest orchestration trace payloads for unsupported /api/query requests', async () => {
 		_setQueryRouteDependenciesForTests({
 			async planQuestion() {
 				return {
@@ -156,25 +179,29 @@ describe('GET /api/query-trace/:traceId', () => {
 		const response = await GET(createTraceEvent(query.traceId));
 		const payload = (await parseJson(response)) as {
 			status: string;
-			resolvedQuery: unknown;
+			plannedToolRequests: unknown[];
+			executedStructuredTraceIds: string[];
 			dataFreshnessMode: string;
 			sourceCalls: unknown[];
 			executedSources: unknown[];
 			warnings: { code: string }[];
 			computations: unknown[];
+			resolvedQuery?: unknown;
 		};
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'coverage_gap');
-		assert.equal(payload.resolvedQuery, null);
+		assert.deepEqual(payload.plannedToolRequests, []);
+		assert.deepEqual(payload.executedStructuredTraceIds, []);
 		assert.equal(payload.dataFreshnessMode, 'nightly');
 		assert.deepEqual(payload.sourceCalls, []);
 		assert.deepEqual(payload.executedSources, []);
 		assert.equal(payload.warnings[0]?.code, 'unsupported_query_shape');
 		assert.deepEqual(payload.computations, []);
+		assert.equal('resolvedQuery' in payload, false);
 	});
 
-	test('returns planner non-ok traces with no resolved query or source calls for /api/query', async () => {
+	test('returns planner non-ok orchestration traces with no fake resolved query or source calls for /api/query', async () => {
 		_setQueryRouteDependenciesForTests({
 			async planQuestion() {
 				return {
@@ -204,16 +231,20 @@ describe('GET /api/query-trace/:traceId', () => {
 		const response = await GET(createTraceEvent(query.traceId));
 		const payload = (await parseJson(response)) as {
 			status: string;
-			resolvedQuery: unknown;
+			plannedToolRequests: unknown[];
+			executedStructuredTraceIds: string[];
 			sourceCalls: unknown[];
 			warnings: { code: string }[];
+			resolvedQuery?: unknown;
 		};
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'coverage_gap');
-		assert.equal(payload.resolvedQuery, null);
+		assert.deepEqual(payload.plannedToolRequests, []);
+		assert.deepEqual(payload.executedStructuredTraceIds, []);
 		assert.deepEqual(payload.sourceCalls, []);
 		assert.equal(payload.warnings[0]?.code, 'unsupported_query_shape');
+		assert.equal('resolvedQuery' in payload, false);
 	});
 
 	test('returns canonical resolvedQuery names, ids, and defaulted filters for structured traces', async () => {
@@ -255,41 +286,79 @@ describe('GET /api/query-trace/:traceId', () => {
 		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
 	});
 
-	test('returns canonical full-directory player resolution for planner-route traces', async () => {
-		_setQueryRouteDependenciesForTests({
-			async planQuestion() {
-				return {
-					type: 'planned',
+	test('returns canonical player season lookup provenance for structured traces', async () => {
+		const statsResponse = await statsPost({
+			request: new Request('http://localhost/api/stats/query', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
 					query: {
-						operation: 'trend',
+						operation: 'lookup',
 						entity: 'player',
 						subject: {
-							names: ['Precious Achiuwa']
+							names: ['jokic']
 						},
-						metrics: ['pts'],
-						filters: {
-							season: null,
-							seasonType: null,
-							window: {
-								type: 'last_n_games',
-								n: 2
-							},
-							dateFrom: null,
-							dateTo: null
-						},
-						orderBy: null,
-						limit: null,
-						outputMode: 'timeseries'
+						metrics: ['pts', 'reb'],
+						filters: {},
+						outputMode: 'table'
 					}
-				};
-			},
-			executeSemanticQuery
+				})
+			})
+		} as Parameters<typeof statsPost>[0]);
+		const stats = (await statsResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(stats.traceId));
+		const payload = (await parseJson(response)) as {
+			status: string;
+			resolvedQuery: {
+				subject: { ids: string[]; names: string[] };
+				filters: { season: string | null; seasonType: string | null };
+				operation: string;
+				entity: string;
+				metrics: string[];
+			};
+			sourceCalls: Array<{ endpointId: string }>;
+			warnings: Array<{ code: string }>;
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.resolvedQuery.operation, 'lookup');
+		assert.equal(payload.resolvedQuery.entity, 'player');
+		assert.deepEqual(payload.resolvedQuery.metrics, ['pts', 'reb']);
+		assert.deepEqual(payload.resolvedQuery.subject, {
+			ids: ['203999'],
+			names: ['Nikola Jokic']
 		});
+		assert.equal(payload.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.equal(payload.sourceCalls.some((source) => source.endpointId === 'leaguedashplayerstats'), true);
+		assert.deepEqual(payload.warnings, []);
+	});
 
-		const queryResponse = await queryPost(createQueryPostEvent('Show Precious Achiuwa trend for points in the last 2 games'));
-		const query = (await queryResponse.json()) as { traceId: string };
+	test('returns canonical team resolvedQuery names, ids, and defaulted filters for structured traces', async () => {
+		const statsResponse = await statsPost({
+			request: new Request('http://localhost/api/stats/query', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					query: {
+						operation: 'rank',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['drtg'],
+						filters: {
+							season: '2023-24'
+						}
+					}
+				})
+			})
+		} as Parameters<typeof statsPost>[0]);
+		const stats = (await statsResponse.json()) as { traceId: string };
 
-		const response = await GET(createTraceEvent(query.traceId));
+		const response = await GET(createTraceEvent(stats.traceId));
 		const payload = (await parseJson(response)) as {
 			status: string;
 			resolvedQuery: {
@@ -298,6 +367,120 @@ describe('GET /api/query-trace/:traceId', () => {
 			};
 		};
 
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.deepEqual(payload.resolvedQuery.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(payload.resolvedQuery.filters.season, '2023-24');
+		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
+	});
+
+	test('returns canonical team season lookup provenance with merged source calls for structured traces', async () => {
+		const statsResponse = await statsPost({
+			request: new Request('http://localhost/api/stats/query', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					query: {
+						operation: 'lookup',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['wins', 'ortg', 'drtg'],
+						filters: {},
+						outputMode: 'table'
+					}
+				})
+			})
+		} as Parameters<typeof statsPost>[0]);
+		const stats = (await statsResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(stats.traceId));
+		const payload = (await parseJson(response)) as {
+			status: string;
+			resolvedQuery: {
+				subject: { ids: string[]; names: string[] };
+				filters: { season: string | null; seasonType: string | null };
+			};
+			sourceCalls: Array<{ endpointId: string }>;
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.deepEqual(payload.resolvedQuery.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(payload.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.deepEqual(
+			payload.sourceCalls.map((sourceCall) => sourceCall.endpointId),
+			['leaguedashteamstats', 'leaguedashteamstats']
+		);
+	});
+
+	test('returns canonical full-directory player resolution for planner-route traces', async () => {
+		_setQueryRouteDependenciesForTests({
+			async planQuestion() {
+				return {
+					type: 'planned',
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'trend',
+								entity: 'player',
+								subject: {
+									names: ['Precious Achiuwa']
+								},
+								metrics: ['pts'],
+								filters: {
+									season: null,
+									seasonType: null,
+									window: {
+										type: 'last_n_games',
+										n: 2
+									},
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'timeseries'
+							}
+						}
+					]
+				};
+			},
+			executeSemanticQuery
+		});
+
+		const queryResponse = await queryPost(createQueryPostEvent('Show Precious Achiuwa trend for points in the last 2 games'));
+		const query = (await queryResponse.json()) as {
+			traceId: string;
+			toolResults: Array<{ response: { traceId: string } }>;
+		};
+
+		const orchestrationResponse = await GET(createTraceEvent(query.traceId));
+		const orchestrationPayload = (await parseJson(orchestrationResponse)) as {
+			status: string;
+			executedStructuredTraceIds: string[];
+		};
+		const response = await GET(createTraceEvent(orchestrationPayload.executedStructuredTraceIds[0]));
+		const payload = (await parseJson(response)) as {
+			status: string;
+			resolvedQuery: {
+				subject: { ids: string[]; names: string[] };
+				filters: { season: string | null; seasonType: string | null };
+			};
+		};
+
+		assert.equal(orchestrationResponse.status, 200);
+		assert.equal(orchestrationPayload.status, 'ok');
+		assert.deepEqual(orchestrationPayload.executedStructuredTraceIds, [query.toolResults[0]?.response.traceId]);
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'ok');
 		assert.deepEqual(payload.resolvedQuery.subject, {
@@ -313,36 +496,49 @@ describe('GET /api/query-trace/:traceId', () => {
 			async planQuestion() {
 				return {
 					type: 'planned',
-					query: {
-						operation: 'trend',
-						entity: 'player',
-						subject: {
-							names: ['Jokic']
-						},
-						metrics: ['pts'],
-						filters: {
-							season: null,
-							seasonType: null,
-							window: {
-								type: 'last_n_games',
-								n: 2
-							},
-							dateFrom: null,
-							dateTo: null
-						},
-						orderBy: null,
-						limit: null,
-						outputMode: 'timeseries'
-					}
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'trend',
+								entity: 'player',
+								subject: {
+									names: ['Jokic']
+								},
+								metrics: ['pts'],
+								filters: {
+									season: null,
+									seasonType: null,
+									window: {
+										type: 'last_n_games',
+										n: 2
+									},
+									dateFrom: null,
+									dateTo: null
+								},
+								orderBy: null,
+								limit: null,
+								outputMode: 'timeseries'
+							}
+						}
+					]
 				};
 			},
 			executeSemanticQuery
 		});
 
 		const queryResponse = await queryPost(createQueryPostEvent('Show Jokic trend for points in the last 2 games'));
-		const query = (await queryResponse.json()) as { traceId: string };
+		const query = (await queryResponse.json()) as {
+			traceId: string;
+			toolResults: Array<{ response: { traceId: string } }>;
+		};
 
-		const response = await GET(createTraceEvent(query.traceId));
+		const orchestrationResponse = await GET(createTraceEvent(query.traceId));
+		const orchestrationPayload = (await parseJson(orchestrationResponse)) as {
+			status: string;
+			executedStructuredTraceIds: string[];
+		};
+		const response = await GET(createTraceEvent(orchestrationPayload.executedStructuredTraceIds[0]));
 		const payload = (await parseJson(response)) as {
 			status: string;
 			resolvedQuery: {
@@ -351,6 +547,9 @@ describe('GET /api/query-trace/:traceId', () => {
 			};
 		};
 
+		assert.equal(orchestrationResponse.status, 200);
+		assert.equal(orchestrationPayload.status, 'ok');
+		assert.deepEqual(orchestrationPayload.executedStructuredTraceIds, [query.toolResults[0]?.response.traceId]);
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'ok');
 		assert.deepEqual(payload.resolvedQuery.subject, {

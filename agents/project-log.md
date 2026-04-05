@@ -142,3 +142,123 @@
 - Workspace bootstrap now seeds fixture-backed nightly data from `scripts/setup-workspace.sh`, so a fresh worktree starts with a usable local supported-query surface instead of immediate `nightly_data_unavailable` gaps.
 - A dedicated `scripts/bootstrap-live-data.sh` helper now deletes the current workspace DB and reruns the live nightly bootstrap for a chosen slate date, keeping fixture-seeded local setup and real-data refresh paths separate.
 - Workspace setup now copies `.env` and `apps/web/.env` from `SUPERSET_ROOT_PATH` when Superset provides a root-repo path, and only falls back to local `.env.example` files when the workspace does not already have a local env file to preserve.
+- PRD published: `Scalable Season Lookup Expansion` ([#25](https://github.com/agocharbhatia/hoop-hub/issues/25)). Core architecture choice: expand the semantic runtime with grounded `lookup/player` and `lookup/team`, unify active runtime metrics under one semantic capability/metric registry, and add a public capabilities contract so the LLM only requests supported operations, metrics, seasons, and outputs. Workflow assumption: the stats tool returns structured grounded data and provenance, while the LLM consumes the published capabilities and owns final presentation.
+- Slice `unify_semantic_metrics_and_capabilities` established one shared semantic capability registry for the active stats runtime. The direct structured validator, planner schema/prompt surface, and new `GET /api/stats/capabilities` route now read from the same public contract so orchestration and executor validation cannot drift on supported operations, entities, metrics, seasons, season types, output modes, or subject cardinality.
+- Slice `add_team_directory_and_ambiguity_safe_resolution` adds a shared seeded team identity layer for the semantic runtime. Team defensive ranking queries can now ground one team subject by canonical name, city, short name, abbreviation, or curated alias, while ambiguous labels like `Los Angeles` or `LA` must stop with typed `clarification_needed` and leave `resolvedQuery` null instead of guessing.
+- Deterministic offline lookup coverage now runs through one shared fixture registry. Cache seeding and fixture-backed bootstrap both read the same richer season payload set, while bootstrap-only cohort fallback rows must be derived from that shared player season fixture instead of inventing a separate payload surface.
+- Nightly/bootstrap lookup materialization now plans one shared season-source variant set for both current season and `2023-24` backfill: player season base, team season base, and team season advanced rows. Future lookup expansion should extend that shared seam instead of hand-adding season-specific requests in separate planners.
+- Slice `ship_structured_player_season_lookup` adds `lookup/player` to the public semantic capability contract and executes it by filtering stored league-wide season rows for one canonical player. The shipped row contract is identity-first (`playerId`, `playerName`), then canonical season metadata (`season`, `seasonType`), then requested metrics; missing stored subject rows should fail as `nightly_data_unavailable` instead of a generic extraction error.
+- Slice `ship_structured_team_season_lookup` extends that lookup contract to teams through the semantic executor, not the planner. Team season lookup now grounds exactly one canonical team with ambiguity-safe resolution, merges stored base plus advanced `leaguedashteamstats` rows into one table row, and advertises the expanded `lookup/team` metric surface through the shared public capabilities contract so validation, trace provenance, and tool discovery stay aligned.
+## unify_semantic_metrics_and_capabilities
+
+- Title: Unify Semantic Metrics And Capabilities
+- Module scope: semantic metric registry, capability registry, public capabilities route, semantic query validation, planner capability wiring
+- Interface contract: public stats tool capabilities expose only supported operations, entities, metrics, output modes, seasons, season types, and subject rules | executor validation and orchestration discovery read from the same shared contract | internal source variants and raw source fields remain private
+- Tests: add capability registry contract tests | add capabilities route tests | add validation tests proving supported lookup boundaries come from the shared contract
+## add_team_directory_and_ambiguity_safe_resolution
+
+- Title: Add Team Directory And Ambiguity-Safe Resolution
+- Module scope: team directory snapshot, team alias overlay, team resolver, structured/team trace resolution contract
+- Interface contract: team resolution supports canonical names, city names, short names, abbreviations, and curated aliases | ambiguous team inputs return clarification_needed | canonical team identity is reflected in resolvedQuery once grounding is proven
+- Tests: add team resolver unit tests for exact, alias, and ambiguous cases | add contract tests for canonical resolvedQuery behavior
+## upgrade_deterministic_lookup_fixtures_and_bootstrap_sources
+
+- Title: Upgrade Deterministic Lookup Fixtures And Bootstrap Sources
+- Module scope: deterministic season fixtures, semantic cache seed helper, fixture bootstrap fetcher, lookup data coverage tests
+- Interface contract: deterministic data covers the shipped player and team lookup metric surface | seed and bootstrap fixture paths use the same season payload shapes | fixture coverage stays honest to the supported lookup contract
+- Tests: update deterministic fixture coverage tests | add bootstrap fixture parity tests | keep default tests fully fixture-backed
+## materialize_lookup_season_source_variants
+
+- Title: Materialize Lookup Season Source Variants
+- Module scope: nightly request planning, historical backfill planning, materialization service, stored-data lookup support
+- Interface contract: supported lookup source variants are available from nightly materialized data | current season and 2023-24 support use the same generalized seams | empty DB recovery remains nightly_data_unavailable until bootstrap
+- Tests: add bootstrap service tests for lookup source variants | add historical backfill tests for 2023-24 lookup support | add stored-read tests for supported lookup shapes after bootstrap
+## ship_structured_player_season_lookup
+
+- Title: Ship Structured Player Season Lookup
+- Module scope: semantic executor lookup planning, player lookup extraction, structured route contract, trace and provenance behavior
+- Interface contract: POST /api/stats/query accepts canonical lookup/player requests | lookup/player returns one table row with canonical identity and season metadata | unsupported metrics, seasons, season types, and empty stored data fail honestly
+- Tests: add semantic executor tests for player lookup output and warnings | add stats route tests for direct lookup/player requests | add trace tests for canonical player lookup provenance
+## ship_structured_team_season_lookup
+
+- Title: Ship Structured Team Season Lookup
+- Module scope: semantic executor lookup planning, team lookup extraction and source merging, structured route contract, team trace and provenance behavior
+- Interface contract: POST /api/stats/query accepts canonical lookup/team requests | lookup/team returns one table row with canonical team identity and season metadata | team lookup can merge approved base and advanced metrics into one response row
+- Tests: add semantic executor tests for team lookup output and source merging | add stats route tests for direct lookup/team requests | add trace and resolver tests for team lookup grounding behavior
+
+## expand_planner_to_season_lookup_phrasing
+
+- Title: Expand Planner To Season Lookup Phrasing
+- Module scope: planner service, planner schema/prompt construction, /api/query integration path, planner lookup tests
+- Interface contract: planner lookup support is derived from the shared capabilities contract | planner preserves supported season input and stops before canonical grounding | vague asks clarify and unsupported adjacent asks remain coverage gaps
+- Tests: add planner service tests for lookup phrasing and season normalization | add /api/query integration tests for supported and unsupported lookup asks | add prompt/schema coverage sourced from shared capabilities
+
+## lock_empty_db_and_bootstrap_lookup_e2e_coverage
+
+- Title: Lock Empty-DB And Bootstrap Lookup E2E Coverage
+- Module scope: empty DB route coverage, post-bootstrap route coverage, cross-route trace verification, bootstrap e2e tests
+- Interface contract: supported lookup asks return nightly_data_unavailable before bootstrap | supported lookup asks return ok after the intended bootstrap path | traces remain canonical and trustworthy before and after bootstrap
+- Tests: add empty-DB integration tests for lookup on /api/query and /api/stats/query | add post-bootstrap integration tests for supported lookup asks | add trace verification across the bootstrap boundary
+
+## 2026-04-04
+
+- PRD drafted: `Batch Tool-Orchestrated Answer Runtime For POST /api/query`.
+- Canonical issue: `#34`.
+- Core architecture choice: replace the single-query planner wrapper on `/api/query` with an answer-first orchestrator that plans a bounded batch of structured tool requests, executes them through the existing semantic executor, and renders the final answer from grounded tool results.
+- Workflow assumptions: keep `/api/stats/query` as the stable single-query tool contract, split planning and answer rendering into separate LLM steps, cap `/api/query` batches at three structured requests, allow partial answers as `ok` plus warnings, and model `/api/query` traces as orchestration traces with planned tool requests plus executed structured trace references instead of one fake `resolvedQuery`.
+- Issue slicing published as implementation issues `#35` through `#41`, and the approved dependency graph now lives in `.sandcastle/tasks.yaml` as the execution source for this PRD.
+- Slice `ship_answer_first_api_query_for_one_tool_result` ships the narrow answer-first contract on `/api/query`: one planned structured request, one semantic executor result exposed under `toolResults`, one renderer-owned `answer` plus small artifacts, and UI consumption moved off the old top-level raw `StatsQueryResponse` shape.
+- Slice `add_honest_orchestration_traces_for_answer_route_requests` gives `/api/query` its own orchestration trace ids and payloads. Answer-route traces now persist planned tool requests plus executed structured trace ids, aggregate freshness and source-call data from the referenced semantic traces, and stop exposing a fake single `resolvedQuery`.
+- Slice `generalize_single_request_planning_from_capabilities` publishes per-shape planner metadata on the shared stats capabilities contract (`queryShapes` with supported metrics plus ordering/window defaults) and feeds that contract directly into the planner prompt so single-request capability growth comes from one shared source instead of more handwritten prompt families.
+- Slice `return_partial_answers_for_mixed_batch_outcomes` locks the `/api/query` partial-answer policy at the orchestration boundary: a planned batch now stays top-level `ok` when at least one structured tool result is usable, failed sibling requests only surface as aggregated warnings, and zero-success batches collapse to one honest typed non-ok response instead of erasing success or fabricating an `ok`.
+- Slice `harden_answer_rendering_and_grounding_surfaces_for_batched_results` locks the v1 answer artifact contract to `table` plus `text_block`, keeps raw `toolResults` in the public `/api/query` payload, and teaches the UI-facing presentation layer to surface supporting tables and warning messages from that main answer payload instead of assuming one primary table only.
+## ship_answer_first_api_query_for_one_tool_result
+
+- Title: Ship Answer-First /api/query For One Tool Result
+- Module scope: query route orchestration, planner and renderer service boundaries, answer response contract, app query UI
+- Interface contract: POST /api/query returns an answer-first payload instead of raw StatsQueryResponse | POST /api/stats/query remains the stable single-query structured tool contract | the one-request path uses separate planning and answer-rendering steps
+- Tests: add route contract tests for one-request answer responses | add deterministic planner and renderer boundary tests for the one-tool path | update UI-facing tests or helpers to consume the new answer payload
+## add_honest_orchestration_traces_for_answer_route_requests
+
+- Title: Add Honest Orchestration Traces For Answer-Route Requests
+- Module scope: answer-route trace contract, trace persistence, trace route
+- Interface contract: answer-route traces expose plannedToolRequests and executed structured trace ids | GET /api/query-trace/:traceId returns honest orchestration traces for /api/query | answer-route traces do not expose a fake single resolvedQuery
+- Tests: add /api/query-trace tests for answer-route orchestration traces | add persistence tests for planned tool requests and executed trace ids | keep existing structured trace tests green
+## generalize_single_request_planning_from_capabilities
+
+- Title: Generalize Single-Request Planning From Capabilities
+- Module scope: query batch planner, planning schema and validation, capability-driven planning rules
+- Interface contract: clear one-request questions map to supported structured tool requests | ambiguous asks return clarification_needed with no executor call | clear but unsupported asks return coverage_gap with no executor call
+- Tests: add planner tests for clear supported one-request asks | add planner tests for ambiguity and unsupported asks | add coverage proving planning derives from shared capabilities
+## add_internal_batched_tool_execution_for_compound_questions
+
+- Title: Add Internal Batched Tool Execution For Compound Questions
+- Module scope: batch planner contract, internal semantic batch executor, query orchestrator
+- Interface contract: `/api/query` can plan and execute up to three internal `stats_query` requests for one answer | each planned request still runs through the canonical semantic validator and executor | `/api/stats/query` stays unchanged as the public single-query structured route
+- Tests: add batch planner contract tests for multi-request and oversized plans | add semantic batch executor tests for internal module wiring | add `/api/query` route coverage for compound-question orchestration
+## add_internal_batched_tool_execution_for_compound_questions
+
+- Title: Add Internal Batched Tool Execution For Compound Questions
+- Module scope: batch planning contract, semantic batch executor, query orchestrator
+- Interface contract: /api/query can execute up to three structured tool requests for one answer | batch execution calls server modules directly instead of route-to-route HTTP | the existing semantic validator and executor remain the grounding authority for each tool request
+- Tests: add batch planner tests for multi-request plans and size limits | add semantic batch executor tests for internal execution wiring | add route tests for compound-question orchestration
+
+## deduplicate_normalized_requests_and_keep_batch_policy_tight
+
+- Title: Deduplicate Normalized Requests And Keep Batch Policy Tight
+- Module scope: request normalization, exact deduplication, batch execution ordering
+- Interface contract: planned requests are normalized before equality comparison | exact normalized duplicates are removed | non-duplicate request order is preserved
+- Tests: add executor tests for exact normalized deduplication | add executor tests for preserved non-duplicate order | add negative tests proving fuzzy merges are out of scope
+## return_partial_answers_for_mixed_batch_outcomes
+
+- Title: Return Partial Answers For Mixed Batch Outcomes
+- Module scope: partial-answer orchestration policy, warning aggregation, answer-route status handling
+- Interface contract: partial answers use top-level status ok plus warnings | zero-success valid batches return typed non-ok behavior | failed tool requests do not erase successful grounded tool results
+- Tests: add route tests for mixed success and failure batches | add executor tests for warning aggregation and zero-success behavior | add answer-path tests for grounded partial responses
+## harden_answer_rendering_and_grounding_surfaces_for_batched_results
+
+- Title: Harden Answer Rendering And Grounding Surfaces For Batched Results
+- Module scope: answer renderer, answer artifact contract, app answer presentation
+- Interface contract: /api/query returns answer text, minimal artifacts, and raw toolResults | v1 artifacts stay limited to table and text_block | the UI can surface supporting tables and warnings from the main payload
+- Tests: add renderer tests for grounded answer shaping from multiple tool results | add route tests for answer payload artifacts and toolResults | add UI tests for supporting tables and warnings
+

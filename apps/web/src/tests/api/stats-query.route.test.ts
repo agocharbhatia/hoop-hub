@@ -105,7 +105,167 @@ describe('POST /api/stats/query', () => {
 		assert.equal(payload.traceId.length > 0, true);
 	});
 
-	test('returns 200 coverage_gap for valid but unsupported structured queries', async () => {
+	test('returns 200 ok for supported structured player lookup queries', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'lookup',
+						entity: 'player',
+						subject: {
+							names: ['jokic']
+						},
+						metrics: ['pts', 'reb'],
+						filters: {},
+						outputMode: 'table'
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: { shape: string; columns: string[]; rows: Array<Record<string, string | number>> };
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+					filters: { season: string; seasonType: string };
+				};
+			};
+			warnings: Array<{ code: string }>;
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.result.shape, 'table');
+		assert.deepEqual(payload.result.columns, ['playerId', 'playerName', 'season', 'seasonType', 'pts', 'reb']);
+		assert.deepEqual(payload.result.rows, [
+			{
+				playerId: '203999',
+				playerName: 'Nikola Jokic',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				pts: 26.4,
+				reb: 12.4
+			}
+		]);
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['203999'],
+			names: ['Nikola Jokic']
+		});
+		assert.equal(payload.provenance.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.deepEqual(payload.warnings, []);
+	});
+
+	test('returns 200 ok for supported structured team lookup queries', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'lookup',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['wins', 'ortg', 'drtg'],
+						filters: {},
+						outputMode: 'table'
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: { shape: string; columns: string[]; rows: Array<Record<string, string | number>> };
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+					filters: { season: string; seasonType: string };
+				};
+				sourceCalls: Array<{ endpointId: string }>;
+			};
+			warnings: Array<{ code: string }>;
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.result.shape, 'table');
+		assert.deepEqual(payload.result.columns, ['teamId', 'teamName', 'season', 'seasonType', 'wins', 'ortg', 'drtg']);
+		assert.deepEqual(payload.result.rows, [
+			{
+				teamId: '1610612738',
+				teamName: 'Boston Celtics',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				wins: 64,
+				ortg: 121.7,
+				drtg: 110.2
+			}
+		]);
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(payload.provenance.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.deepEqual(
+			payload.provenance.sourceCalls.map((sourceCall) => sourceCall.endpointId),
+			['leaguedashteamstats', 'leaguedashteamstats']
+		);
+		assert.deepEqual(payload.warnings, []);
+	});
+
+	test('returns 400 for structured player lookup requests with unsupported seasons', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'lookup',
+						entity: 'player',
+						subject: {
+							names: ['Nikola Jokic']
+						},
+						metrics: ['pts'],
+						filters: {
+							season: '2022-23'
+						},
+						outputMode: 'table'
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as { error: string };
+
+		assert.equal(response.status, 400);
+		assert.match(payload.error, /query\.filters\.season/i);
+	});
+
+	test('returns 400 for structured player lookup requests with unsupported season types', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'lookup',
+						entity: 'player',
+						subject: {
+							names: ['Nikola Jokic']
+						},
+						metrics: ['pts'],
+						filters: {
+							seasonType: 'Playoffs'
+						},
+						outputMode: 'table'
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as { error: string };
+
+		assert.equal(response.status, 400);
+		assert.match(payload.error, /query\.filters\.seasonType/i);
+	});
+
+	test('returns 400 for structured queries outside the shared runtime capability contract', async () => {
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
@@ -119,18 +279,10 @@ describe('POST /api/stats/query', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as {
-			status: string;
-			result: unknown;
-			warnings: { code: string }[];
-			traceId: string;
-		};
+		const payload = (await parseJson(response)) as { error: string };
 
-		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'coverage_gap');
-		assert.equal(payload.result, null);
-		assert.equal(payload.warnings[0]?.code, 'unsupported_query_shape');
-		assert.equal(payload.traceId.length > 0, true);
+		assert.equal(response.status, 400);
+		assert.match(payload.error, /supported semantic entity|supported semantic query shape/i);
 	});
 
 	test('returns 200 coverage_gap when no stored query data exists', async () => {
@@ -192,6 +344,77 @@ describe('POST /api/stats/query', () => {
 			ids: ['203999'],
 			names: ['Nikola Jokic']
 		});
+	});
+
+	test('returns canonical resolvedQuery names and ids for supported structured team requests', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'rank',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['drtg'],
+						filters: {
+							season: '2023-24'
+						}
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: { rows: unknown[] };
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+					filters: { season: string; seasonType: string };
+				};
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(payload.provenance.resolvedQuery.filters.season, '2023-24');
+		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.deepEqual(payload.result.rows, [{ rank: 1, subject: 'Boston Celtics', metric: 'drtg', value: 110.2 }]);
+	});
+
+	test('returns clarification_needed for ambiguous structured team requests', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'rank',
+						entity: 'team',
+						subject: {
+							names: ['Los Angeles']
+						},
+						metrics: ['drtg'],
+						filters: {}
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: unknown;
+			warnings: { code: string; message: string }[];
+			provenance: { resolvedQuery: unknown };
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'clarification_needed');
+		assert.equal(payload.result, null);
+		assert.equal(payload.warnings[0]?.code, 'ambiguous_subject');
+		assert.match(payload.warnings[0]?.message ?? '', /los angeles lakers/i);
+		assert.equal(payload.provenance.resolvedQuery, null);
 	});
 
 	test('returns 400 when callers send deprecated allowLiveFallback options', async () => {

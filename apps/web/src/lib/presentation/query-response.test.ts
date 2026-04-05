@@ -1,25 +1,28 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
 import type { ErrorResponse } from '$lib/contracts/chat';
-import type { StatsQueryResponse } from '$lib/contracts/semantic-query';
-import { getAssistantMessageContent } from './query-response';
+import {
+	getAssistantMessageContent,
+	getPrimaryTableArtifact,
+	getSupportingTableArtifacts,
+	getVisibleWarningMessages
+} from './query-response';
 
-function buildOkResponse(overrides: Partial<StatsQueryResponse> = {}): StatsQueryResponse {
+function buildOkResponse(overrides: Partial<QueryAnswerResponse> = {}): QueryAnswerResponse {
 	return {
 		status: 'ok',
-		result: {
-			shape: 'ranking',
-			columns: ['rank', 'subject', 'metric', 'value'],
-			rows: [{ rank: 1, subject: 'Tyrese Haliburton', metric: 'ast', value: 10.9 }],
-			summary: 'Tyrese Haliburton leads AST rankings for 2023-24 at 10.9.'
-		},
+		answer: 'Tyrese Haliburton leads AST rankings for 2023-24 at 10.9.',
+		artifacts: [
+			{
+				type: 'table',
+				shape: 'ranking',
+				columns: ['rank', 'subject', 'metric', 'value'],
+				rows: [{ rank: 1, subject: 'Tyrese Haliburton', metric: 'ast', value: 10.9 }]
+			}
+		],
+		toolResults: [],
 		citations: [],
-		provenance: {
-			executor: 'semantic_executor',
-			resolvedQuery: null,
-			dataFreshnessMode: 'nightly',
-			sourceCalls: []
-		},
 		warnings: [],
 		traceId: 'trace-id',
 		...overrides
@@ -30,7 +33,8 @@ describe('getAssistantMessageContent', () => {
 	test('returns the typed warning message for coverage gaps even when http status is ok', () => {
 		const payload = buildOkResponse({
 			status: 'coverage_gap',
-			result: null,
+			answer: '',
+			artifacts: [],
 			warnings: [
 				{
 					code: 'nightly_data_unavailable',
@@ -47,11 +51,15 @@ describe('getAssistantMessageContent', () => {
 
 	test('falls back to a row-count message when ok responses omit summary text', () => {
 		const payload = buildOkResponse({
-			result: {
-				shape: 'ranking',
-				columns: ['rank', 'subject', 'metric', 'value'],
-				rows: [{ rank: 1, subject: 'Tyrese Haliburton', metric: 'ast', value: 10.9 }]
-			}
+			answer: '',
+			artifacts: [
+				{
+					type: 'table',
+					shape: 'ranking',
+					columns: ['rank', 'subject', 'metric', 'value'],
+					rows: [{ rank: 1, subject: 'Tyrese Haliburton', metric: 'ast', value: 10.9 }]
+				}
+			]
 		});
 
 		assert.equal(getAssistantMessageContent(true, payload), 'Returned 1 result.');
@@ -61,5 +69,128 @@ describe('getAssistantMessageContent', () => {
 		const payload: ErrorResponse = { error: 'Internal server error.' };
 
 		assert.equal(getAssistantMessageContent(false, payload), 'Internal server error.');
+	});
+});
+
+describe('getPrimaryTableArtifact', () => {
+	test('returns the first table artifact when grounding data is present', () => {
+		const payload = buildOkResponse();
+
+		assert.deepEqual(getPrimaryTableArtifact(payload), payload.artifacts[0]);
+	});
+
+	test('suppresses single-row lookup tables when the answer already covers the result in prose', () => {
+		const payload = buildOkResponse({
+			answer: 'The Boston Celtics had a 122.2 offensive rating and a 110.6 defensive rating in 2023-24.',
+			artifacts: [
+				{
+					type: 'table',
+					shape: 'table',
+					columns: ['teamId', 'teamName', 'season', 'seasonType', 'ortg', 'drtg'],
+					rows: [
+						{
+							teamId: '1610612738',
+							teamName: 'Boston Celtics',
+							season: '2023-24',
+							seasonType: 'Regular Season',
+							ortg: 122.2,
+							drtg: 110.6
+						}
+					]
+				}
+			]
+		});
+
+		assert.equal(getPrimaryTableArtifact(payload), null);
+	});
+});
+
+describe('getSupportingTableArtifacts', () => {
+	test('returns supporting grounded tables after the primary table', () => {
+		const payload = buildOkResponse({
+			artifacts: [
+				{
+					type: 'text_block',
+					text: 'Boston led the league in offense and finished near the top on defense.'
+				},
+				{
+					type: 'table',
+					shape: 'ranking',
+					columns: ['rank', 'team', 'ortg'],
+					rows: [
+						{ rank: 1, team: 'Boston Celtics', ortg: 123.2 },
+						{ rank: 2, team: 'Indiana Pacers', ortg: 122.1 }
+					]
+				},
+				{
+					type: 'table',
+					shape: 'ranking',
+					columns: ['rank', 'team', 'drtg'],
+					rows: [
+						{ rank: 1, team: 'Minnesota Timberwolves', drtg: 108.4 },
+						{ rank: 2, team: 'Boston Celtics', drtg: 110.6 }
+					]
+				}
+			]
+		});
+
+		assert.deepEqual(getSupportingTableArtifacts(payload), [
+			{
+				type: 'table',
+				shape: 'ranking',
+				columns: ['rank', 'team', 'drtg'],
+				rows: [
+					{ rank: 1, team: 'Minnesota Timberwolves', drtg: 108.4 },
+					{ rank: 2, team: 'Boston Celtics', drtg: 110.6 }
+				]
+			}
+		]);
+	});
+
+	test('does not surface suppressed single-row lookup tables as supporting tables', () => {
+		const payload = buildOkResponse({
+			answer: 'The Boston Celtics had a 122.2 offensive rating and a 110.6 defensive rating in 2023-24.',
+			artifacts: [
+				{
+					type: 'table',
+					shape: 'table',
+					columns: ['teamId', 'teamName', 'season', 'seasonType', 'ortg', 'drtg'],
+					rows: [
+						{
+							teamId: '1610612738',
+							teamName: 'Boston Celtics',
+							season: '2023-24',
+							seasonType: 'Regular Season',
+							ortg: 122.2,
+							drtg: 110.6
+						}
+					]
+				}
+			]
+		});
+
+		assert.deepEqual(getSupportingTableArtifacts(payload), []);
+	});
+});
+
+describe('getVisibleWarningMessages', () => {
+	test('returns warning messages in payload order for UI presentation', () => {
+		const payload = buildOkResponse({
+			warnings: [
+				{
+					code: 'nightly_data_unavailable',
+					message: 'Defensive rating was unavailable in the latest nightly snapshot.'
+				},
+				{
+					code: 'partial_answer',
+					message: 'The answer is based on the available offensive rating result only.'
+				}
+			]
+		});
+
+		assert.deepEqual(getVisibleWarningMessages(payload), [
+			'Defensive rating was unavailable in the latest nightly snapshot.',
+			'The answer is based on the available offensive rating result only.'
+		]);
 	});
 });

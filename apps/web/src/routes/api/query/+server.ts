@@ -1,6 +1,10 @@
 import { json } from '@sveltejs/kit';
+import type { AnswerRendererService } from '$lib/server/answer-renderer/service';
+import { createDefaultAnswerRendererService } from '$lib/server/answer-renderer/service';
 import type { PlannerService } from '$lib/server/planner/service';
 import { createPlannerService } from '$lib/server/planner/service';
+import { createQueryOrchestratorService, type QueryOrchestratorService } from '$lib/server/query-orchestrator/service';
+import { createSemanticBatchExecutor } from '$lib/server/query-orchestrator/semantic-batch-executor';
 import {
 	buildSemanticNonOkResponse,
 	executeSemanticQuery,
@@ -9,14 +13,12 @@ import {
 import type { RequestHandler } from './$types';
 
 type QueryRouteDependencies = {
-	planner: PlannerService;
-	executeSemanticQuery: typeof executeSemanticQuery;
-	validateSemanticQueryRequest: typeof validateSemanticQueryRequest;
-	buildSemanticNonOkResponse: typeof buildSemanticNonOkResponse;
+	orchestrator: QueryOrchestratorService;
 };
 
 let testDependencies: QueryRouteDependencies | null = null;
 let defaultPlannerService: PlannerService | null = null;
+let defaultAnswerRendererService: AnswerRendererService | null = null;
 let testDefaultPlannerFactory: (() => Promise<PlannerService>) | null = null;
 
 /**
@@ -27,6 +29,7 @@ export function _setQueryRouteDependenciesForTests(
 		| {
 				planQuestion: PlannerService['planQuestion'];
 				executeSemanticQuery: typeof executeSemanticQuery;
+				renderAnswer?: AnswerRendererService['renderAnswer'];
 		  }
 		| null
 ): void {
@@ -36,12 +39,21 @@ export function _setQueryRouteDependenciesForTests(
 	}
 
 	testDependencies = {
-		planner: {
-			planQuestion: dependencies.planQuestion
-		},
-		executeSemanticQuery: dependencies.executeSemanticQuery,
-		validateSemanticQueryRequest,
-		buildSemanticNonOkResponse
+		orchestrator: createQueryOrchestratorService({
+			planner: {
+				planQuestion: dependencies.planQuestion
+			},
+			renderer: {
+				renderAnswer:
+					dependencies.renderAnswer ??
+					createDefaultAnswerRendererService().renderAnswer
+			},
+			batchExecutor: createSemanticBatchExecutor({
+				validateSemanticQueryRequest,
+				executeSemanticQuery: dependencies.executeSemanticQuery
+			}),
+			buildSemanticNonOkResponse
+		})
 	};
 }
 
@@ -68,31 +80,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	try {
 		const dependencies = getDependencies();
-		const planningStartedAt = performance.now();
-		const decision = await dependencies.planner.planQuestion(parsed.value.question);
-		const planningLatencyMs = Math.round(performance.now() - planningStartedAt);
-
-		if (decision.type !== 'planned') {
-			const result = dependencies.buildSemanticNonOkResponse(
-				decision.type,
-				parsed.value.question,
-				decision.warning,
-				null,
-				planningLatencyMs
-			);
-			return json(result, { status: 200 });
-		}
-
-		const validated = dependencies.validateSemanticQueryRequest({
-			question: parsed.value.question,
-			query: decision.query
-		});
-		if (!validated.ok) {
-			throw new Error(`Planner produced an invalid semantic query: ${validated.error}`);
-		}
-
-		const result = await dependencies.executeSemanticQuery(validated.value);
-		return json(result, { status: 200 });
+		const answer = await dependencies.orchestrator.answerQuestion(parsed.value.question);
+		return json(answer, { status: 200 });
 	} catch (error) {
 		console.error('Unexpected planner query handler error:', error);
 		return json({ error: 'Internal server error.' }, { status: 500 });
@@ -107,15 +96,20 @@ function getDependencies(): QueryRouteDependencies {
 	}
 
 	return {
-		planner: {
-			planQuestion: async (question) => {
-				const planner = await getDefaultPlannerService();
-				return planner.planQuestion(question);
-			}
-		},
-		executeSemanticQuery,
-		validateSemanticQueryRequest,
-		buildSemanticNonOkResponse
+		orchestrator: createQueryOrchestratorService({
+			planner: {
+				planQuestion: async (question) => {
+					const planner = await getDefaultPlannerService();
+					return planner.planQuestion(question);
+				}
+			},
+			renderer: getDefaultAnswerRendererService(),
+			batchExecutor: createSemanticBatchExecutor({
+				validateSemanticQueryRequest,
+				executeSemanticQuery
+			}),
+			buildSemanticNonOkResponse
+		})
 	};
 }
 
@@ -132,6 +126,14 @@ async function getDefaultPlannerService(): Promise<PlannerService> {
 	const { createOpenAIPlannerAdapter } = await import('$lib/server/planner/openai-adapter');
 	defaultPlannerService = createPlannerService(createOpenAIPlannerAdapter());
 	return defaultPlannerService;
+}
+
+function getDefaultAnswerRendererService(): AnswerRendererService {
+	if (!defaultAnswerRendererService) {
+		defaultAnswerRendererService = createDefaultAnswerRendererService();
+	}
+
+	return defaultAnswerRendererService;
 }
 
 function validateQueryQuestionRequest(input: unknown): { ok: true; value: { question: string } } | { ok: false; error: string } {

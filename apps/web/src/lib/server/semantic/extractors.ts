@@ -22,6 +22,11 @@ const PLAYER_METRIC_COLUMNS: Record<string, string> = {
 };
 
 const TEAM_METRIC_COLUMNS: Record<string, string> = {
+	wins: 'W',
+	losses: 'L',
+	win_pct: 'W_PCT',
+	reb: 'REB',
+	ortg: 'OFF_RATING',
 	drtg: 'DEF_RATING'
 };
 
@@ -159,6 +164,46 @@ export function extractPlayerRankingRows(
 	};
 }
 
+export function extractPlayerLookupRow(
+	payload: unknown,
+	subject: { playerId: string; playerName: string },
+	metrics: string[],
+	season: string,
+	seasonType: string
+): StatsQueryResult {
+	const resultSet = extractResultSet(payload, ['LeagueDashPlayerStats']);
+	const playerIdIndex = getColumnIndex(resultSet.headers, 'PLAYER_ID');
+	const seasonRow = resultSet.rowSet.find((row) => String(row[playerIdIndex] ?? '') === subject.playerId);
+
+	if (!seasonRow) {
+		throw new SemanticExtractionError(`No season row could be resolved for ${subject.playerName}.`);
+	}
+
+	const row: StatsQueryRow = {
+		playerId: subject.playerId,
+		playerName: subject.playerName,
+		season,
+		seasonType
+	};
+
+	for (const metric of metrics) {
+		const columnName = PLAYER_METRIC_COLUMNS[metric];
+		if (!columnName) {
+			throw new SemanticExtractionError(`Unsupported player lookup metric '${metric}'.`);
+		}
+
+		const metricIndex = getColumnIndex(resultSet.headers, columnName);
+		row[metric] = normalizeNumber(seasonRow[metricIndex] ?? 0);
+	}
+
+	return {
+		shape: 'table',
+		columns: ['playerId', 'playerName', 'season', 'seasonType', ...metrics],
+		rows: [row],
+		summary: `Returned ${subject.playerName} season metrics for ${season}.`
+	};
+}
+
 export function extractPlayerTrendRows(
 	payload: unknown,
 	metrics: string[],
@@ -249,9 +294,11 @@ export function extractTeamRankingRows(
 	metric: string,
 	limit: number,
 	orderBy: SemanticQueryOrderBy | null,
+	subjectFilter: { teamId: string; canonicalName: string } | null = null,
 	seasonLabel = 'this season'
 ): StatsQueryResult {
 	const resultSet = extractResultSet(payload, ['LeagueDashTeamStats']);
+	const teamIdIndex = getColumnIndex(resultSet.headers, 'TEAM_ID');
 	const teamNameIndex = getColumnIndex(resultSet.headers, 'TEAM_NAME');
 	const columnName = TEAM_METRIC_COLUMNS[metric];
 	if (!columnName) {
@@ -261,11 +308,13 @@ export function extractTeamRankingRows(
 	const metricIndex = getColumnIndex(resultSet.headers, columnName);
 	const direction = orderBy?.metric === metric ? orderBy.direction : 'asc';
 	const rows = sortRowsByDirection(
-		resultSet.rowSet.map((row) => ({
-			subject: String(row[teamNameIndex] ?? 'Unknown Team'),
-			metric,
-			value: normalizeNumber(row[metricIndex] ?? 0)
-		})),
+		resultSet.rowSet
+			.filter((row) => subjectFilter === null || String(row[teamIdIndex] ?? '') === subjectFilter.teamId)
+			.map((row) => ({
+				subject: subjectFilter?.canonicalName ?? String(row[teamNameIndex] ?? 'Unknown Team'),
+				metric,
+				value: normalizeNumber(row[metricIndex] ?? 0)
+			})),
 		direction
 	)
 		.slice(0, limit)
@@ -283,5 +332,52 @@ export function extractTeamRankingRows(
 		columns: ['rank', 'subject', 'metric', 'value'],
 		rows,
 		summary: `${rows[0].subject} lead team ${formatMetricLabel(metric)} rankings for ${seasonLabel} at ${rows[0].value}.`
+	};
+}
+
+export function extractTeamLookupRow(
+	payloads: { base: unknown; advanced: unknown },
+	subject: { teamId: string; teamName: string },
+	metrics: string[],
+	season: string,
+	seasonType: string
+): StatsQueryResult {
+	const resultSets = {
+		base: extractResultSet(payloads.base, ['LeagueDashTeamStats']),
+		advanced: extractResultSet(payloads.advanced, ['LeagueDashTeamStats'])
+	};
+	const baseTeamIdIndex = getColumnIndex(resultSets.base.headers, 'TEAM_ID');
+	const advancedTeamIdIndex = getColumnIndex(resultSets.advanced.headers, 'TEAM_ID');
+	const baseRow = resultSets.base.rowSet.find((row) => String(row[baseTeamIdIndex] ?? '') === subject.teamId);
+	const advancedRow = resultSets.advanced.rowSet.find((row) => String(row[advancedTeamIdIndex] ?? '') === subject.teamId);
+
+	if (!baseRow || !advancedRow) {
+		throw new SemanticExtractionError(`No season row could be resolved for ${subject.teamName}.`);
+	}
+
+	const row: StatsQueryRow = {
+		teamId: subject.teamId,
+		teamName: subject.teamName,
+		season,
+		seasonType
+	};
+
+	for (const metric of metrics) {
+		const columnName = TEAM_METRIC_COLUMNS[metric];
+		if (!columnName) {
+			throw new SemanticExtractionError(`Unsupported team lookup metric '${metric}'.`);
+		}
+
+		const source = metric === 'ortg' || metric === 'drtg' ? resultSets.advanced : resultSets.base;
+		const sourceRow = metric === 'ortg' || metric === 'drtg' ? advancedRow : baseRow;
+		const metricIndex = getColumnIndex(source.headers, columnName);
+		row[metric] = normalizeNumber(sourceRow[metricIndex] ?? 0);
+	}
+
+	return {
+		shape: 'table',
+		columns: ['teamId', 'teamName', 'season', 'seasonType', ...metrics],
+		rows: [row],
+		summary: `Returned ${subject.teamName} season metrics for ${season}.`
 	};
 }

@@ -25,6 +25,23 @@ describe('validateSemanticQueryRequest', () => {
 		assert.equal(result.ok, true);
 	});
 
+	test('rejects unsupported entity shapes outside the shared runtime capability contract', () => {
+		const result = validateSemanticQueryRequest({
+			query: {
+				operation: 'lookup',
+				entity: 'game',
+				subject: {
+					names: ['Nikola Jokic']
+				},
+				metrics: ['pts'],
+				filters: {}
+			}
+		});
+
+		assert.equal(result.ok, false);
+		assert.match(result.error, /supported semantic entity|supported semantic query shape/i);
+	});
+
 	test('rejects invalid window shapes', () => {
 		const result = validateSemanticQueryRequest({
 			query: {
@@ -62,6 +79,41 @@ describe('validateSemanticQueryRequest', () => {
 
 		assert.equal(result.ok, false);
 		assert.match(result.error, /same canonical player/i);
+	});
+
+	test('rejects conflicting structured team ids and names', () => {
+		const result = validateSemanticQueryRequest({
+			query: {
+				operation: 'rank',
+				entity: 'team',
+				subject: {
+					ids: ['1610612738'],
+					names: ['Knicks']
+				},
+				metrics: ['drtg'],
+				filters: {}
+			}
+		});
+
+		assert.equal(result.ok, false);
+		assert.match(result.error, /same canonical team/i);
+	});
+
+	test('accepts valid structured team lookup requests', () => {
+		const result = validateSemanticQueryRequest({
+			query: {
+				operation: 'lookup',
+				entity: 'team',
+				subject: {
+					names: ['Boston']
+				},
+				metrics: ['wins', 'drtg'],
+				filters: {},
+				outputMode: 'table'
+			}
+		});
+
+		assert.equal(result.ok, true);
 	});
 
 	test('rejects deprecated allowLiveFallback request options', () => {
@@ -120,6 +172,235 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.result?.rows.length, 20);
 		assert.equal(response.provenance.executor, 'semantic_executor');
 		assert.equal(response.traceId.length > 0, true);
+	});
+
+	test('returns one canonical season row for supported player lookup queries', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'lookup',
+					entity: 'player',
+					subject: {
+						names: ['jokic']
+					},
+					metrics: ['pts', 'reb'],
+					filters: {},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.shape, 'table');
+		assert.deepEqual(response.result?.columns, ['playerId', 'playerName', 'season', 'seasonType', 'pts', 'reb']);
+		assert.deepEqual(response.result?.rows, [
+			{
+				playerId: '203999',
+				playerName: 'Nikola Jokic',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				pts: 26.4,
+				reb: 12.4
+			}
+		]);
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['203999'],
+			names: ['Nikola Jokic']
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+		assert.deepEqual(response.warnings, []);
+	});
+
+	test('returns one canonical merged season row for supported team lookup queries', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'lookup',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['wins', 'losses', 'win_pct', 'reb', 'ortg', 'drtg'],
+					filters: {},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.shape, 'table');
+		assert.deepEqual(response.result?.columns, [
+			'teamId',
+			'teamName',
+			'season',
+			'seasonType',
+			'wins',
+			'losses',
+			'win_pct',
+			'reb',
+			'ortg',
+			'drtg'
+		]);
+		assert.deepEqual(response.result?.rows, [
+			{
+				teamId: '1610612738',
+				teamName: 'Boston Celtics',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				wins: 64,
+				losses: 18,
+				win_pct: 0.78,
+				reb: 46.3,
+				ortg: 121.7,
+				drtg: 110.2
+			}
+		]);
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+		assert.deepEqual(
+			response.provenance.sourceCalls.map((sourceCall) => sourceCall.endpointId),
+			['leaguedashteamstats', 'leaguedashteamstats']
+		);
+		assert.deepEqual(response.warnings, []);
+	});
+
+	test('returns clarification_needed for ambiguous team lookup requests', async () => {
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'lookup',
+				entity: 'team',
+				subject: {
+					names: ['Los Angeles']
+				},
+				metrics: ['wins'],
+				filters: {},
+				outputMode: 'table'
+			}
+		});
+
+		assert.equal(response.status, 'clarification_needed');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'ambiguous_subject');
+		assert.match(response.warnings[0]?.message ?? '', /los angeles clippers/i);
+		assert.equal(response.provenance.resolvedQuery, null);
+	});
+
+	test('returns coverage_gap for lookup metrics outside the supported player season surface', async () => {
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'lookup',
+				entity: 'player',
+				subject: {
+					names: ['Nikola Jokic']
+				},
+				metrics: ['drtg'],
+				filters: {},
+				outputMode: 'table'
+			}
+		});
+
+		assert.equal(response.status, 'coverage_gap');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'unsupported_metric');
+	});
+
+	test('returns coverage_gap when no stored season lookup row exists for the resolved player', async () => {
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'lookup',
+				entity: 'player',
+				subject: {
+					ids: ['2544']
+				},
+				metrics: ['pts'],
+				filters: {},
+				outputMode: 'table'
+			}
+		});
+
+		assert.equal(response.status, 'coverage_gap');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'nightly_data_unavailable');
+	});
+
+	test('canonicalizes exact-city team ranking requests in resolvedQuery provenance', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'rank',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['drtg'],
+					filters: {
+						season: '2023-24'
+					}
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2023-24');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+		assert.deepEqual(response.result?.rows, [{ rank: 1, subject: 'Boston Celtics', metric: 'drtg', value: 110.2 }]);
+	});
+
+	test('canonicalizes curated alias team ranking requests in resolvedQuery provenance', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'rank',
+					entity: 'team',
+					subject: {
+						names: ['Wolves']
+					},
+					metrics: ['drtg'],
+					filters: {
+						season: '2023-24'
+					}
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['1610612750'],
+			names: ['Minnesota Timberwolves']
+		});
+	});
+
+	test('returns clarification_needed for ambiguous team ranking requests', async () => {
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'rank',
+				entity: 'team',
+				subject: {
+					names: ['Los Angeles']
+				},
+				metrics: ['drtg'],
+				filters: {}
+			}
+		});
+
+		assert.equal(response.status, 'clarification_needed');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'ambiguous_subject');
+		assert.match(response.warnings[0]?.message ?? '', /los angeles clippers/i);
+		assert.equal(response.provenance.resolvedQuery, null);
 	});
 
 	test('supports multi-metric player trend rows with window limiting', async () => {
