@@ -52,12 +52,13 @@ resolve_default_db_path() {
 remove_existing_db() {
   local db_path="$1"
 
-  if [[ ! -f "$db_path" ]]; then
-    echo "[bootstrap-live-data] no existing DB to remove at $db_path"
+  if [[ ! -f "$db_path" && ! -f "$db_path-wal" && ! -f "$db_path-shm" ]]; then
+    echo "[bootstrap-live-data] no existing DB or WAL files to remove at $db_path"
     return
   fi
 
-  run_step "removing existing DB at $db_path" rm -f "$db_path"
+  run_step "removing existing DB and WAL files at $db_path" \
+    rm -f "$db_path" "$db_path-wal" "$db_path-shm"
 }
 
 run_live_bootstrap() {
