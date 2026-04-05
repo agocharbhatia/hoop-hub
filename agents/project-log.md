@@ -255,3 +255,10 @@
 - Module scope: partial-answer orchestration policy, warning aggregation, answer-route status handling
 - Interface contract: partial answers use top-level status ok plus warnings | zero-success valid batches return typed non-ok behavior | failed tool requests do not erase successful grounded tool results
 - Tests: add route tests for mixed success and failure batches | add executor tests for warning aggregation and zero-success behavior | add answer-path tests for grounded partial responses
+## harden_answer_rendering_and_grounding_surfaces_for_batched_results
+
+- Title: Harden Answer Rendering And Grounding Surfaces For Batched Results
+- Module scope: answer renderer, answer artifact contract, app answer presentation
+- Interface contract: /api/query returns answer text, minimal artifacts, and raw toolResults | v1 artifacts stay limited to table and text_block | the UI can surface supporting tables and warnings from the main payload
+- Tests: add renderer tests for grounded answer shaping from multiple tool results | add route tests for answer payload artifacts and toolResults | add UI tests for supporting tables and warnings
+

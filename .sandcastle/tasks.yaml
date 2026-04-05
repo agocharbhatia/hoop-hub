@@ -229,7 +229,7 @@ tasks:
       Finish the answer-first runtime by rendering grounded answer text plus
       minimal v1 artifacts across batched tool results while keeping toolResults
       visible in the main payload and usable by the app UI.
-    status: pending
+    status: done
     blocked_by:
       - add_honest_orchestration_traces_for_answer_route_requests
       - add_internal_batched_tool_execution_for_compound_questions
