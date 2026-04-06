@@ -280,3 +280,10 @@
 - Module scope: answer renderer, answer artifact contract, app answer presentation
 - Interface contract: /api/query returns answer text, minimal artifacts, and raw toolResults | v1 artifacts stay limited to table and text_block | the UI can surface supporting tables and warnings from the main payload
 - Tests: add renderer tests for grounded answer shaping from multiple tool results | add route tests for answer payload artifacts and toolResults | add UI tests for supporting tables and warnings
+## ship_typed_standings_and_game_contracts_with_honest_non_ok_behavior
+
+- Title: Ship Typed Standings And Game Contracts With Honest Non-Ok Behavior
+- Module scope: semantic contracts and capability registry, structured validator, semantic and orchestration trace boundaries
+- Interface contract: POST /api/stats/query accepts typed standings and game requests | shared capabilities advertise standings/game field ids and new filters | non-executing standings/game paths fail honestly with canonical traces
+- Tests: add capability registry and capabilities route tests for the new shapes | add structured validator tests for standings/game requests and filters | add route and trace tests for honest non-ok behavior on the new shapes
+

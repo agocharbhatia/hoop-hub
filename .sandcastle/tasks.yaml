@@ -265,7 +265,7 @@ tasks:
       Expand the shared structured contract, capability surface, validator, and
       honest non-ok trace behavior so `standings/team` and `game/team` are real
       discoverable shapes end-to-end before successful execution support lands.
-    status: pending
+    status: done
     blocked_by: []
     module_scope:
       - semantic contracts and capability registry
@@ -313,8 +313,8 @@ tasks:
       - default bootstrap materializes current and `2023-24` standings snapshots
       - semantic traces expose canonical resolved team standings queries
     acceptance_criteria:
-      - one-team standings queries return canonical identity and standings-native
-        fields for supported seasons
+      - one-team standings queries return canonical identity and
+        standings-native fields for supported seasons
       - empty DB returns nightly coverage gaps and bootstrap recovers to `ok`
       - semantic traces and provenance stay nightly-backed and canonical
     test_plan:
@@ -386,7 +386,8 @@ tasks:
       - strict date questions can return honest no-game-day answers
       - traces and provenance stay canonical and nightly-backed
     test_plan:
-      - add executor tests for next game, last night, tomorrow, and no-game-day cases
+      - add executor tests for next game, last night, tomorrow, and no-game-day
+        cases
       - add bootstrap tests for scoreboard horizon materialization
       - add route and trace tests for canonical team game behavior
     quality_gates:
@@ -413,13 +414,16 @@ tasks:
       - route behavior for incomplete but useful game answers
     interface_contract:
       - "`game/team` supports bounded ranges and `next N games`"
-      - structured results expose `coverageStatus`, `requestedCount`, and `returnedCount`
+      - structured results expose `coverageStatus`, `requestedCount`, and
+        `returnedCount`
       - incomplete but grounded game answers remain explicit and machine-readable
     acceptance_criteria:
-      - bounded ranges and `next N games` work through the existing structured route
+      - bounded ranges and `next N games` work through the existing structured
+        route
       - completeness metadata distinguishes `complete`, `season_exhausted`, and
         `partial_materialized`
-      - route behavior stays honest when stored coverage is incomplete or the season ends
+      - route behavior stays honest when stored coverage is incomplete or the
+        season ends
     test_plan:
       - add executor tests for bounded ranges and `next N games`
       - add result-contract tests for completeness metadata states
@@ -448,17 +452,23 @@ tasks:
       - answer-route mixed batch orchestration
       - dropped-clause warnings and orchestration traces
     interface_contract:
-      - /api/query can answer standings-only, game-only, and mixed standings/game asks
-      - mixed unsupported non-essential clauses can be dropped with explicit warnings
+      - /api/query can answer standings-only, game-only, and mixed
+        standings/game asks
+      - mixed unsupported non-essential clauses can be dropped with explicit
+        warnings
       - orchestration traces remain honest with no fake single resolved query
     acceptance_criteria:
-      - mixed standings/game questions plan and execute through minimal grounded requests
-      - dropped unsupported clauses surface explicit warnings in response and trace data
+      - mixed standings/game questions plan and execute through minimal grounded
+        requests
+      - dropped unsupported clauses surface explicit warnings in response and
+        trace data
       - answer-route rendering and trace tests lock the mixed-domain contract
     test_plan:
       - add planner tests deriving the new shapes from shared capabilities
-      - add /api/query integration tests for standings-only, game-only, and mixed asks
-      - add /api/query-trace tests for dropped-clause warnings and honest orchestration traces
+      - add /api/query integration tests for standings-only, game-only, and
+        mixed asks
+      - add /api/query-trace tests for dropped-clause warnings and honest
+        orchestration traces
     quality_gates:
       - bun run check
       - bun run test
