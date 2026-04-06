@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
-import { resetDataStoreForTests } from '$lib/server/data/store';
+import { getEndpointCatalogEntry } from '$lib/server/data/catalog';
+import { buildRawEndpointCacheKey, getDataStore, resetDataStoreForTests, stableStringify } from '$lib/server/data/store';
 import { createNightlyBootstrapFixtureFetcher } from '$lib/server/nightly/bootstrap-fixtures';
 import { bootstrapCurrentSeasonNightly } from '$lib/server/nightly/bootstrap-service';
 import { ensurePlayerDirectoryAvailable, setPlayerDirectoryRefreshLoaderForTests } from '$lib/server/players/player-directory';
@@ -9,6 +10,92 @@ import { executeSemanticQuery, validateSemanticQueryRequest } from './query-serv
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
 const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;
+
+function createScoreboardPayload(
+	gameDate: string,
+	options: {
+		gameId: string;
+		gameStatus: 'upcoming' | 'final';
+		homeTeamId?: string;
+		visitorTeamId?: string;
+		teamScore?: number | null;
+		opponentScore?: number | null;
+	}
+): unknown {
+	const homeTeamId = options.homeTeamId ?? '1610612738';
+	const visitorTeamId = options.visitorTeamId ?? '1610612749';
+	const gameStatusId = options.gameStatus === 'final' ? 3 : 1;
+
+	return {
+		resource: 'scoreboardv2',
+		resultSets: [
+			{
+				name: 'GameHeader',
+				headers: ['GAME_DATE_EST', 'GAME_SEQUENCE', 'GAME_ID', 'GAME_STATUS_ID', 'HOME_TEAM_ID', 'VISITOR_TEAM_ID'],
+				rowSet: [[`${gameDate}T00:00:00`, 1, options.gameId, gameStatusId, homeTeamId, visitorTeamId]]
+			},
+			{
+				name: 'LineScore',
+				headers: ['GAME_ID', 'TEAM_ID', 'PTS'],
+				rowSet: [
+					[options.gameId, '1610612738', options.teamScore ?? null],
+					[options.gameId, homeTeamId === '1610612738' ? visitorTeamId : homeTeamId, options.opponentScore ?? null]
+				]
+			}
+		]
+	};
+}
+
+function createEmptyScoreboardPayload(): unknown {
+	return {
+		resource: 'scoreboardv2',
+		resultSets: [
+			{
+				name: 'GameHeader',
+				headers: ['GAME_DATE_EST', 'GAME_SEQUENCE', 'GAME_ID', 'GAME_STATUS_ID', 'HOME_TEAM_ID', 'VISITOR_TEAM_ID'],
+				rowSet: []
+			},
+			{
+				name: 'LineScore',
+				headers: ['GAME_ID', 'TEAM_ID', 'PTS'],
+				rowSet: []
+			}
+		]
+	};
+}
+
+function putScoreboardCache(gameDate: string, payload: unknown, now: Date): void {
+	const catalogEntry = getEndpointCatalogEntry('scoreboardv2');
+	if (!catalogEntry) {
+		throw new Error("Missing endpoint catalog entry for 'scoreboardv2'.");
+	}
+
+	const params = {
+		DayOffset: '0',
+		GameDate: gameDate,
+		LeagueID: '00'
+	};
+	const normalizedParams = JSON.parse(stableStringify(params)) as Record<string, string>;
+	const snapshotDate = now.toISOString().slice(0, 10);
+	const cacheKey = buildRawEndpointCacheKey({
+		endpointId: 'scoreboardv2',
+		params: normalizedParams,
+		parserVersion: catalogEntry.parserVersion,
+		snapshotDate
+	});
+
+	getDataStore().putRawEndpointCache({
+		cacheKey,
+		endpointId: 'scoreboardv2',
+		paramsJson: JSON.stringify(normalizedParams),
+		payloadJson: JSON.stringify(payload),
+		fetchedAt: now.toISOString(),
+		expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+		snapshotDate,
+		parserVersion: catalogEntry.parserVersion,
+		isProvisional: false
+	});
+}
 
 describe('validateSemanticQueryRequest', () => {
 	test('accepts a valid player ranking request', () => {
@@ -943,6 +1030,112 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.result?.coverageStatus, 'complete');
 		assert.equal(response.result?.requestedCount, 1);
 		assert.equal(response.result?.returnedCount, 0);
+	});
+
+	test('returns bounded upcoming game ranges with complete completeness metadata', async () => {
+		const now = new Date('2026-04-02T05:00:00.000Z');
+		resetDataStoreForTests();
+		putScoreboardCache('2026-04-02', createScoreboardPayload('2026-04-02', { gameId: 'g-1', gameStatus: 'upcoming', visitorTeamId: '1610612752' }), now);
+		putScoreboardCache('2026-04-03', createScoreboardPayload('2026-04-03', { gameId: 'g-2', gameStatus: 'upcoming', visitorTeamId: '1610612749' }), now);
+		putScoreboardCache('2026-04-04', createScoreboardPayload('2026-04-04', { gameId: 'g-3', gameStatus: 'upcoming', visitorTeamId: '1610612755' }), now);
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['game_date', 'game_status', 'opponent_team'],
+					filters: {
+						dateFrom: '2026-04-02',
+						dateTo: '2026-04-04',
+						gameStatus: 'upcoming'
+					},
+					limit: 3,
+					outputMode: 'table'
+				}
+			},
+			now
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.coverageStatus, 'complete');
+		assert.equal(response.result?.requestedCount, 3);
+		assert.equal(response.result?.returnedCount, 3);
+		assert.deepEqual(
+			response.result?.rows.map((row) => row.game_date),
+			['2026-04-02', '2026-04-03', '2026-04-04']
+		);
+	});
+
+	test('returns season_exhausted for next N games when the remaining season contains fewer grounded games', async () => {
+		const now = new Date('2026-04-02T05:00:00.000Z');
+		resetDataStoreForTests();
+		putScoreboardCache('2026-04-02', createEmptyScoreboardPayload(), now);
+		putScoreboardCache('2026-04-03', createScoreboardPayload('2026-04-03', { gameId: 'g-2', gameStatus: 'upcoming', visitorTeamId: '1610612749' }), now);
+		putScoreboardCache('2026-04-04', createEmptyScoreboardPayload(), now);
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['game_date', 'game_status', 'opponent_team'],
+					filters: {
+						gameStatus: 'upcoming'
+					},
+					limit: 2,
+					outputMode: 'table'
+				}
+			},
+			now
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.coverageStatus, 'season_exhausted');
+		assert.equal(response.result?.requestedCount, 2);
+		assert.equal(response.result?.returnedCount, 1);
+		assert.deepEqual(response.result?.rows.map((row) => row.game_date), ['2026-04-03']);
+	});
+
+	test('returns ok plus explicit partial_materialized metadata when stored game range coverage is incomplete but grounded rows exist', async () => {
+		const now = new Date('2026-04-02T05:00:00.000Z');
+		resetDataStoreForTests();
+		putScoreboardCache('2026-04-02', createScoreboardPayload('2026-04-02', { gameId: 'g-1', gameStatus: 'upcoming', visitorTeamId: '1610612752' }), now);
+		putScoreboardCache('2026-04-04', createScoreboardPayload('2026-04-04', { gameId: 'g-3', gameStatus: 'upcoming', visitorTeamId: '1610612755' }), now);
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['game_date', 'game_status', 'opponent_team'],
+					filters: {
+						dateFrom: '2026-04-02',
+						dateTo: '2026-04-04',
+						gameStatus: 'upcoming'
+					},
+					limit: 3,
+					outputMode: 'table'
+				}
+			},
+			now
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.warnings[0]?.code, 'nightly_data_unavailable');
+		assert.equal(response.result?.coverageStatus, 'partial_materialized');
+		assert.equal(response.result?.requestedCount, 3);
+		assert.equal(response.result?.returnedCount, 2);
+		assert.deepEqual(response.result?.rows.map((row) => row.game_date), ['2026-04-02', '2026-04-04']);
 	});
 
 	test('canonicalizes exact-name trend requests in resolvedQuery provenance', async () => {

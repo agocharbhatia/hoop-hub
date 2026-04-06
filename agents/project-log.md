@@ -313,3 +313,8 @@
 - Interface contract: single-event `game/team` works for one team through POST /api/stats/query | calendar-relative and game-relative semantics remain distinct | default bootstrap materializes the current scoreboard horizon
 - Tests: add executor tests for next game, last night, tomorrow, and no-game-day cases | add bootstrap tests for scoreboard horizon materialization | add route and trace tests for canonical team game behavior
 
+## ship_bounded_team_game_ranges_with_completeness_metadata
+
+- `game/team` range semantics now live in `team-game.ts`: inclusive date windows and `next N games` both flow through the same requested-count and coverage-status seam instead of route-level branching.
+- Partial stored scoreboard coverage should only stay top-level `ok` when at least one grounded game row exists; expose the gap through `coverageStatus: 'partial_materialized'` plus the existing `nightly_data_unavailable` warning instead of hiding it in prose.
+- Fully materialized chronology asks that return fewer rows than requested should report `season_exhausted`, while bounded calendar windows with materialized empty days stay `complete`.

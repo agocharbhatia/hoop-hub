@@ -14,7 +14,8 @@ export type TeamGamePlan = {
 	season: string;
 	subject: ResolvedTeamGameSubject;
 	requestDates: string[];
-	selectionMode: 'exact_date' | 'next_upcoming' | 'recent_final';
+	requestedCount: number;
+	selectionMode: 'exact_date' | 'bounded_range' | 'next_upcoming' | 'recent_final';
 };
 
 type ScoreboardResultSet = {
@@ -64,6 +65,19 @@ function addDays(dateIso: string, days: number): string {
 	const base = new Date(`${dateIso}T00:00:00.000Z`);
 	base.setUTCDate(base.getUTCDate() + days);
 	return base.toISOString().slice(0, 10);
+}
+
+function buildInclusiveDateRange(startDateIso: string, endDateIso: string): string[] {
+	if (endDateIso < startDateIso) {
+		throw new SemanticExtractionError('game/team dateTo must be on or after dateFrom.');
+	}
+
+	const dates: string[] = [];
+	for (let cursor = startDateIso; cursor <= endDateIso; cursor = addDays(cursor, 1)) {
+		dates.push(cursor);
+	}
+
+	return dates;
 }
 
 function extractNamedResultSet(payload: unknown, name: string): ScoreboardResultSet {
@@ -128,6 +142,10 @@ function buildGameSelectionDates(now: Date, selectionMode: TeamGamePlan['selecti
 	}
 
 	return [easternDate, addDays(easternDate, 1), addDays(easternDate, 2)];
+}
+
+function createEmptyPayloadGameList(): ScoreboardGame[] {
+	return [];
 }
 
 function parseScoreboardGame(payload: unknown, subjectTeamId: string): ScoreboardGame[] {
@@ -247,7 +265,13 @@ export function buildCurrentScoreboardHorizonDates(slateDate: string): string[] 
 }
 
 export function createTeamGamePlan(query: SemanticQuery, season: string, subject: ResolvedTeamGameSubject, now: Date): TeamGamePlan {
-	const isExactDate = typeof query.filters.dateFrom === 'string' && query.filters.dateFrom === query.filters.dateTo;
+	const requestedLimit = query.limit ?? 1;
+	const hasBoundedDates =
+		typeof query.filters.dateFrom === 'string' &&
+		query.filters.dateFrom.length > 0 &&
+		typeof query.filters.dateTo === 'string' &&
+		query.filters.dateTo.length > 0;
+	const isExactDate = hasBoundedDates && query.filters.dateFrom === query.filters.dateTo;
 	if (isExactDate) {
 		return {
 			type: 'team_game',
@@ -255,7 +279,21 @@ export function createTeamGamePlan(query: SemanticQuery, season: string, subject
 			season,
 			subject,
 			requestDates: [query.filters.dateFrom ?? ''],
+			requestedCount: 1,
 			selectionMode: 'exact_date'
+		};
+	}
+
+	if (hasBoundedDates) {
+		const requestDates = buildInclusiveDateRange(query.filters.dateFrom ?? '', query.filters.dateTo ?? '');
+		return {
+			type: 'team_game',
+			query,
+			season,
+			subject,
+			requestDates,
+			requestedCount: Math.min(requestedLimit, requestDates.length),
+			selectionMode: 'bounded_range'
 		};
 	}
 
@@ -266,6 +304,7 @@ export function createTeamGamePlan(query: SemanticQuery, season: string, subject
 			season,
 			subject,
 			requestDates: buildGameSelectionDates(now, 'next_upcoming'),
+			requestedCount: requestedLimit,
 			selectionMode: 'next_upcoming'
 		};
 	}
@@ -277,6 +316,7 @@ export function createTeamGamePlan(query: SemanticQuery, season: string, subject
 			season,
 			subject,
 			requestDates: buildGameSelectionDates(now, 'recent_final'),
+			requestedCount: requestedLimit,
 			selectionMode: 'recent_final'
 		};
 	}
@@ -304,7 +344,10 @@ export function buildMissingTeamGameWarning(plan: TeamGamePlan, payloads: unknow
 }
 
 export function extractTeamGameResult(plan: TeamGamePlan, payloads: unknown[]): StatsQueryResult {
-	const games = payloads.flatMap((payload) => parseScoreboardGame(payload, plan.subject.id));
+	const hasMissingPayload = payloads.some((payload) => payload === null);
+	const games = payloads.flatMap((payload) =>
+		payload === null ? createEmptyPayloadGameList() : parseScoreboardGame(payload, plan.subject.id)
+	);
 
 	const filteredGames = games.filter((game) => {
 		if (plan.selectionMode === 'next_upcoming') {
@@ -322,20 +365,34 @@ export function extractTeamGameResult(plan: TeamGamePlan, payloads: unknown[]): 
 		return true;
 	});
 
-	const selectedGame =
-		plan.selectionMode === 'recent_final'
-			? filteredGames.sort((left, right) => right.gameDate.localeCompare(left.gameDate) || right.gameId.localeCompare(left.gameId))[0]
-			: filteredGames.sort((left, right) => left.gameDate.localeCompare(right.gameDate) || left.gameId.localeCompare(right.gameId))[0];
-
 	const columns = ['teamId', 'teamName', 'gameId', 'season', 'seasonType', ...plan.query.metrics];
-	if (!selectedGame) {
+	const sortedGames = filteredGames.sort((left, right) =>
+		plan.selectionMode === 'recent_final'
+			? right.gameDate.localeCompare(left.gameDate) || right.gameId.localeCompare(left.gameId)
+			: left.gameDate.localeCompare(right.gameDate) || left.gameId.localeCompare(right.gameId)
+	);
+	const selectedGames = sortedGames.slice(0, plan.requestedCount);
+	const returnedCount = selectedGames.length;
+
+	let coverageStatus: NonNullable<StatsQueryResult['coverageStatus']> = 'complete';
+	if (hasMissingPayload && returnedCount > 0) {
+		coverageStatus = 'partial_materialized';
+	} else if (
+		!hasMissingPayload &&
+		(plan.selectionMode === 'next_upcoming' || plan.selectionMode === 'recent_final') &&
+		returnedCount < plan.requestedCount
+	) {
+		coverageStatus = 'season_exhausted';
+	}
+
+	if (returnedCount === 0) {
 		return {
 			shape: 'table',
 			columns,
 			rows: [],
 			summary: `${plan.subject.name} did not play on ${plan.requestDates[0]}.`,
-			coverageStatus: 'complete',
-			requestedCount: 1,
+			coverageStatus,
+			requestedCount: plan.requestedCount,
 			returnedCount: 0
 		};
 	}
@@ -343,10 +400,10 @@ export function extractTeamGameResult(plan: TeamGamePlan, payloads: unknown[]): 
 	return {
 		shape: 'table',
 		columns,
-		rows: [buildGameRow(plan, selectedGame)],
-		summary: `Returned one grounded game row for ${plan.subject.name}.`,
-		coverageStatus: 'complete',
-		requestedCount: 1,
-		returnedCount: 1
+		rows: selectedGames.map((game) => buildGameRow(plan, game)),
+		summary: `Returned ${returnedCount} grounded game row${returnedCount === 1 ? '' : 's'} for ${plan.subject.name}.`,
+		coverageStatus,
+		requestedCount: plan.requestedCount,
+		returnedCount
 	};
 }

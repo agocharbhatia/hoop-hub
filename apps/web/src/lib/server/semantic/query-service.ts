@@ -1811,6 +1811,50 @@ export async function executeSemanticQuery(request: SemanticQueryRequest, now: D
 	const computeStartedAt = performance.now();
 	const missingPayloadWarning = buildMissingPayloadWarning(retrieval);
 	const missingLookupRowWarning = buildMissingLookupRowWarning(analysis, retrieval);
+	const teamGamePartialResult =
+		analysis.type === 'team_game' && missingPayloadWarning
+			? extractTeamGameResult(
+					analysis,
+					retrieval.responses.map((response) => response.result.payload)
+				)
+			: null;
+
+	if (
+		teamGamePartialResult &&
+		teamGamePartialResult.coverageStatus === 'partial_materialized' &&
+		teamGamePartialResult.rows.length > 0
+	) {
+		const warnings = [missingPayloadWarning].filter((warning): warning is StatsQueryWarning => warning !== null);
+		const latencyMs = buildLatency({
+			planning: planningLatencyMs,
+			retrieval: retrieval.retrievalLatencyMs,
+			compute: Math.round(performance.now() - computeStartedAt),
+			render: 0
+		});
+		const trace = buildTraceFromResponse(
+			traceId,
+			normalizedQuestion,
+			'ok',
+			analysis.query,
+			retrieval.dataFreshnessMode,
+			retrieval.sourceCalls,
+			retrieval.citations,
+			warnings,
+			latencyMs,
+			retrieval.cache
+		);
+		saveSemanticTrace(trace);
+		return makeResponse(
+			'ok',
+			teamGamePartialResult,
+			retrieval.citations,
+			analysis.query,
+			retrieval.dataFreshnessMode,
+			retrieval.sourceCalls,
+			warnings,
+			traceId
+		);
+	}
 
 	if (missingPayloadWarning || missingLookupRowWarning) {
 		const warning = missingPayloadWarning ?? missingLookupRowWarning ?? buildWarning('nightly_data_unavailable', 'No stored nightly data was available.');
