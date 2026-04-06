@@ -370,7 +370,7 @@ tasks:
       Make single-event `game/team` requests succeed through the canonical
       current-window scoreboard source for next-game, recent-result, and
       calendar-relative day asks with strict temporal semantics.
-    status: pending
+    status: done
     blocked_by:
       - ship_typed_standings_and_game_contracts_with_honest_non_ok_behavior
     module_scope:

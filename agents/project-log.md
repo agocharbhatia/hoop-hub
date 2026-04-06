@@ -306,3 +306,10 @@
 - `game/team` now executes through a dedicated scoreboard-backed module instead of staying inline in `query-service.ts`; keep future range/completeness work on that seam rather than re-growing the monolith.
 - The default scoreboard horizon is currently `slateDate - 1` through `slateDate + 3`, which is the minimum nightly-backed window needed for last-night, next-game, tomorrow, and strict no-game-day asks in this slice.
 - Exact-date asks inside the materialized horizon should return grounded `ok` responses even when the team did not play, while chronology-based asks should stay conservative and return `nightly_data_unavailable` if any required horizon date is missing.
+## ship_single_event_team_game_queries_for_next_and_recent_results
+
+- Title: Ship Single-Event Team Game Queries For Next And Recent Results
+- Module scope: game executor module, temporal grounding and game status handling, scoreboard horizon materialization
+- Interface contract: single-event `game/team` works for one team through POST /api/stats/query | calendar-relative and game-relative semantics remain distinct | default bootstrap materializes the current scoreboard horizon
+- Tests: add executor tests for next game, last night, tomorrow, and no-game-day cases | add bootstrap tests for scoreboard horizon materialization | add route and trace tests for canonical team game behavior
+
