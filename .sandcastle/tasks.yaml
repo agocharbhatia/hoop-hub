@@ -405,7 +405,7 @@ tasks:
       Extend `game/team` into bounded multi-row schedule and results ranges with
       explicit completeness metadata so the runtime can distinguish complete
       answers, season exhaustion, and partial materialization honestly.
-    status: pending
+    status: done
     blocked_by:
       - ship_single_event_team_game_queries_for_next_and_recent_results
     module_scope:

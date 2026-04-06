@@ -318,3 +318,10 @@
 - `game/team` range semantics now live in `team-game.ts`: inclusive date windows and `next N games` both flow through the same requested-count and coverage-status seam instead of route-level branching.
 - Partial stored scoreboard coverage should only stay top-level `ok` when at least one grounded game row exists; expose the gap through `coverageStatus: 'partial_materialized'` plus the existing `nightly_data_unavailable` warning instead of hiding it in prose.
 - Fully materialized chronology asks that return fewer rows than requested should report `season_exhausted`, while bounded calendar windows with materialized empty days stay `complete`.
+## ship_bounded_team_game_ranges_with_completeness_metadata
+
+- Title: Ship Bounded Team Game Ranges With Completeness Metadata
+- Module scope: multi-row game execution, structured result completeness metadata, route behavior for incomplete but useful game answers
+- Interface contract: `game/team` supports bounded ranges and `next N games` | structured results expose `coverageStatus`, `requestedCount`, and `returnedCount` | incomplete but grounded game answers remain explicit and machine-readable
+- Tests: add executor tests for bounded ranges and `next N games` | add result-contract tests for completeness metadata states | add route tests for explicit incomplete-but-grounded game responses
+
