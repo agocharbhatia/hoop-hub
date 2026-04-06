@@ -286,7 +286,7 @@ describe('GET /api/query-trace/:traceId', () => {
 		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
 	});
 
-	test('returns honest structured traces for standings requests before execution support exists', async () => {
+	test('returns canonical structured traces for one-team standings requests', async () => {
 		const statsResponse = await statsPost({
 			request: new Request('http://localhost/api/stats/query', {
 				method: 'POST',
@@ -324,8 +324,8 @@ describe('GET /api/query-trace/:traceId', () => {
 		};
 
 		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'coverage_gap');
-		assert.equal(payload.warnings[0]?.code, 'unsupported_query_shape');
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.warnings.length, 0);
 		assert.equal(payload.resolvedQuery.operation, 'standings');
 		assert.equal(payload.resolvedQuery.entity, 'team');
 		assert.deepEqual(payload.resolvedQuery.subject, {

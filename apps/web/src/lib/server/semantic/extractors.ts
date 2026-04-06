@@ -30,6 +30,16 @@ const TEAM_METRIC_COLUMNS: Record<string, string> = {
 	drtg: 'DEF_RATING'
 };
 
+const TEAM_STANDINGS_METRIC_COLUMNS: Record<string, string> = {
+	conference_rank: 'PlayoffRank',
+	seed: 'PlayoffRank',
+	wins: 'WINS',
+	losses: 'LOSSES',
+	win_pct: 'WinPCT',
+	games_back: 'ConferenceGamesBack',
+	streak: 'strCurrentStreak'
+};
+
 export class SemanticExtractionError extends Error {
 	constructor(message: string) {
 		super(message);
@@ -379,5 +389,58 @@ export function extractTeamLookupRow(
 		columns: ['teamId', 'teamName', 'season', 'seasonType', ...metrics],
 		rows: [row],
 		summary: `Returned ${subject.teamName} season metrics for ${season}.`
+	};
+}
+
+export function extractTeamStandingsRow(
+	payload: unknown,
+	subject: { teamId: string; teamName: string },
+	metrics: string[],
+	season: string,
+	seasonType: string,
+	filters?: { conference?: string | null; division?: string | null }
+): StatsQueryResult {
+	const resultSet = extractResultSet(payload, ['Standings']);
+	const teamIdIndex = getColumnIndex(resultSet.headers, 'TeamID');
+	const conferenceIndex = getColumnIndex(resultSet.headers, 'Conference');
+	const divisionIndex = getColumnIndex(resultSet.headers, 'Division');
+	const teamRow = resultSet.rowSet.find((row) => String(row[teamIdIndex] ?? '') === subject.teamId);
+
+	if (!teamRow) {
+		throw new SemanticExtractionError(`No standings row could be resolved for ${subject.teamName}.`);
+	}
+
+	const conference = String(teamRow[conferenceIndex] ?? '');
+	const division = String(teamRow[divisionIndex] ?? '');
+	if (filters?.conference && filters.conference !== conference) {
+		throw new SemanticExtractionError(`Resolved team ${subject.teamName} does not match conference filter '${filters.conference}'.`);
+	}
+
+	if (filters?.division && filters.division !== division) {
+		throw new SemanticExtractionError(`Resolved team ${subject.teamName} does not match division filter '${filters.division}'.`);
+	}
+
+	const row: StatsQueryRow = {
+		teamId: subject.teamId,
+		teamName: subject.teamName,
+		season,
+		seasonType
+	};
+
+	for (const metric of metrics) {
+		const columnName = TEAM_STANDINGS_METRIC_COLUMNS[metric];
+		if (!columnName) {
+			throw new SemanticExtractionError(`Unsupported team standings metric '${metric}'.`);
+		}
+
+		const metricIndex = getColumnIndex(resultSet.headers, columnName);
+		row[metric] = metric === 'streak' ? String(teamRow[metricIndex] ?? '') : normalizeNumber(teamRow[metricIndex] ?? 0);
+	}
+
+	return {
+		shape: 'table',
+		columns: ['teamId', 'teamName', 'season', 'seasonType', ...metrics],
+		rows: [row],
+		summary: `Returned ${subject.teamName} standings for ${season}.`
 	};
 }

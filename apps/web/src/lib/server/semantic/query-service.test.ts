@@ -616,7 +616,7 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.provenance.sourceCalls[0]?.cacheStatus, 'miss');
 	});
 
-	test('returns honest coverage_gap for standings queries before execution support ships', async () => {
+	test('returns canonical one-team standings rows for supported seasons', async () => {
 		const response = await executeSemanticQuery(
 			{
 				query: {
@@ -636,9 +636,17 @@ describe('executeSemanticQuery', () => {
 			new Date('2026-03-25T12:00:00.000Z')
 		);
 
-		assert.equal(response.status, 'coverage_gap');
-		assert.equal(response.result, null);
-		assert.equal(response.warnings[0]?.code, 'unsupported_query_shape');
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.shape, 'table');
+		assert.deepEqual(response.result?.columns, ['teamId', 'teamName', 'season', 'seasonType', 'seed', 'wins']);
+		assert.deepEqual(response.result?.rows[0], {
+			teamId: '1610612738',
+			teamName: 'Boston Celtics',
+			season: '2023-24',
+			seasonType: 'Regular Season',
+			seed: 1,
+			wins: 64
+		});
 		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
 			ids: ['1610612738'],
 			names: ['Boston Celtics']
@@ -646,6 +654,41 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.provenance.resolvedQuery?.filters.season, '2023-24');
 		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
 		assert.equal(response.provenance.resolvedQuery?.filters.conference, 'East');
+		assert.equal(response.provenance.dataFreshnessMode, 'nightly');
+		assert.equal(response.provenance.sourceCalls[0]?.sourceStatus, 'ok');
+		assert.equal(response.warnings.length, 0);
+	});
+
+	test('defaults current-season team standings queries to the nightly-supported current season', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'standings',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['seed', 'wins', 'streak'],
+					filters: {},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.result?.columns, ['teamId', 'teamName', 'season', 'seasonType', 'seed', 'wins', 'streak']);
+		assert.deepEqual(response.result?.rows[0], {
+			teamId: '1610612738',
+			teamName: 'Boston Celtics',
+			season: '2025-26',
+			seasonType: 'Regular Season',
+			seed: 2,
+			wins: 58,
+			streak: 'W4'
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
 	});
 
 	test('returns honest coverage_gap for game queries before execution support ships', async () => {

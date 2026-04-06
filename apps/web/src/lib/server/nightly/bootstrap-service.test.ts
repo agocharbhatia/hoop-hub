@@ -43,8 +43,11 @@ const JOKIC_TREND_FIXTURE = JSON.parse(
 const ACHIUWA_TREND_FIXTURE = JSON.parse(
 	readFileSync(new URL('../semantic/fixtures/playergamelog-achiuwa.json', import.meta.url), 'utf8')
 ) as unknown;
+const STANDINGS_FIXTURE = JSON.parse(
+	readFileSync(new URL('../semantic/fixtures/leaguestandingsv3.json', import.meta.url), 'utf8')
+) as unknown;
 const BASE_LOOKUP_VARIANT_COUNT = listDeterministicLookupFixtureSurface().filter((requirement) =>
-	['leaguedashplayerstats', 'leaguedashteamstats'].includes(requirement.endpointId)
+	['leaguedashplayerstats', 'leaguedashteamstats', 'leaguestandingsv3'].includes(requirement.endpointId)
 ).length;
 
 function buildOkResult(request: EndpointFetchRequest, payload: unknown): EndpointFetchResult {
@@ -227,6 +230,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, TEAM_STATS_FIXTURE);
 			}
 
+			if (request.endpointId === 'leaguestandingsv3') {
+				return buildOkResult(request, STANDINGS_FIXTURE);
+			}
+
 			if (request.endpointId === 'playercareerstats') {
 				const payload = careerPayloadByPlayerId.get(request.params.PlayerID);
 				assert.notEqual(payload, undefined);
@@ -283,6 +290,36 @@ describe('bootstrapCurrentSeasonNightly', () => {
 		);
 		assert.equal(teamDefenseResponse.status, 'ok');
 		assert.equal(teamDefenseResponse.provenance.dataFreshnessMode, 'nightly');
+
+		const standingsResponse = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'standings',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['seed', 'wins', 'games_back', 'streak'],
+					filters: {
+						season: '2023-24',
+						conference: 'East'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-04-02T05:00:00.000Z')
+		);
+		assert.equal(standingsResponse.status, 'ok');
+		assert.deepEqual(standingsResponse.result?.rows[0], {
+			teamId: '1610612738',
+			teamName: 'Boston Celtics',
+			season: '2023-24',
+			seasonType: 'Regular Season',
+			seed: 1,
+			wins: 64,
+			games_back: 0,
+			streak: 'W2'
+		});
 
 		const cachedRows = [
 			getDataStore().getLatestRawEndpointCache({
@@ -405,6 +442,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, TEAM_STATS_FIXTURE);
 			}
 
+			if (request.endpointId === 'leaguestandingsv3') {
+				return buildOkResult(request, STANDINGS_FIXTURE);
+			}
+
 			if (request.endpointId === 'playercareerstats') {
 				const playerId = request.params.PlayerID;
 				comparisonFetches.push(playerId);
@@ -470,6 +511,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 
 			if (request.endpointId === 'leaguedashteamstats') {
 				return buildOkResult(request, TEAM_STATS_FIXTURE);
+			}
+
+			if (request.endpointId === 'leaguestandingsv3') {
+				return buildOkResult(request, STANDINGS_FIXTURE);
 			}
 
 			if (request.endpointId === 'playercareerstats') {
@@ -555,6 +600,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, TEAM_STATS_FIXTURE);
 			}
 
+			if (request.endpointId === 'leaguestandingsv3') {
+				return buildOkResult(request, STANDINGS_FIXTURE);
+			}
+
 			if (request.endpointId === 'playercareerstats') {
 				const payload = careerPayloadByPlayerId.get(request.params.PlayerID);
 				assert.notEqual(payload, undefined);
@@ -625,6 +674,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 
 			if (request.endpointId === 'leaguedashteamstats') {
 				return buildOkResult(request, TEAM_STATS_FIXTURE);
+			}
+
+			if (request.endpointId === 'leaguestandingsv3') {
+				return buildOkResult(request, STANDINGS_FIXTURE);
 			}
 
 			activeCohortRequests += 1;
@@ -701,6 +754,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, TEAM_STATS_FIXTURE);
 			}
 
+			if (request.endpointId === 'leaguestandingsv3') {
+				return buildOkResult(request, STANDINGS_FIXTURE);
+			}
+
 			if (request.endpointId === 'playercareerstats') {
 				seenComparisonIds.push(request.params.PlayerID);
 				return buildOkResult(request, buildCareerStatsFixture(request.params.PlayerID, `Player ${request.params.PlayerID}`, 10, 5, 4));
@@ -767,6 +824,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, TEAM_STATS_FIXTURE);
 			}
 
+			if (request.endpointId === 'leaguestandingsv3') {
+				return buildOkResult(request, STANDINGS_FIXTURE);
+			}
+
 			if (request.endpointId === 'playercareerstats') {
 				eventLog.push(`compare:${request.params.PlayerID}`);
 				return buildOkResult(request, buildCareerStatsFixture(request.params.PlayerID, `Player ${request.params.PlayerID}`, 10, 5, 4));
@@ -816,6 +877,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 
 			if (request.endpointId === 'leaguedashteamstats') {
 				return buildOkResult(request, TEAM_STATS_FIXTURE);
+			}
+
+			if (request.endpointId === 'leaguestandingsv3') {
+				return buildOkResult(request, STANDINGS_FIXTURE);
 			}
 
 			if (request.endpointId === 'playercareerstats') {
@@ -995,6 +1060,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, TEAM_STATS_FIXTURE);
 			}
 
+			if (request.endpointId === 'leaguestandingsv3') {
+				return buildOkResult(request, STANDINGS_FIXTURE);
+			}
+
 			if (request.endpointId === 'playercareerstats') {
 				const payload = careerPayloadByPlayerId.get(request.params.PlayerID);
 				assert.notEqual(payload, undefined);
@@ -1142,6 +1211,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, TEAM_STATS_FIXTURE);
 			}
 
+			if (request.endpointId === 'leaguestandingsv3') {
+				return buildOkResult(request, STANDINGS_FIXTURE);
+			}
+
 			if (request.endpointId === 'playercareerstats') {
 				const payload = careerPayloadByPlayerId.get(request.params.PlayerID);
 				assert.notEqual(payload, undefined);
@@ -1205,6 +1278,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, TEAM_STATS_FIXTURE);
 			}
 
+			if (request.endpointId === 'leaguestandingsv3') {
+				return buildOkResult(request, STANDINGS_FIXTURE);
+			}
+
 			return buildErrorResult(request, 'upstream timeout');
 		};
 
@@ -1242,6 +1319,7 @@ describe('bootstrapCurrentSeasonNightly', () => {
 		assert.equal(secondRun.status, 'completed');
 		assert.equal(fetchedRequests.some((request) => request.endpointId === 'leaguedashplayerstats'), false);
 		assert.equal(fetchedRequests.some((request) => request.endpointId === 'leaguedashteamstats'), false);
+		assert.equal(fetchedRequests.some((request) => request.endpointId === 'leaguestandingsv3'), false);
 		assert.equal(fetchedRequests.some((request) => request.endpointId === 'playercareerstats'), true);
 		assert.equal(fetchedRequests.some((request) => request.endpointId === 'playergamelog'), true);
 
@@ -1275,10 +1353,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 
 	test('marks the nightly run partial when one required request fails after another succeeds', async () => {
 		const expectedFailedRequests =
-			2 +
+			3 +
 			NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS.length +
 			NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS.length +
-			2 +
+			3 +
 			NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS.length;
 
 		const fetcher: NightlyBootstrapFetcher = async (request) => {
@@ -1300,6 +1378,7 @@ describe('bootstrapCurrentSeasonNightly', () => {
 		assert.equal(run.status, 'partial');
 		assert.equal(run.completedRequests, 2);
 		assert.equal(run.failedRequests, expectedFailedRequests);
+		assert.match(run.errorSummary ?? '', /leaguestandingsv3/i);
 		assert.match(run.errorSummary ?? '', /leaguedashteamstats/i);
 		assert.match(run.errorSummary ?? '', /playercareerstats/i);
 		assert.match(run.errorSummary ?? '', /playergamelog/i);
@@ -1317,9 +1396,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 
 		assert.equal(run.status, 'failed');
 		assert.equal(run.completedRequests, 0);
-		assert.equal(run.failedRequests, 3);
+		assert.equal(run.failedRequests, 4);
 		assert.match(run.errorSummary ?? '', /leaguedashplayerstats/i);
 		assert.match(run.errorSummary ?? '', /leaguedashteamstats/i);
+		assert.match(run.errorSummary ?? '', /leaguestandingsv3/i);
 		assert.equal(getDataStore().getLatestNightlyRunForSlate('2026-04-01')?.status, 'failed');
 	});
 });

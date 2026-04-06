@@ -149,6 +149,7 @@
 - Nightly/bootstrap lookup materialization now plans one shared season-source variant set for both current season and `2023-24` backfill: player season base, team season base, and team season advanced rows. Future lookup expansion should extend that shared seam instead of hand-adding season-specific requests in separate planners.
 - Slice `ship_structured_player_season_lookup` adds `lookup/player` to the public semantic capability contract and executes it by filtering stored league-wide season rows for one canonical player. The shipped row contract is identity-first (`playerId`, `playerName`), then canonical season metadata (`season`, `seasonType`), then requested metrics; missing stored subject rows should fail as `nightly_data_unavailable` instead of a generic extraction error.
 - Slice `ship_structured_team_season_lookup` extends that lookup contract to teams through the semantic executor, not the planner. Team season lookup now grounds exactly one canonical team with ambiguity-safe resolution, merges stored base plus advanced `leaguedashteamstats` rows into one table row, and advertises the expanded `lookup/team` metric surface through the shared public capabilities contract so validation, trace provenance, and tool discovery stay aligned.
+- Slice `ship_team_specific_standings_queries_backed_by_nightly_standings_snapshots` adds `standings/team` execution for exactly one canonical team on the structured route. Nightly bootstrap now materializes `leaguestandingsv3` snapshots for both the current season and `2023-24` through the same season-source planning seam used for lookup backfill, and structured traces now expose canonical resolved team standings queries backed only by stored nightly standings rows.
 ## unify_semantic_metrics_and_capabilities
 
 - Title: Unify Semantic Metrics And Capabilities
@@ -286,4 +287,3 @@
 - Module scope: semantic contracts and capability registry, structured validator, semantic and orchestration trace boundaries
 - Interface contract: POST /api/stats/query accepts typed standings and game requests | shared capabilities advertise standings/game field ids and new filters | non-executing standings/game paths fail honestly with canonical traces
 - Tests: add capability registry and capabilities route tests for the new shapes | add structured validator tests for standings/game requests and filters | add route and trace tests for honest non-ok behavior on the new shapes
-

@@ -18,6 +18,7 @@ import { fetchStatsEndpointWithCache, type EndpointFetchRequest, type EndpointFe
 import { getEndpointCatalogEntry } from '$lib/server/data';
 import { normalizeMetricQuery, resolveMetrics, validateMetricsForIntent } from '$lib/server/metrics/resolve-metrics';
 import {
+	buildLeagueStandingsRequest,
 	buildLeagueWidePlayerRankingRequest,
 	buildLeagueWideTeamDefenseRequest
 } from '$lib/server/nightly/current-season';
@@ -41,6 +42,7 @@ import {
 	extractPlayerTrendRows,
 	extractTeamLookupRow,
 	extractTeamRankingRows,
+	extractTeamStandingsRow,
 	SemanticExtractionError
 } from './extractors';
 import { validateSemanticCapabilityQueryShape } from './capabilities';
@@ -108,7 +110,14 @@ type TeamRankingPlan = {
 	subject: ResolvedTeamSubject | null;
 };
 
-type ExecutionPlan = LookupPlan | TeamLookupPlan | RankingPlan | TrendPlan | ComparisonPlan | TeamRankingPlan;
+type TeamStandingsPlan = {
+	type: 'team_standings';
+	query: SemanticQuery;
+	season: string;
+	subject: ResolvedTeamSubject;
+};
+
+type ExecutionPlan = LookupPlan | TeamLookupPlan | RankingPlan | TrendPlan | ComparisonPlan | TeamRankingPlan | TeamStandingsPlan;
 
 type RetrievalOutcome = {
 	sourceCalls: TraceSourceCall[];
@@ -956,13 +965,22 @@ function determineSupportedPlan(
 			return subject.resolvedQuery === null ? subject : { ...subject, resolvedQuery: query };
 		}
 
+		if (!subject) {
+			return {
+				type: 'coverage_gap',
+				warning: buildWarning(
+					'unsupported_query_shape',
+					'League-wide standings execution is not implemented in this slice; provide exactly one team.'
+				),
+				resolvedQuery: buildCanonicalResolvedQuery(query, now)
+			};
+		}
+
 		return {
-			type: 'coverage_gap',
-			warning: buildWarning(
-				'unsupported_query_shape',
-				'standings/team is typed and discoverable, but execution is not implemented in this slice yet.'
-			),
-			resolvedQuery: buildCanonicalResolvedQuery(query, now, [], subject ?? undefined)
+			type: 'team_standings',
+			query: buildCanonicalResolvedQuery(query, now, [], subject),
+			season: query.filters.season ?? resolveCurrentSeason(now),
+			subject
 		};
 	}
 
@@ -1088,6 +1106,10 @@ function buildTeamRankingRequest(plan: TeamRankingPlan): EndpointFetchRequest {
 	return buildLeagueWideTeamDefenseRequest(plan.season, plan.query.filters.seasonType ?? 'Regular Season');
 }
 
+function buildTeamStandingsRequest(plan: TeamStandingsPlan): EndpointFetchRequest {
+	return buildLeagueStandingsRequest(plan.season, plan.query.filters.seasonType ?? 'Regular Season');
+}
+
 function buildEndpointRequests(plan: ExecutionPlan): EndpointFetchRequest[] {
 	if (plan.type === 'player_lookup') {
 		return [buildPlayerLookupRequest(plan)];
@@ -1107,6 +1129,10 @@ function buildEndpointRequests(plan: ExecutionPlan): EndpointFetchRequest[] {
 
 	if (plan.type === 'player_comparison') {
 		return buildPlayerComparisonRequests(plan);
+	}
+
+	if (plan.type === 'team_standings') {
+		return [buildTeamStandingsRequest(plan)];
 	}
 
 	return [buildTeamRankingRequest(plan)];
@@ -1249,6 +1275,44 @@ function buildMissingLookupRowWarning(plan: ExecutionPlan, retrieval: RetrievalO
 			: null;
 	}
 
+	if (plan.type === 'team_standings') {
+		const payload = retrieval.responses[0]?.result.payload as
+			| {
+					resultSet?: { headers?: unknown; rowSet?: unknown };
+					resultSets?: Array<{ name?: string; headers?: unknown; rowSet?: unknown }>;
+			  }
+			| null
+			| undefined;
+		const resultSet =
+			(payload?.resultSet && Array.isArray(payload.resultSet.headers) && Array.isArray(payload.resultSet.rowSet)
+				? payload.resultSet
+				: null) ??
+			(Array.isArray(payload?.resultSets)
+				? payload.resultSets.find(
+						(entry) => entry.name === 'Standings' && Array.isArray(entry.headers) && Array.isArray(entry.rowSet)
+					)
+				: null);
+
+		if (!resultSet || !Array.isArray(resultSet.headers) || !Array.isArray(resultSet.rowSet)) {
+			return null;
+		}
+
+		const teamIdIndex = resultSet.headers.indexOf('TeamID');
+		if (teamIdIndex < 0) {
+			return null;
+		}
+
+		const hasRow = resultSet.rowSet.some(
+			(row) => Array.isArray(row) && String(row[teamIdIndex] ?? '') === plan.subject.id
+		);
+		return hasRow
+			? null
+			: buildWarning(
+					'nightly_data_unavailable',
+					'No stored nightly standings row was available for the resolved team subject.'
+				);
+	}
+
 	if (plan.type !== 'player_lookup') {
 		return null;
 	}
@@ -1350,6 +1414,20 @@ function parseExecutionResult(plan: ExecutionPlan, retrieval: RetrievalOutcome):
 			})),
 			plan.query.metrics,
 			plan.season
+		);
+	}
+
+	if (plan.type === 'team_standings') {
+		return extractTeamStandingsRow(
+			retrieval.responses[0]?.result.payload,
+			{ teamId: plan.subject.id, teamName: plan.subject.name },
+			plan.query.metrics,
+			plan.season,
+			plan.query.filters.seasonType ?? 'Regular Season',
+			{
+				conference: plan.query.filters.conference ?? null,
+				division: plan.query.filters.division ?? null
+			}
 		);
 	}
 

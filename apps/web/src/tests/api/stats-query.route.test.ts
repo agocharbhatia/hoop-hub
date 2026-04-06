@@ -313,7 +313,7 @@ describe('POST /api/stats/query', () => {
 		assert.equal(payload.warnings[0]?.code, 'nightly_data_unavailable');
 	});
 
-	test('returns honest 200 coverage_gap for standings requests before execution support exists', async () => {
+	test('returns 200 ok for supported one-team standings requests', async () => {
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({
@@ -335,7 +335,7 @@ describe('POST /api/stats/query', () => {
 		);
 		const payload = (await parseJson(response)) as {
 			status: string;
-			result: unknown;
+			result: { shape: string; columns: string[]; rows: Array<Record<string, string | number>> };
 			warnings: { code: string }[];
 			provenance: {
 				resolvedQuery: {
@@ -346,9 +346,18 @@ describe('POST /api/stats/query', () => {
 		};
 
 		assert.equal(response.status, 200);
-		assert.equal(payload.status, 'coverage_gap');
-		assert.equal(payload.result, null);
-		assert.equal(payload.warnings[0]?.code, 'unsupported_query_shape');
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.result.shape, 'table');
+		assert.deepEqual(payload.result.columns, ['teamId', 'teamName', 'season', 'seasonType', 'seed', 'wins']);
+		assert.deepEqual(payload.result.rows[0], {
+			teamId: '1610612738',
+			teamName: 'Boston Celtics',
+			season: '2023-24',
+			seasonType: 'Regular Season',
+			seed: 1,
+			wins: 64
+		});
+		assert.equal(payload.warnings.length, 0);
 		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
 			ids: ['1610612738'],
 			names: ['Boston Celtics']

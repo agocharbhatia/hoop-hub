@@ -15,6 +15,10 @@ export const SUPPORTED_LOOKUP_SOURCE_VARIANTS = [
 	{
 		endpointId: 'leaguedashteamstats',
 		measureType: 'Advanced'
+	},
+	{
+		endpointId: 'leaguestandingsv3',
+		measureType: null
 	}
 ] as const;
 
@@ -177,11 +181,25 @@ export function buildLeagueWideTeamStatsRequest(
 	};
 }
 
+export function buildLeagueStandingsRequest(season: string, seasonType = 'Regular Season'): EndpointFetchRequest {
+	return {
+		endpointId: 'leaguestandingsv3',
+		params: {
+			LeagueID: '00',
+			Season: season,
+			SeasonType: seasonType,
+			SeasonYear: ''
+		}
+	};
+}
+
 export function buildSupportedSeasonLookupRequests(season: string, seasonType = 'Regular Season'): EndpointFetchRequest[] {
 	return SUPPORTED_LOOKUP_SOURCE_VARIANTS.map((variant) =>
 		variant.endpointId === 'leaguedashplayerstats'
 			? buildLeagueWidePlayerRankingRequest(season, seasonType)
-			: buildLeagueWideTeamStatsRequest(season, variant.measureType, seasonType)
+			: variant.endpointId === 'leaguestandingsv3'
+				? buildLeagueStandingsRequest(season, seasonType)
+				: buildLeagueWideTeamStatsRequest(season, variant.measureType, seasonType)
 	);
 }
 

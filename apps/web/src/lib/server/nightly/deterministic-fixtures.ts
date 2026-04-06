@@ -117,9 +117,20 @@ function buildTeamSeasonStatsParams(season: string, measureType: 'Base' | 'Advan
 	};
 }
 
+function buildLeagueStandingsParams(season: string): Record<string, string> {
+	return {
+		LeagueID: '00',
+		Season: season,
+		SeasonType: 'Regular Season',
+		SeasonYear: ''
+	};
+}
+
 const PLAYER_SEASON_FIXTURE = loadFixture('../semantic/fixtures/leaguedashplayerstats.json');
 const TEAM_BASE_FIXTURE = loadFixture('../semantic/fixtures/leaguedashteamstats-base.json');
 const TEAM_ADVANCED_FIXTURE = loadFixture('../semantic/fixtures/leaguedashteamstats.json');
+const TEAM_STANDINGS_FIXTURE = loadFixture('../semantic/fixtures/leaguestandingsv3.json');
+const TEAM_STANDINGS_CURRENT_FIXTURE = loadFixture('../semantic/fixtures/leaguestandingsv3-current.json');
 const CURRY_CAREER_FIXTURE = loadFixture('../semantic/fixtures/playercareerstats-curry.json');
 const LILLARD_CAREER_FIXTURE = loadFixture('../semantic/fixtures/playercareerstats-lillard.json');
 const ACHIUWA_CAREER_FIXTURE = loadFixture('../semantic/fixtures/playercareerstats-achiuwa.json');
@@ -156,6 +167,16 @@ const DETERMINISTIC_FIXTURE_ENTRIES: DeterministicFixtureEntry[] = [
 		endpointId: 'leaguedashteamstats',
 		params: buildTeamSeasonStatsParams('2025-26', 'Advanced'),
 		payload: TEAM_ADVANCED_FIXTURE
+	},
+	{
+		endpointId: 'leaguestandingsv3',
+		params: buildLeagueStandingsParams('2023-24'),
+		payload: TEAM_STANDINGS_FIXTURE
+	},
+	{
+		endpointId: 'leaguestandingsv3',
+		params: buildLeagueStandingsParams('2025-26'),
+		payload: TEAM_STANDINGS_CURRENT_FIXTURE
 	},
 	{
 		endpointId: 'playercareerstats',
@@ -218,6 +239,18 @@ const LOOKUP_FIXTURE_REQUIREMENTS: DeterministicLookupFixtureRequirement[] = [
 		params: buildTeamSeasonStatsParams('2025-26', 'Base'),
 		metricIds: ['wins', 'losses', 'win_pct', 'reb'],
 		requiredColumns: ['TEAM_ID', 'TEAM_NAME', 'W', 'L', 'W_PCT', 'REB']
+	},
+	{
+		endpointId: 'leaguestandingsv3',
+		params: buildLeagueStandingsParams('2023-24'),
+		metricIds: ['conference_rank', 'seed', 'wins', 'losses', 'win_pct', 'games_back', 'streak'],
+		requiredColumns: ['TeamID', 'TeamCity', 'TeamName', 'Conference', 'Division', 'PlayoffRank', 'WINS', 'LOSSES', 'WinPCT', 'ConferenceGamesBack', 'strCurrentStreak']
+	},
+	{
+		endpointId: 'leaguestandingsv3',
+		params: buildLeagueStandingsParams('2025-26'),
+		metricIds: ['conference_rank', 'seed', 'wins', 'losses', 'win_pct', 'games_back', 'streak'],
+		requiredColumns: ['TeamID', 'TeamCity', 'TeamName', 'Conference', 'Division', 'PlayoffRank', 'WINS', 'LOSSES', 'WinPCT', 'ConferenceGamesBack', 'strCurrentStreak']
 	},
 	{
 		endpointId: 'leaguedashteamstats',

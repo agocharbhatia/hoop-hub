@@ -3,7 +3,8 @@ export type SupportedQueryIntent =
 	| 'player_trend'
 	| 'player_compare'
 	| 'team_lookup'
-	| 'team_ranking';
+	| 'team_ranking'
+	| 'team_standings';
 
 export type EndpointVolatilityTier = 'high' | 'medium' | 'low';
 
@@ -165,6 +166,16 @@ const ENDPOINT_CATALOG: EndpointCatalogEntry[] = [
 		ttlMinutes: TTL_MINUTES_BY_TIER.high,
 		parserVersion: 'v1',
 		supportedIntents: ['team_lookup', 'team_ranking']
+	},
+	{
+		endpointId: 'leaguestandingsv3',
+		path: '/stats/leaguestandingsv3',
+		requiredParams: ['LeagueID', 'Season', 'SeasonType'],
+		optionalParams: ['SeasonYear'],
+		volatilityTier: 'high',
+		ttlMinutes: TTL_MINUTES_BY_TIER.high,
+		parserVersion: 'v1',
+		supportedIntents: ['team_standings']
 	},
 	{
 		endpointId: 'teamdashboardbygeneralsplits',
