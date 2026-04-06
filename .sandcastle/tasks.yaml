@@ -336,7 +336,7 @@ tasks:
       Extend `standings/team` to support zero-subject league-scoped ranking over
       standings-native field ids with typed conference and division filters and
       shared per-field sort behavior.
-    status: pending
+    status: done
     blocked_by:
       - ship_team_specific_standings_queries_backed_by_nightly_standings_snapshots
     module_scope:

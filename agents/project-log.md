@@ -294,3 +294,10 @@
 - Module scope: standings executor module, nightly standings materialization, team resolution and semantic traces
 - Interface contract: one-team `standings/team` works on POST /api/stats/query | default bootstrap materializes current and `2023-24` standings snapshots | semantic traces expose canonical resolved team standings queries
 - Tests: add executor tests for team standings lookup and supported seasons | add bootstrap tests for current plus `2023-24` standings snapshots | add route and trace tests for canonical team standings behavior
+## ship_league_scoped_standings_ranking_with_conference_and_division_filters
+
+- Title: Ship League-Scoped Standings Ranking With Conference And Division Filters
+- Module scope: standings ranking execution, standings field planning metadata, conference and division filter handling
+- Interface contract: zero-subject `standings/team` ranks teams over supported standings fields | `conference` and `division` filter support is real end-to-end | per-field sort defaults come from shared capability metadata
+- Tests: add executor tests for zero-subject standings ranking and filters | add capability tests for per-field sort metadata | add route and trace tests for league-scoped standings asks
+
