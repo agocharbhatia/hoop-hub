@@ -287,3 +287,10 @@
 - Module scope: semantic contracts and capability registry, structured validator, semantic and orchestration trace boundaries
 - Interface contract: POST /api/stats/query accepts typed standings and game requests | shared capabilities advertise standings/game field ids and new filters | non-executing standings/game paths fail honestly with canonical traces
 - Tests: add capability registry and capabilities route tests for the new shapes | add structured validator tests for standings/game requests and filters | add route and trace tests for honest non-ok behavior on the new shapes
+## ship_team_specific_standings_queries_backed_by_nightly_standings_snapshots
+
+- Title: Ship Team-Specific Standings Queries Backed By Nightly Standings Snapshots
+- Module scope: standings executor module, nightly standings materialization, team resolution and semantic traces
+- Interface contract: one-team `standings/team` works on POST /api/stats/query | default bootstrap materializes current and `2023-24` standings snapshots | semantic traces expose canonical resolved team standings queries
+- Tests: add executor tests for team standings lookup and supported seasons | add bootstrap tests for current plus `2023-24` standings snapshots | add route and trace tests for canonical team standings behavior
+

@@ -301,7 +301,7 @@ tasks:
       Make one-team `standings/team` requests succeed end-to-end on the
       structured route for current season and `2023-24`, backed by nightly
       standings snapshots and canonical team resolution.
-    status: pending
+    status: done
     blocked_by:
       - ship_typed_standings_and_game_contracts_with_honest_non_ok_behavior
     module_scope:
