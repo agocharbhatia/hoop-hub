@@ -2,6 +2,8 @@ You are implementing one approved AFK slice inside the current project worktree.
 
 Task ID: {{TASK_ID}}
 Task Title: {{TASK_TITLE}}
+GitHub Issue: {{TASK_GITHUB_ISSUE}}
+Parent PRD Issue: {{TASK_PRD_ISSUE}}
 Summary:
 {{TASK_SUMMARY}}
 
@@ -27,8 +29,12 @@ Additional Notes:
 {{TASK_NOTES}}
 
 Rules:
+- Treat `.sandcastle/tasks.yaml` as the execution graph and the linked GitHub issue as the long-form slice spec.
+- If `GitHub Issue` is non-empty, fetch and read it with comments before implementing the task. Use it to recover nuance that may be compressed in `tasks.yaml`.
+- If the GitHub issue and task file appear to conflict, preserve the task graph ordering/dependencies from `tasks.yaml` and treat the issue body as the detailed implementation brief unless there is a newer explicit clarification in the issue thread.
+- If `Parent PRD Issue` is non-empty and the task issue is missing needed context, read the parent PRD issue or local mirrored PRD before broad implementation.
 - Read `agents/current-state.md` before relying on older roadmap or legacy planner code.
-- Use `.docs/prds/openai-planner-post-api-query-stats-slice-1.md` and the linked GitHub issue for slice intent and boundaries.
+- Use the linked GitHub issue, local mirrored PRDs under `.docs/prds/`, and `agents/current-state.md` as the main planning context for slice intent and boundaries.
 - Keep the semantic executor as the grounding and execution authority. Do not move canonical player resolution into the planner.
 - Do not add new product behavior to the legacy mock planner/query-engine path unless the task explicitly requires compatibility coverage.
 - Keep `POST /api/stats/query` public as the direct structured executor route.

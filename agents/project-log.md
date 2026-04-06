@@ -218,6 +218,24 @@
 - Title: Ship Answer-First /api/query For One Tool Result
 - Module scope: query route orchestration, planner and renderer service boundaries, answer response contract, app query UI
 - Interface contract: POST /api/query returns an answer-first payload instead of raw StatsQueryResponse | POST /api/stats/query remains the stable single-query structured tool contract | the one-request path uses separate planning and answer-rendering steps
+
+## 2026-04-05
+
+- Slice planning locked for `standings_schedule_results_runtime`.
+- New semantic shapes are `standings/team` and `game/team`, while `lookup/team` remains the home for season-stat metrics.
+- The public structured route stays one expanded `stats_query` tool contract; planner/runtime growth should come from shared capabilities, not new tool names or handwritten prompt families.
+- `standings/team` supports both current and `2023-24`, uses zero-or-one subject with optional `conference` and `division` filters, and owns standings-native facts such as seed/rank, record, games back, streak, home/road splits, and related standings-state fields.
+- `game/team` requires exactly one team subject, grounds natural-language time into canonical date filters plus `gameStatus`, uses `scoreboardv2` as the canonical source in this slice, and stays current-window/current-season for actual materialized execution even though the contract is future-proofed for broader date support later.
+- Relative date semantics are locked: calendar phrases (`today`, `tonight`, `tomorrow`, `last night`) are strict to the anchored calendar day; game-relative phrases (`next game`, `previous game`) are chronological; temporal grounding should use `America/New_York`.
+- `seed` means published conference/playoff rank as reported by the standings source; the runtime should not compute alternate playoff-seed interpretations.
+- Mixed `/api/query` answers should decompose into multiple minimal structured requests. Partial top-level answers stay `ok` when at least one tool result is usable.
+- The structured result contract should gain generic completeness metadata on `StatsQueryResult` so dynamic answer rendering can distinguish `complete`, `season_exhausted`, and `partial_materialized` without guessing from warning text.
+- Default bootstrap for this slice should materialize current standings, `2023-24` standings, and the current scoreboard horizon; historical game-day backfill is explicitly not part of the default bootstrap path.
+- New executor work should be extracted into shape-specific modules rather than continuing to grow `semantic/query-service.ts` as one monolith.
+- TDD bar for the slice is locked around red tests first for capabilities, structured validation, semantic execution, nightly/bootstrap materialization, mixed-batch `/api/query` behavior, and honest traces including dropped-clause warnings.
+- PRD published: `Grounded Standings Schedule And Results Runtime Expansion` ([#43](https://github.com/agocharbhatia/hoop-hub/issues/43)). Core architecture choice: add `standings/team` and `game/team` as first-class semantic shapes under the existing single structured `stats_query` boundary, keep one semantic home per fact family, and drive planner growth from shared capabilities plus nightly-backed materialization instead of handwritten query families.
+- Workflow assumptions: land the slice through TDD with red tests first, extract shape-specific executor modules instead of deepening `query-service.ts`, keep standings support current plus `2023-24`, keep default game execution current-window/current-season via `scoreboardv2`, and express dynamic incomplete game answers through structured completeness metadata instead of warning-text conventions.
+- Sandcastle task execution should no longer rely only on `.sandcastle/tasks.yaml` summaries. The local worker prompt now explicitly tells task runs to fetch and read the linked GitHub issue (and parent PRD issue when needed) before implementation, while still treating `tasks.yaml` as the execution graph and dependency source of truth.
 - Tests: add route contract tests for one-request answer responses | add deterministic planner and renderer boundary tests for the one-tool path | update UI-facing tests or helpers to consume the new answer payload
 ## add_honest_orchestration_traces_for_answer_route_requests
 
