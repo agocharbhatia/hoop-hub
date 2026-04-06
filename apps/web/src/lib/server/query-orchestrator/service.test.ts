@@ -72,6 +72,12 @@ describe('createQueryOrchestratorService', () => {
 								toolName: 'stats_query',
 								query: failedRequest.query
 							}
+						],
+						warnings: [
+							{
+								code: 'dropped_unsupported_clause',
+								message: 'Dropped the prediction clause because forecasts are unsupported in this slice.'
+							}
 						]
 					};
 				}
@@ -175,6 +181,10 @@ describe('createQueryOrchestratorService', () => {
 		assert.equal(response.toolResults.length, 2);
 		assert.equal(response.answer, 'Boston posted a 123.2 offensive rating in the available 2023-24 nightly snapshot.');
 		assert.deepEqual(response.warnings, [
+			{
+				code: 'dropped_unsupported_clause',
+				message: 'Dropped the prediction clause because forecasts are unsupported in this slice.'
+			},
 			{
 				code: 'nightly_data_unavailable',
 				message: 'No stored nightly endpoint payload was available for defensive rating.'

@@ -16,6 +16,8 @@ describe('openai planner adapter prompt contract', () => {
 		assert.match(systemPrompt, /always normalize it to exact YYYY-YY form/i);
 		assert.match(systemPrompt, /2023\/24, 2023-2024, and 2023 24 must all become 2023-24/i);
 		assert.match(systemPrompt, /Do not plan more than 3 tool requests/i);
+		assert.match(systemPrompt, /mixed standings and game questions/i);
+		assert.match(systemPrompt, /dropped_unsupported_clause/i);
 		assert.match(systemPrompt, /Batch stats capability contract:/i);
 		assert.match(systemPrompt, /lookup\/player/i);
 		assert.match(systemPrompt, /lookup\/team/i);
@@ -43,10 +45,26 @@ describe('openai planner adapter prompt contract', () => {
 				'unsupported_metric',
 				'clarification_needed',
 				'missing_metric',
-				'compare_requires_two_subjects'
+				'compare_requires_two_subjects',
+				'dropped_unsupported_clause'
 			]
 		);
-	});
+		assert.deepEqual(
+			schema.schema.properties.toolRequests.items.properties.query.properties.filters.required,
+			['season', 'seasonType', 'window', 'dateFrom', 'dateTo', 'conference', 'division', 'gameStatus']
+		);
+		assert.deepEqual(
+			schema.schema.properties.warnings.items.properties.code.enum,
+			[
+				'unsupported_query_shape',
+				'unsupported_metric',
+				'clarification_needed',
+				'missing_metric',
+				'compare_requires_two_subjects',
+				'dropped_unsupported_clause'
+			]
+		);
+		});
 
 	test('embeds the published batch query-shape contract into the planner prompt', () => {
 		const capabilities = getPublicSemanticCapabilities();
@@ -75,5 +93,19 @@ describe('openai planner adapter prompt contract', () => {
 		assert.deepEqual(embeddedContract.seasons, capabilities.seasons);
 		assert.deepEqual(embeddedContract.seasonTypes, capabilities.seasonTypes);
 		assert.deepEqual(embeddedContract.queryShapes, capabilities.queryShapes);
+		assert.equal(
+			embeddedContract.queryShapes.some(
+				(shape: { operation: string; entity: string }) =>
+					shape.operation === 'standings' && shape.entity === 'team'
+			),
+			true
+		);
+		assert.equal(
+			embeddedContract.queryShapes.some(
+				(shape: { operation: string; entity: string }) =>
+					shape.operation === 'game' && shape.entity === 'team'
+			),
+			true
+		);
 	});
 });

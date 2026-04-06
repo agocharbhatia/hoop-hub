@@ -1,6 +1,7 @@
 import {
 	MAX_BATCH_TOOL_REQUESTS,
 	type BatchPlannerDecision,
+	type PlannerWarningCode,
 	type QueryPlannerToolRequest
 } from '$lib/contracts/planner';
 import type {
@@ -102,7 +103,8 @@ function normalizePlannerDecision(decision: BatchPlannerDecision): BatchPlannerD
 					season: normalizeSeasonFilter(toolRequest.query.filters.season)
 				}
 			}
-		}))
+		})),
+		warnings: decision.warnings ?? []
 	};
 }
 
@@ -141,15 +143,47 @@ function validateFilters(filters: unknown): filters is SemanticQuery['filters'] 
 		return false;
 	}
 
-	if (filters.dateFrom !== null && filters.dateFrom !== undefined) {
+	if (filters.dateFrom !== null && filters.dateFrom !== undefined && typeof filters.dateFrom !== 'string') {
 		return false;
 	}
 
-	if (filters.dateTo !== null && filters.dateTo !== undefined) {
+	if (filters.dateTo !== null && filters.dateTo !== undefined && typeof filters.dateTo !== 'string') {
 		return false;
 	}
 
 	if (filters.seasonType !== null && filters.seasonType !== undefined && typeof filters.seasonType !== 'string') {
+		return false;
+	}
+
+	if (
+		filters.conference !== null &&
+		filters.conference !== undefined &&
+		filters.conference !== 'East' &&
+		filters.conference !== 'West'
+	) {
+		return false;
+	}
+
+	if (
+		filters.division !== null &&
+		filters.division !== undefined &&
+		filters.division !== 'Atlantic' &&
+		filters.division !== 'Central' &&
+		filters.division !== 'Southeast' &&
+		filters.division !== 'Northwest' &&
+		filters.division !== 'Pacific' &&
+		filters.division !== 'Southwest'
+	) {
+		return false;
+	}
+
+	if (
+		filters.gameStatus !== null &&
+		filters.gameStatus !== undefined &&
+		filters.gameStatus !== 'upcoming' &&
+		filters.gameStatus !== 'final' &&
+		filters.gameStatus !== 'any'
+	) {
 		return false;
 	}
 
@@ -265,6 +299,17 @@ function validatePlannerToolRequest(input: unknown): input is QueryPlannerToolRe
 	return isPlainObject(input) && input.toolName === 'stats_query' && validateSemanticQueryShape(input.query);
 }
 
+function isSupportedPlannerWarningCode(code: unknown): code is PlannerWarningCode {
+	return (
+		code === 'unsupported_query_shape' ||
+		code === 'unsupported_metric' ||
+		code === 'clarification_needed' ||
+		code === 'missing_metric' ||
+		code === 'compare_requires_two_subjects' ||
+		code === 'dropped_unsupported_clause'
+	);
+}
+
 function validatePlannerDecision(
 	input: unknown
 ): { ok: true; value: BatchPlannerDecision } | { ok: false; error: string } {
@@ -281,11 +326,27 @@ function validatePlannerDecision(
 			return { ok: false, error: 'Planner planned toolRequests failed validation.' };
 		}
 
+		if (
+			(input.warnings !== undefined &&
+				!Array.isArray(input.warnings)) ||
+			(input.warnings !== undefined &&
+			!input.warnings.every(
+				(warning) =>
+					isPlainObject(warning) &&
+					isSupportedPlannerWarningCode(warning.code) &&
+					typeof warning.message === 'string' &&
+					warning.message.trim().length > 0
+			))
+		) {
+			return { ok: false, error: 'Planner planned warnings failed validation.' };
+		}
+
 		return {
 			ok: true,
 			value: {
 				type: 'planned',
-				toolRequests: input.toolRequests
+				toolRequests: input.toolRequests,
+				warnings: input.warnings ?? []
 			}
 		};
 	}
@@ -295,7 +356,8 @@ function validatePlannerDecision(
 			return { ok: false, error: 'Planner non-ok decisions require a warning object.' };
 		}
 
-		if (typeof input.warning.code !== 'string' || input.warning.code.trim().length === 0) {
+		const warningCode = input.warning.code;
+		if (typeof warningCode !== 'string' || warningCode.trim().length === 0) {
 			return { ok: false, error: 'Planner warnings require a code.' };
 		}
 
@@ -303,13 +365,7 @@ function validatePlannerDecision(
 			return { ok: false, error: 'Planner warnings require a message.' };
 		}
 
-		if (
-			input.warning.code !== 'unsupported_query_shape' &&
-			input.warning.code !== 'unsupported_metric' &&
-			input.warning.code !== 'clarification_needed' &&
-			input.warning.code !== 'missing_metric' &&
-			input.warning.code !== 'compare_requires_two_subjects'
-		) {
+		if (!isSupportedPlannerWarningCode(warningCode)) {
 			return { ok: false, error: 'Planner warning code is not supported.' };
 		}
 
@@ -318,7 +374,7 @@ function validatePlannerDecision(
 			value: {
 				type: input.type,
 				warning: {
-					code: input.warning.code,
+					code: warningCode,
 					message: input.warning.message
 				}
 			}

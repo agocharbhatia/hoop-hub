@@ -340,6 +340,97 @@ describe('GET /api/query-trace/:traceId', () => {
 		assert.equal(payload.resolvedQuery.filters.conference, 'East');
 	});
 
+	test('returns orchestration traces with explicit dropped-clause warnings for mixed standings and game batches', async () => {
+		_setQueryRouteDependenciesForTests({
+			async planQuestion() {
+				return {
+					type: 'planned',
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'standings',
+								entity: 'team',
+								subject: {},
+								metrics: ['conference_rank'],
+								filters: {
+									season: null,
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null,
+									conference: 'East',
+									division: null,
+									gameStatus: null
+								},
+								orderBy: null,
+								limit: 10,
+								outputMode: 'table'
+							}
+						},
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'game',
+								entity: 'team',
+								subject: {
+									names: ['Boston Celtics']
+								},
+								metrics: ['game_date', 'game_status', 'opponent_team'],
+								filters: {
+									season: null,
+									seasonType: null,
+									window: null,
+									dateFrom: '2026-04-03',
+									dateTo: '2026-04-05',
+									conference: null,
+									division: null,
+									gameStatus: 'upcoming'
+								},
+								orderBy: null,
+								limit: 1,
+								outputMode: 'table'
+							}
+						}
+					],
+					warnings: [
+						{
+							code: 'dropped_unsupported_clause',
+							message: 'Dropped the prediction clause because forecasts are unsupported in this slice.'
+						}
+					]
+				};
+			},
+			executeSemanticQuery
+		});
+
+		const queryResponse = await queryPost(
+			createQueryPostEvent('Who leads the East, when do the Celtics play next, and who will win that game?')
+		);
+		const query = (await queryResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(query.traceId));
+		const payload = (await parseJson(response)) as {
+			status: string;
+			plannedToolRequests: Array<{ request: { query: { operation: string } } }>;
+			executedStructuredTraceIds: string[];
+			warnings: Array<{ code: string; message: string }>;
+			resolvedQuery?: unknown;
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.deepEqual(
+			payload.plannedToolRequests.map((plannedToolRequest) => plannedToolRequest.request.query.operation),
+			['standings', 'game']
+		);
+		assert.equal(payload.executedStructuredTraceIds.length, 2);
+		assert.equal(payload.warnings[0]?.code, 'dropped_unsupported_clause');
+		assert.match(payload.warnings[0]?.message ?? '', /prediction clause/i);
+		assert.equal(payload.warnings.some((warning) => warning.code === 'nightly_data_unavailable'), true);
+		assert.equal('resolvedQuery' in payload, false);
+	});
+
 	test('returns canonical structured traces for league-scoped standings longest-streak asks', async () => {
 		const statsResponse = await statsPost({
 			request: new Request('http://localhost/api/stats/query', {

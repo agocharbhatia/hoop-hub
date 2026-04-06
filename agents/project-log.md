@@ -325,3 +325,7 @@
 - Interface contract: `game/team` supports bounded ranges and `next N games` | structured results expose `coverageStatus`, `requestedCount`, and `returnedCount` | incomplete but grounded game answers remain explicit and machine-readable
 - Tests: add executor tests for bounded ranges and `next N games` | add result-contract tests for completeness metadata states | add route tests for explicit incomplete-but-grounded game responses
 
+## expand_planner_and_answer_route_for_standings_plus_game_questions
+
+- Planned `/api/query` batches can now carry planner-originated warnings; use that path for explicit dropped-clause notices instead of smuggling those warnings into renderer prose or pretending the plan was fully supported.
+- The planner-side contract must stay aligned with semantic capabilities for standings/game filters too, not just operation/entity/metric enums. Date ranges, `conference`, `division`, and `gameStatus` are real planner outputs now and should be updated in the same shared-contract pass when this surface grows again.

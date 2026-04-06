@@ -96,13 +96,42 @@ function buildPlannerOutputSchema() {
 												required: ['type', 'n']
 											},
 											dateFrom: {
-												type: 'null'
+												type: ['string', 'null']
 											},
 											dateTo: {
-												type: 'null'
+												type: ['string', 'null']
+											},
+											conference: {
+												type: ['string', 'null'],
+												enum: ['East', 'West', null]
+											},
+											division: {
+												type: ['string', 'null'],
+												enum: [
+													'Atlantic',
+													'Central',
+													'Southeast',
+													'Northwest',
+													'Pacific',
+													'Southwest',
+													null
+												]
+											},
+											gameStatus: {
+												type: ['string', 'null'],
+												enum: ['upcoming', 'final', 'any', null]
 											}
 										},
-										required: ['season', 'seasonType', 'window', 'dateFrom', 'dateTo']
+										required: [
+											'season',
+											'seasonType',
+											'window',
+											'dateFrom',
+											'dateTo',
+											'conference',
+											'division',
+											'gameStatus'
+										]
 									},
 									orderBy: {
 										type: ['object', 'null'],
@@ -145,15 +174,38 @@ function buildPlannerOutputSchema() {
 								'unsupported_metric',
 								'clarification_needed',
 								'missing_metric',
-								'compare_requires_two_subjects'
+								'compare_requires_two_subjects',
+								'dropped_unsupported_clause'
 							]
 						},
 						message: { type: 'string' }
 					},
 					required: ['code', 'message']
+				},
+				warnings: {
+					type: ['array', 'null'],
+					items: {
+						type: 'object',
+						additionalProperties: false,
+						properties: {
+							code: {
+								type: 'string',
+								enum: [
+									'unsupported_query_shape',
+									'unsupported_metric',
+									'clarification_needed',
+									'missing_metric',
+									'compare_requires_two_subjects',
+									'dropped_unsupported_clause'
+								]
+							},
+							message: { type: 'string' }
+						},
+						required: ['code', 'message']
+					}
 				}
 			},
-			required: ['type', 'toolRequests', 'warning']
+			required: ['type', 'toolRequests', 'warning', 'warnings']
 		}
 	} as const;
 }
@@ -284,12 +336,12 @@ export function _buildPlannerMessagesForTests(question: string): ChatCompletionM
 		{
 			role: 'system',
 			content:
-				`Always include every schema field. Use empty arrays instead of omitting subject.names or subject.ids. Use null for optional scalar or object fields that do not apply. Season normalization is the planner's responsibility. Never emit season phrases like this season or current season in filters.season. Use null for implicit current-season asks. When the question names a season, always normalize it to exact YYYY-YY form before returning it. For example, 2023/24, 2023-2024, and 2023 24 must all become 2023-24. Preserve raw subject name order from the question in subject.names. Keep subject.ids empty in this slice. Do not plan more than ${MAX_BATCH_TOOL_REQUESTS} tool requests.`
+				`Always include every schema field. Use empty arrays instead of omitting subject.names or subject.ids. Use null for optional scalar or object fields that do not apply. Season normalization is the planner's responsibility. Never emit season phrases like this season or current season in filters.season. Use null for implicit current-season asks. When the question names a season, always normalize it to exact YYYY-YY form before returning it. For example, 2023/24, 2023-2024, and 2023 24 must all become 2023-24. Preserve raw subject name order from the question in subject.names. Keep subject.ids empty in this slice. Use planned warnings for supported batches, and use warning for non-ok decisions only. Do not plan more than ${MAX_BATCH_TOOL_REQUESTS} tool requests.`
 		},
 		{
 			role: 'system',
 			content:
-				"If a trend question uses scoring language like scored or scoring, infer metric pts. If a trend question names a player and window but does not safely imply a metric, return clarification_needed with warning code missing_metric. If a comparison question omits a metric, default safely to pts. If a comparison question does not clearly include exactly two subjects, return clarification_needed with warning code compare_requires_two_subjects. Multiple materially different plausible plans should return clarification_needed. Clear but unsupported asks should return coverage_gap. The executor remains the grounding authority."
+				"If a trend question uses scoring language like scored or scoring, infer metric pts. If a trend question names a player and window but does not safely imply a metric, return clarification_needed with warning code missing_metric. If a comparison question omits a metric, default safely to pts. If a comparison question does not clearly include exactly two subjects, return clarification_needed with warning code compare_requires_two_subjects. For mixed standings and game questions, decompose the ask into the minimal supported tool requests instead of one fake combined query. If the question also contains unsupported but non-essential clauses, drop only those clauses and add an explicit planned warning with code dropped_unsupported_clause. Multiple materially different plausible plans should return clarification_needed. Clear but unsupported asks should return coverage_gap. The executor remains the grounding authority."
 		},
 		{
 			role: 'user',

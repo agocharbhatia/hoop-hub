@@ -56,6 +56,7 @@ export function createQueryOrchestratorService(
 				question,
 				toolRequests: decision.toolRequests
 			});
+			const warnings = [...(decision.warnings ?? []), ...executedBatch.warnings];
 
 			if (executedBatch.status !== 'ok') {
 				saveQueryOrchestrationTrace(
@@ -63,7 +64,7 @@ export function createQueryOrchestratorService(
 					question,
 					executedBatch.status,
 					executedBatch,
-					executedBatch.warnings,
+					warnings,
 					planningLatencyMs,
 					0
 				);
@@ -71,7 +72,7 @@ export function createQueryOrchestratorService(
 					orchestrationTraceId,
 					executedBatch.toolResults,
 					executedBatch.status,
-					executedBatch.warnings
+					warnings
 				);
 			}
 
@@ -82,7 +83,6 @@ export function createQueryOrchestratorService(
 			});
 			const renderLatencyMs = Math.round(performance.now() - renderStartedAt);
 			const citations = collectCitations(executedBatch.successfulToolResults);
-			const warnings = executedBatch.warnings;
 
 			saveQueryOrchestrationTrace(
 				orchestrationTraceId,

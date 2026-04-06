@@ -429,6 +429,197 @@ describe('POST /api/query integration', () => {
 		assert.equal(toolResult?.response.provenance.resolvedQuery?.filters.season, '2025-26');
 	});
 
+	test('executes standings-only team asks end to end through one grounded standings request', async () => {
+		usePlannerDecision({
+			type: 'planned',
+			toolRequests: [
+				{
+					toolName: 'stats_query',
+					query: {
+						operation: 'standings',
+						entity: 'team',
+						subject: {
+							names: ['Boston Celtics']
+						},
+						metrics: ['seed', 'wins'],
+						filters: {
+							season: '2023-24',
+							seasonType: null,
+							window: null,
+							dateFrom: null,
+							dateTo: null,
+							conference: 'East',
+							division: null,
+							gameStatus: null
+						},
+						orderBy: null,
+						limit: null,
+						outputMode: 'table'
+					}
+				}
+			]
+		});
+
+		const response = await POST(
+			createPostEvent(JSON.stringify({ question: 'What seed and wins did Boston finish with in the East in 2023-24?' }))
+		);
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const toolResult = payload.toolResults[0];
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.toolResults.length, 1);
+		assert.equal(toolResult?.response.provenance.resolvedQuery?.operation, 'standings');
+		assert.equal(toolResult?.response.result?.rows[0]?.teamName, 'Boston Celtics');
+		assert.equal(toolResult?.response.result?.rows[0]?.seed, 1);
+		assert.equal(toolResult?.response.result?.rows[0]?.wins, 64);
+	});
+
+	test('executes game-only team asks end to end through one grounded game request', async () => {
+		usePlannerDecision({
+			type: 'planned',
+			toolRequests: [
+				{
+					toolName: 'stats_query',
+					query: {
+						operation: 'game',
+						entity: 'team',
+						subject: {
+							names: ['Boston Celtics']
+						},
+						metrics: ['game_date', 'game_status', 'opponent_team'],
+						filters: {
+							season: null,
+							seasonType: null,
+							window: null,
+							dateFrom: '2026-04-03',
+							dateTo: '2026-04-05',
+							conference: null,
+							division: null,
+							gameStatus: 'upcoming'
+						},
+						orderBy: null,
+						limit: 1,
+						outputMode: 'table'
+					}
+				}
+			]
+		});
+
+		const response = await POST(
+			createPostEvent(JSON.stringify({ question: 'When do the Celtics play next?' }))
+		);
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const toolResult = payload.toolResults[0];
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.toolResults.length, 1);
+		assert.equal(toolResult?.response.provenance.resolvedQuery?.operation, 'game');
+		assert.equal(toolResult?.response.result?.rows[0]?.teamName, 'Boston Celtics');
+		assert.equal(toolResult?.response.result?.rows[0]?.game_date, '2026-04-03');
+		assert.equal(toolResult?.response.result?.rows[0]?.game_status, 'upcoming');
+	});
+
+	test('executes mixed standings and game asks through minimal grounded requests and returns dropped-clause warnings', async () => {
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<BatchPlannerDecision> {
+				return {
+					type: 'planned',
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'standings',
+								entity: 'team',
+								subject: {},
+								metrics: ['conference_rank'],
+								filters: {
+									season: null,
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null,
+									conference: 'East',
+									division: null,
+									gameStatus: null
+								},
+								orderBy: null,
+								limit: 10,
+								outputMode: 'table'
+							}
+						},
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'game',
+								entity: 'team',
+								subject: {
+									names: ['Boston Celtics']
+								},
+								metrics: ['game_date', 'game_status', 'opponent_team'],
+								filters: {
+									season: null,
+									seasonType: null,
+									window: null,
+									dateFrom: '2026-04-03',
+									dateTo: '2026-04-05',
+									conference: null,
+									division: null,
+									gameStatus: 'upcoming'
+								},
+								orderBy: null,
+								limit: 1,
+								outputMode: 'table'
+							}
+						}
+					],
+					warnings: [
+						{
+							code: 'dropped_unsupported_clause',
+							message: 'Dropped the prediction clause because forecasts are unsupported in this slice.'
+						}
+					]
+				};
+			},
+			executeSemanticQuery,
+			async renderAnswer({ toolResults }) {
+				const standings = toolResults[0]?.response.result?.rows[0];
+				const game = toolResults[1]?.response.result?.rows[0];
+				return {
+					answer: `${standings?.subject} leads the East, and Boston's next game is ${game?.game_date} against ${game?.opponent_team}.`,
+					artifacts: toolResults
+						.map((toolResult) => toolResult.response.result)
+						.filter((result): result is NonNullable<(typeof toolResults)[number]['response']['result']> => result !== null)
+						.map((result) => ({
+							type: 'table' as const,
+							shape: result.shape,
+							columns: result.columns,
+							rows: result.rows
+						}))
+				};
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'Who leads the East, when do the Celtics play next, and who will win that game?'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.toolResults.length, 2);
+		assert.equal(payload.toolResults[0]?.response.provenance.resolvedQuery?.operation, 'standings');
+		assert.equal(payload.toolResults[1]?.response.provenance.resolvedQuery?.operation, 'game');
+		assert.equal(payload.warnings[0]?.code, 'dropped_unsupported_clause');
+		assert.match(payload.answer, /leads the East/i);
+		assert.match(payload.answer, /Boston's next game/i);
+	});
+
 	test('resolves curated comparison aliases through the shared player resolver', async () => {
 		usePlannerDecision({
 			type: 'planned',

@@ -7,7 +7,8 @@ export type PlannerWarningCode =
 	| 'unsupported_metric'
 	| 'clarification_needed'
 	| 'missing_metric'
-	| 'compare_requires_two_subjects';
+	| 'compare_requires_two_subjects'
+	| 'dropped_unsupported_clause';
 
 export type QueryPlannerToolRequest = {
 	toolName: 'stats_query';
@@ -18,6 +19,7 @@ export type BatchPlannerDecision =
 	| {
 			type: 'planned';
 			toolRequests: QueryPlannerToolRequest[];
+			warnings?: Array<StatsQueryWarning & { code: PlannerWarningCode }>;
 	  }
 	| {
 			type: 'coverage_gap' | 'clarification_needed';
