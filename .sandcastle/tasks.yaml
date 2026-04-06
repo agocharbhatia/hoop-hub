@@ -443,7 +443,7 @@ tasks:
       Teach `/api/query` to discover the new standings and game shapes from the
       shared capability contract, decompose mixed asks into minimal requests,
       and render grounded mixed answers with explicit dropped-clause warnings.
-    status: pending
+    status: done
     blocked_by:
       - ship_league_scoped_standings_ranking_with_conference_and_division_filters
       - ship_bounded_team_game_ranges_with_completeness_metadata

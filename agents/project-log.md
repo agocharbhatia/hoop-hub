@@ -329,3 +329,10 @@
 
 - Planned `/api/query` batches can now carry planner-originated warnings; use that path for explicit dropped-clause notices instead of smuggling those warnings into renderer prose or pretending the plan was fully supported.
 - The planner-side contract must stay aligned with semantic capabilities for standings/game filters too, not just operation/entity/metric enums. Date ranges, `conference`, `division`, and `gameStatus` are real planner outputs now and should be updated in the same shared-contract pass when this surface grows again.
+## expand_planner_and_answer_route_for_standings_plus_game_questions
+
+- Title: Expand Planner And Answer Route For Standings Plus Game Questions
+- Module scope: planner capability-driven expansion, answer-route mixed batch orchestration, dropped-clause warnings and orchestration traces
+- Interface contract: /api/query can answer standings-only, game-only, and mixed standings/game asks | mixed unsupported non-essential clauses can be dropped with explicit warnings | orchestration traces remain honest with no fake single resolved query
+- Tests: add planner tests deriving the new shapes from shared capabilities | add /api/query integration tests for standings-only, game-only, and mixed asks | add /api/query-trace tests for dropped-clause warnings and honest orchestration traces
+
