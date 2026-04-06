@@ -46,8 +46,30 @@ const ACHIUWA_TREND_FIXTURE = JSON.parse(
 const STANDINGS_FIXTURE = JSON.parse(
 	readFileSync(new URL('../semantic/fixtures/leaguestandingsv3.json', import.meta.url), 'utf8')
 ) as unknown;
+const SCOREBOARD_2026_03_31_FIXTURE = JSON.parse(
+	readFileSync(new URL('../semantic/fixtures/scoreboardv2-2026-03-31.json', import.meta.url), 'utf8')
+) as unknown;
+const SCOREBOARD_2026_04_01_FIXTURE = JSON.parse(
+	readFileSync(new URL('../semantic/fixtures/scoreboardv2-2026-04-01.json', import.meta.url), 'utf8')
+) as unknown;
+const SCOREBOARD_2026_04_02_FIXTURE = JSON.parse(
+	readFileSync(new URL('../semantic/fixtures/scoreboardv2-2026-04-02.json', import.meta.url), 'utf8')
+) as unknown;
+const SCOREBOARD_2026_04_03_FIXTURE = JSON.parse(
+	readFileSync(new URL('../semantic/fixtures/scoreboardv2-2026-04-03.json', import.meta.url), 'utf8')
+) as unknown;
+const SCOREBOARD_2026_04_04_FIXTURE = JSON.parse(
+	readFileSync(new URL('../semantic/fixtures/scoreboardv2-2026-04-04.json', import.meta.url), 'utf8')
+) as unknown;
+const SCOREBOARD_FIXTURE_BY_DATE = new Map([
+	['2026-03-31', SCOREBOARD_2026_03_31_FIXTURE],
+	['2026-04-01', SCOREBOARD_2026_04_01_FIXTURE],
+	['2026-04-02', SCOREBOARD_2026_04_02_FIXTURE],
+	['2026-04-03', SCOREBOARD_2026_04_03_FIXTURE],
+	['2026-04-04', SCOREBOARD_2026_04_04_FIXTURE]
+]);
 const BASE_LOOKUP_VARIANT_COUNT = listDeterministicLookupFixtureSurface().filter((requirement) =>
-	['leaguedashplayerstats', 'leaguedashteamstats', 'leaguestandingsv3'].includes(requirement.endpointId)
+	['leaguedashplayerstats', 'leaguedashteamstats', 'leaguestandingsv3', 'scoreboardv2'].includes(requirement.endpointId)
 ).length;
 
 function buildOkResult(request: EndpointFetchRequest, payload: unknown): EndpointFetchResult {
@@ -75,6 +97,16 @@ function buildErrorResult(request: EndpointFetchRequest, errorDetail: string): E
 		parserVersion: 'v1',
 		errorDetail
 	};
+}
+
+function maybeBuildScoreboardResult(request: EndpointFetchRequest): EndpointFetchResult | null {
+	if (request.endpointId !== 'scoreboardv2') {
+		return null;
+	}
+
+	const payload = SCOREBOARD_FIXTURE_BY_DATE.get(request.params.GameDate);
+	assert.notEqual(payload, undefined);
+	return buildOkResult(request, payload);
 }
 
 function buildCareerStatsFixture(playerId: string, playerName: string, pts: number, ast: number, reb: number): unknown {
@@ -234,6 +266,12 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, STANDINGS_FIXTURE);
 			}
 
+			if (request.endpointId === 'scoreboardv2') {
+				const payload = SCOREBOARD_FIXTURE_BY_DATE.get(request.params.GameDate);
+				assert.notEqual(payload, undefined);
+				return buildOkResult(request, payload);
+			}
+
 			if (request.endpointId === 'playercareerstats') {
 				const payload = careerPayloadByPlayerId.get(request.params.PlayerID);
 				assert.notEqual(payload, undefined);
@@ -246,6 +284,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, payload);
 			}
 
+			const scoreboardResult = maybeBuildScoreboardResult(request);
+			if (scoreboardResult) {
+				return scoreboardResult;
+			}
 			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
 		};
 		const expectedCohort = deriveNightlyPlayerComparisonCohort(PLAYER_STATS_FIXTURE);
@@ -405,6 +447,65 @@ describe('bootstrapCurrentSeasonNightly', () => {
 		}
 	});
 
+	test('materializes the current scoreboard horizon as authoritative nightly data', async () => {
+		const fetcher: NightlyBootstrapFetcher = async (request) => {
+			if (request.endpointId === 'leaguedashplayerstats') {
+				return buildOkResult(request, PLAYER_STATS_FIXTURE);
+			}
+
+			if (request.endpointId === 'leaguedashteamstats') {
+				return buildOkResult(request, TEAM_STATS_FIXTURE);
+			}
+
+			if (request.endpointId === 'leaguestandingsv3') {
+				return buildOkResult(request, STANDINGS_FIXTURE);
+			}
+
+			if (request.endpointId === 'scoreboardv2') {
+				const payload = SCOREBOARD_FIXTURE_BY_DATE.get(request.params.GameDate);
+				assert.notEqual(payload, undefined);
+				return buildOkResult(request, payload);
+			}
+
+			if (request.endpointId === 'playercareerstats') {
+				return buildOkResult(request, CURRY_CAREER_FIXTURE);
+			}
+
+			if (request.endpointId === 'playergamelog') {
+				return buildOkResult(request, JOKIC_TREND_FIXTURE);
+			}
+
+			const scoreboardResult = maybeBuildScoreboardResult(request);
+			if (scoreboardResult) {
+				return scoreboardResult;
+			}
+			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
+		};
+
+		await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now: new Date('2026-04-02T05:00:00.000Z'),
+			fetcher
+		});
+
+		for (const gameDate of ['2026-03-31', '2026-04-01', '2026-04-02', '2026-04-03', '2026-04-04']) {
+			const cacheRow = getDataStore().getLatestRawEndpointCache({
+				endpointId: 'scoreboardv2',
+				paramsJson: JSON.stringify({
+					DayOffset: '0',
+					GameDate: gameDate,
+					LeagueID: '00'
+				}),
+				parserVersion: 'v1',
+				snapshotDate: '2026-04-02'
+			});
+
+			assert.notEqual(cacheRow, null, `Expected scoreboard row for ${gameDate}.`);
+			assert.equal(cacheRow?.snapshotDate, '2026-04-01');
+			assert.equal(cacheRow?.isProvisional, false);
+		}
+	});
+
 	test('materializes regular-season comparison source rows for the derived cohort and supports comparison queries after bootstrap', async () => {
 		const cohortSeedPayload = {
 			resultSets: [
@@ -460,6 +561,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, payload);
 			}
 
+			const scoreboardResult = maybeBuildScoreboardResult(request);
+			if (scoreboardResult) {
+				return scoreboardResult;
+			}
 			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
 		};
 
@@ -531,6 +636,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, payload);
 			}
 
+			const scoreboardResult = maybeBuildScoreboardResult(request);
+			if (scoreboardResult) {
+				return scoreboardResult;
+			}
 			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
 		};
 
@@ -614,6 +723,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, emptyTrendPayload);
 			}
 
+			const scoreboardResult = maybeBuildScoreboardResult(request);
+			if (scoreboardResult) {
+				return scoreboardResult;
+			}
 			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
 		};
 
@@ -705,6 +818,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				});
 			}
 
+			const scoreboardResult = maybeBuildScoreboardResult(request);
+			if (scoreboardResult) {
+				return scoreboardResult;
+			}
 			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
 		};
 
@@ -777,6 +894,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				});
 			}
 
+			const scoreboardResult = maybeBuildScoreboardResult(request);
+			if (scoreboardResult) {
+				return scoreboardResult;
+			}
 			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
 		};
 
@@ -847,6 +968,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				});
 			}
 
+			const scoreboardResult = maybeBuildScoreboardResult(request);
+			if (scoreboardResult) {
+				return scoreboardResult;
+			}
 			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
 		};
 
@@ -895,6 +1020,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, payload);
 			}
 
+			const scoreboardResult = maybeBuildScoreboardResult(request);
+			if (scoreboardResult) {
+				return scoreboardResult;
+			}
 			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
 		};
 
@@ -1076,6 +1205,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, payload);
 			}
 
+			const scoreboardResult = maybeBuildScoreboardResult(request);
+			if (scoreboardResult) {
+				return scoreboardResult;
+			}
 			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
 		};
 
@@ -1227,6 +1360,10 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				return buildOkResult(request, payload);
 			}
 
+			const scoreboardResult = maybeBuildScoreboardResult(request);
+			if (scoreboardResult) {
+				return scoreboardResult;
+			}
 			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
 		};
 
@@ -1307,6 +1444,11 @@ describe('bootstrapCurrentSeasonNightly', () => {
 				});
 			}
 
+			const scoreboardResult = maybeBuildScoreboardResult(request);
+			if (scoreboardResult) {
+				return scoreboardResult;
+			}
+
 			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
 		};
 
@@ -1353,7 +1495,7 @@ describe('bootstrapCurrentSeasonNightly', () => {
 
 	test('marks the nightly run partial when one required request fails after another succeeds', async () => {
 		const expectedFailedRequests =
-			3 +
+			8 +
 			NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS.length +
 			NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS.length +
 			3 +
@@ -1396,7 +1538,7 @@ describe('bootstrapCurrentSeasonNightly', () => {
 
 		assert.equal(run.status, 'failed');
 		assert.equal(run.completedRequests, 0);
-		assert.equal(run.failedRequests, 4);
+		assert.equal(run.failedRequests, 9);
 		assert.match(run.errorSummary ?? '', /leaguedashplayerstats/i);
 		assert.match(run.errorSummary ?? '', /leaguedashteamstats/i);
 		assert.match(run.errorSummary ?? '', /leaguestandingsv3/i);

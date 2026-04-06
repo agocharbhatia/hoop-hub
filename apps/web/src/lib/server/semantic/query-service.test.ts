@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import { resetDataStoreForTests } from '$lib/server/data/store';
+import { createNightlyBootstrapFixtureFetcher } from '$lib/server/nightly/bootstrap-fixtures';
+import { bootstrapCurrentSeasonNightly } from '$lib/server/nightly/bootstrap-service';
 import { ensurePlayerDirectoryAvailable, setPlayerDirectoryRefreshLoaderForTests } from '$lib/server/players/player-directory';
 import { seedSemanticFixtureCache } from '../../../tests/helpers/seed-semantic-fixture-cache';
 import { executeSemanticQuery, validateSemanticQueryRequest } from './query-service';
@@ -749,7 +751,7 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.provenance.resolvedQuery?.filters.division, 'Atlantic');
 	});
 
-	test('returns honest coverage_gap for game queries before execution support ships', async () => {
+	test('returns nightly_data_unavailable for game queries when the scoreboard horizon is missing', async () => {
 		const response = await executeSemanticQuery(
 			{
 				query: {
@@ -770,7 +772,7 @@ describe('executeSemanticQuery', () => {
 
 		assert.equal(response.status, 'coverage_gap');
 		assert.equal(response.result, null);
-		assert.equal(response.warnings[0]?.code, 'unsupported_query_shape');
+		assert.equal(response.warnings[0]?.code, 'nightly_data_unavailable');
 		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
 			ids: ['1610612738'],
 			names: ['Boston Celtics']
@@ -778,6 +780,169 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
 		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
 		assert.equal(response.provenance.resolvedQuery?.filters.gameStatus, 'upcoming');
+	});
+
+	test('returns the next upcoming team game from the canonical scoreboard horizon', async () => {
+		await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now: new Date('2026-04-02T05:00:00.000Z'),
+			fetcher: createNightlyBootstrapFixtureFetcher()
+		});
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['game_date', 'game_status', 'opponent_team'],
+					filters: {
+						gameStatus: 'upcoming'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-04-02T05:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.result?.rows, [
+			{
+				teamId: '1610612738',
+				teamName: 'Boston Celtics',
+				gameId: '0022500991',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				game_date: '2026-04-03',
+				game_status: 'upcoming',
+				opponent_team: 'Milwaukee Bucks'
+			}
+		]);
+		assert.equal(response.result?.coverageStatus, 'complete');
+		assert.equal(response.result?.requestedCount, 1);
+		assert.equal(response.result?.returnedCount, 1);
+	});
+
+	test('returns the prior final team result for strict last-night asks', async () => {
+		await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now: new Date('2026-04-02T05:00:00.000Z'),
+			fetcher: createNightlyBootstrapFixtureFetcher()
+		});
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Denver']
+					},
+					metrics: ['game_date', 'opponent_team', 'team_score', 'opponent_score', 'result'],
+					filters: {
+						dateFrom: '2026-04-01',
+						dateTo: '2026-04-01',
+						gameStatus: 'final'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-04-02T05:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.result?.rows, [
+			{
+				teamId: '1610612743',
+				teamName: 'Denver Nuggets',
+				gameId: '0022500990',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				game_date: '2026-04-01',
+				opponent_team: 'Minnesota Timberwolves',
+				team_score: 112,
+				opponent_score: 105,
+				result: 'W'
+			}
+		]);
+	});
+
+	test('returns strict tomorrow rows without collapsing into chronological next-game semantics', async () => {
+		await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now: new Date('2026-04-02T05:00:00.000Z'),
+			fetcher: createNightlyBootstrapFixtureFetcher()
+		});
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['game_date', 'game_status', 'opponent_team'],
+					filters: {
+						dateFrom: '2026-04-03',
+						dateTo: '2026-04-03',
+						gameStatus: 'upcoming'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-04-02T05:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.result?.rows, [
+			{
+				teamId: '1610612738',
+				teamName: 'Boston Celtics',
+				gameId: '0022500991',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				game_date: '2026-04-03',
+				game_status: 'upcoming',
+				opponent_team: 'Milwaukee Bucks'
+			}
+		]);
+	});
+
+	test('returns honest no-game-day answers for strict calendar dates inside the materialized horizon', async () => {
+		await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now: new Date('2026-04-02T05:00:00.000Z'),
+			fetcher: createNightlyBootstrapFixtureFetcher()
+		});
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['game_date', 'game_status', 'opponent_team'],
+					filters: {
+						dateFrom: '2026-04-04',
+						dateTo: '2026-04-04',
+						gameStatus: 'any'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-04-03T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.result?.rows, []);
+		assert.equal(response.result?.coverageStatus, 'complete');
+		assert.equal(response.result?.requestedCount, 1);
+		assert.equal(response.result?.returnedCount, 0);
 	});
 
 	test('canonicalizes exact-name trend requests in resolvedQuery provenance', async () => {

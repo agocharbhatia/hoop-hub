@@ -46,6 +46,13 @@ import {
 	extractTeamStandingsRow,
 	SemanticExtractionError
 } from './extractors';
+import {
+	buildMissingTeamGameWarning,
+	buildTeamGameRequests,
+	createTeamGamePlan,
+	extractTeamGameResult,
+	type TeamGamePlan
+} from './team-game';
 import { getDefaultMetricSortDirection, validateSemanticCapabilityQueryShape } from './capabilities';
 import { saveSemanticTrace } from './trace-store';
 
@@ -119,7 +126,7 @@ type TeamStandingsPlan = {
 	subject: ResolvedTeamSubject | null;
 };
 
-type ExecutionPlan = LookupPlan | TeamLookupPlan | RankingPlan | TrendPlan | ComparisonPlan | TeamRankingPlan | TeamStandingsPlan;
+type ExecutionPlan = LookupPlan | TeamLookupPlan | RankingPlan | TrendPlan | ComparisonPlan | TeamRankingPlan | TeamStandingsPlan | TeamGamePlan;
 
 type RetrievalOutcome = {
 	sourceCalls: TraceSourceCall[];
@@ -981,15 +988,35 @@ function determineSupportedPlan(
 		if (subject && 'warning' in subject) {
 			return subject.resolvedQuery === null ? subject : { ...subject, resolvedQuery: query };
 		}
+		if (!subject) {
+			return {
+				type: 'coverage_gap',
+				warning: buildWarning('unsupported_subject_filter', 'game/team requires exactly one resolved team subject.'),
+				resolvedQuery: query
+			};
+		}
+		const season = query.filters.season ?? resolveCurrentSeason(now);
+		if (season !== resolveCurrentSeason(now)) {
+			return {
+				type: 'coverage_gap',
+				warning: buildWarning('unsupported_season', 'game/team execution is limited to the current season in this slice.'),
+				resolvedQuery: buildCanonicalResolvedQuery(query, now, [], subject)
+			};
+		}
 
-		return {
-			type: 'coverage_gap',
-			warning: buildWarning(
-				'unsupported_query_shape',
-				'game/team is typed and discoverable, but execution is not implemented in this slice yet.'
-			),
-			resolvedQuery: buildCanonicalResolvedQuery(query, now, [], subject)
-		};
+		const canonicalQuery = buildCanonicalResolvedQuery(query, now, [], subject);
+		try {
+			return createTeamGamePlan(canonicalQuery, season, subject, now);
+		} catch (error) {
+			return {
+				type: 'coverage_gap',
+				warning: buildWarning(
+					'unsupported_query_shape',
+					error instanceof Error ? error.message : 'game/team could not be planned from the provided filters.'
+				),
+				resolvedQuery: canonicalQuery
+			};
+		}
 	}
 
 	return {
@@ -1125,6 +1152,10 @@ function buildEndpointRequests(plan: ExecutionPlan): EndpointFetchRequest[] {
 
 	if (plan.type === 'team_standings') {
 		return [buildTeamStandingsRequest(plan)];
+	}
+
+	if (plan.type === 'team_game') {
+		return buildTeamGameRequests(plan);
 	}
 
 	return [buildTeamRankingRequest(plan)];
@@ -1310,6 +1341,13 @@ function buildMissingLookupRowWarning(plan: ExecutionPlan, retrieval: RetrievalO
 				);
 	}
 
+	if (plan.type === 'team_game') {
+		return buildMissingTeamGameWarning(
+			plan,
+			retrieval.responses.map((response) => response.result.payload)
+		);
+	}
+
 	if (plan.type !== 'player_lookup') {
 		return null;
 	}
@@ -1444,6 +1482,13 @@ function parseExecutionResult(plan: ExecutionPlan, retrieval: RetrievalOutcome):
 				conference: plan.query.filters.conference ?? null,
 				division: plan.query.filters.division ?? null
 			}
+		);
+	}
+
+	if (plan.type === 'team_game') {
+		return extractTeamGameResult(
+			plan,
+			retrieval.responses.map((response) => response.result.payload)
 		);
 	}
 

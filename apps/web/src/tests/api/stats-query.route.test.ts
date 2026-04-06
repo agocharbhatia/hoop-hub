@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import { resetDataStoreForTests } from '$lib/server/data/store';
+import { createNightlyBootstrapFixtureFetcher } from '$lib/server/nightly/bootstrap-fixtures';
+import { bootstrapCurrentSeasonNightly } from '$lib/server/nightly/bootstrap-service';
 import { seedSemanticFixtureCache } from '../helpers/seed-semantic-fixture-cache';
 import { POST } from '../../routes/api/stats/query/+server';
 
@@ -447,13 +449,84 @@ describe('POST /api/stats/query', () => {
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'coverage_gap');
 		assert.equal(payload.result, null);
-		assert.equal(payload.warnings[0]?.code, 'unsupported_query_shape');
+		assert.equal(payload.warnings[0]?.code, 'nightly_data_unavailable');
 		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
 			ids: ['1610612738'],
 			names: ['Boston Celtics']
 		});
 		assert.equal(payload.provenance.resolvedQuery.filters.season, '2025-26');
 		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.equal(payload.provenance.resolvedQuery.filters.gameStatus, 'upcoming');
+	});
+
+	test('returns canonical grounded game rows for bootstrapped team game queries', async () => {
+		await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now: new Date('2026-04-02T05:00:00.000Z'),
+			fetcher: createNightlyBootstrapFixtureFetcher()
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'game',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['game_date', 'game_status', 'opponent_team'],
+						filters: {
+							dateFrom: '2026-04-03',
+							dateTo: '2026-04-03',
+							gameStatus: 'upcoming'
+						},
+						outputMode: 'table'
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: {
+				coverageStatus: string;
+				requestedCount: number;
+				returnedCount: number;
+				rows: Array<Record<string, unknown>>;
+			};
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+					filters: { season: string; seasonType: string; dateFrom: string; dateTo: string; gameStatus: string };
+				};
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.result.coverageStatus, 'complete');
+		assert.equal(payload.result.requestedCount, 1);
+		assert.equal(payload.result.returnedCount, 1);
+		assert.deepEqual(payload.result.rows, [
+			{
+				teamId: '1610612738',
+				teamName: 'Boston Celtics',
+				gameId: '0022500991',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				game_date: '2026-04-03',
+				game_status: 'upcoming',
+				opponent_team: 'Milwaukee Bucks'
+			}
+		]);
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(payload.provenance.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.equal(payload.provenance.resolvedQuery.filters.dateFrom, '2026-04-03');
+		assert.equal(payload.provenance.resolvedQuery.filters.dateTo, '2026-04-03');
 		assert.equal(payload.provenance.resolvedQuery.filters.gameStatus, 'upcoming');
 	});
 

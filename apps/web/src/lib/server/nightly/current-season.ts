@@ -1,6 +1,7 @@
 import type { EndpointFetchRequest } from '$lib/server/data';
+import { buildCurrentScoreboardHorizonDates, buildScoreboardRequest } from '$lib/server/semantic/team-game';
 
-export const CURRENT_SEASON_LEAGUE_WIDE_ENDPOINT_IDS = ['leaguedashplayerstats', 'leaguedashteamstats'] as const;
+export const CURRENT_SEASON_LEAGUE_WIDE_ENDPOINT_IDS = ['leaguedashplayerstats', 'leaguedashteamstats', 'scoreboardv2'] as const;
 export const NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS = ['1630173', '201939', '203081', '203999'] as const;
 export const DEFAULT_NIGHTLY_ACTIVE_PLAYER_COHORT_SIZE = 75;
 export const SUPPORTED_LOOKUP_SOURCE_VARIANTS = [
@@ -274,8 +275,14 @@ export function buildPlayerTrendBootstrapRequests(playerIds: readonly string[], 
 export function planCurrentSeasonLeagueWideRequests(slateDate: string): CurrentSeasonLeagueWideRequestPlan[] {
 	const season = resolveSeasonForSlateDate(slateDate);
 
-	return buildSupportedSeasonLookupRequests(season).map((request) => ({
-		endpointId: request.endpointId as (typeof CURRENT_SEASON_LEAGUE_WIDE_ENDPOINT_IDS)[number],
-		request
-	}));
+	return [
+		...buildSupportedSeasonLookupRequests(season).map((request) => ({
+			endpointId: request.endpointId as (typeof CURRENT_SEASON_LEAGUE_WIDE_ENDPOINT_IDS)[number],
+			request
+		})),
+		...buildCurrentScoreboardHorizonDates(slateDate).map((gameDate) => ({
+			endpointId: 'scoreboardv2' as (typeof CURRENT_SEASON_LEAGUE_WIDE_ENDPOINT_IDS)[number],
+			request: buildScoreboardRequest(gameDate)
+		}))
+	];
 }

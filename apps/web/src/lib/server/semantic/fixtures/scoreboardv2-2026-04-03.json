@@ -1,0 +1,20 @@
+{
+	"resource": "scoreboardv2",
+	"resultSets": [
+		{
+			"name": "GameHeader",
+			"headers": ["GAME_DATE_EST", "GAME_SEQUENCE", "GAME_ID", "GAME_STATUS_ID", "GAME_STATUS_TEXT", "GAMECODE", "HOME_TEAM_ID", "VISITOR_TEAM_ID", "SEASON", "LIVE_PERIOD", "LIVE_PC_TIME", "NATL_TV_BROADCASTER_ABBREVIATION", "HOME_TV_BROADCASTER_ABBREVIATION", "AWAY_TV_BROADCASTER_ABBREVIATION", "LIVE_PERIOD_TIME_BCAST", "ARENA_NAME", "WH_STATUS"],
+			"rowSet": [
+				["2026-04-03T00:00:00", 1, "0022500991", 1, "7:30 PM ET", "20260403/MILBOS", "1610612738", "1610612749", "2025", 0, "", "ESPN", "NBCSB", "FDSWI", "7:30 PM ET", "TD Garden", 1]
+			]
+		},
+		{
+			"name": "LineScore",
+			"headers": ["GAME_DATE_EST", "GAME_SEQUENCE", "GAME_ID", "TEAM_ID", "TEAM_ABBREVIATION", "TEAM_CITY_NAME", "TEAM_NAME", "TEAM_WINS_LOSSES", "PTS_QTR1", "PTS_QTR2", "PTS_QTR3", "PTS_QTR4", "PTS_OT1", "PTS_OT2", "PTS_OT3", "PTS_OT4", "PTS_OT5", "PTS_OT6", "PTS_OT7", "PTS_OT8", "PTS_OT9", "PTS_OT10", "PTS", "FG_PCT", "FT_PCT", "FG3_PCT", "AST", "REB", "TOV"],
+			"rowSet": [
+				["2026-04-03T00:00:00", 1, "0022500991", "1610612738", "BOS", "Boston", "Celtics", "58-18", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null],
+				["2026-04-03T00:00:00", 1, "0022500991", "1610612749", "MIL", "Milwaukee", "Bucks", "46-30", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null]
+			]
+		}
+	]
+}

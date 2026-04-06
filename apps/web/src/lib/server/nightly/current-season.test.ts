@@ -7,6 +7,7 @@ import {
 	buildSupportedSeasonLookupRequests,
 	buildPlayerTrendBootstrapRequests,
 	deriveNightlyPlayerComparisonCohort,
+	planCurrentSeasonLeagueWideRequests,
 	prioritizeNightlyPlayerBootstrapOrder,
 	resolveSeasonForSlateDate
 } from './current-season';
@@ -107,6 +108,15 @@ describe('current-season nightly planning', () => {
 				SeasonYear: ''
 			}
 		});
+	});
+
+	test('plans the default current scoreboard horizon around the slate date', () => {
+		assert.deepEqual(
+			planCurrentSeasonLeagueWideRequests('2026-04-01')
+				.filter((entry) => entry.endpointId === 'scoreboardv2')
+				.map((entry) => entry.request.params.GameDate),
+			['2026-03-31', '2026-04-01', '2026-04-02', '2026-04-03', '2026-04-04']
+		);
 	});
 
 	test('prioritizes the allowlist players ahead of the remaining nightly cohort', () => {

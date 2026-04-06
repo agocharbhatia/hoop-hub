@@ -112,6 +112,13 @@ export function createNightlyBootstrapFixtureFetcher(): NightlyBootstrapFetcher 
 			}
 		}
 
+		if (request.endpointId === 'scoreboardv2') {
+			const payload = findDeterministicFixturePayload(request);
+			if (payload !== null) {
+				return buildOkResult(request, payload);
+			}
+		}
+
 		throw new Error(`Unexpected deterministic fixture request '${request.endpointId}'.`);
 	};
 }

@@ -301,3 +301,8 @@
 - Interface contract: zero-subject `standings/team` ranks teams over supported standings fields | `conference` and `division` filter support is real end-to-end | per-field sort defaults come from shared capability metadata
 - Tests: add executor tests for zero-subject standings ranking and filters | add capability tests for per-field sort metadata | add route and trace tests for league-scoped standings asks
 
+## ship_single_event_team_game_queries_for_next_and_recent_results
+
+- `game/team` now executes through a dedicated scoreboard-backed module instead of staying inline in `query-service.ts`; keep future range/completeness work on that seam rather than re-growing the monolith.
+- The default scoreboard horizon is currently `slateDate - 1` through `slateDate + 3`, which is the minimum nightly-backed window needed for last-night, next-game, tomorrow, and strict no-game-day asks in this slice.
+- Exact-date asks inside the materialized horizon should return grounded `ok` responses even when the team did not play, while chronology-based asks should stay conservative and return `nightly_data_unavailable` if any required horizon date is missing.
