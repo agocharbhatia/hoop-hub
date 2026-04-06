@@ -222,6 +222,18 @@ function normalizeFilters(input: unknown): ValidationResult<SemanticQueryFilters
 		return { ok: false, error: 'query.filters.dateTo must be a string when provided.' };
 	}
 
+	if (!isNullableString(input.conference)) {
+		return { ok: false, error: 'query.filters.conference must be a string when provided.' };
+	}
+
+	if (!isNullableString(input.division)) {
+		return { ok: false, error: 'query.filters.division must be a string when provided.' };
+	}
+
+	if (!isNullableString(input.gameStatus)) {
+		return { ok: false, error: 'query.filters.gameStatus must be a string when provided.' };
+	}
+
 	let window: SemanticQueryFilters['window'] = null;
 	if (input.window !== undefined && input.window !== null) {
 		if (!isPlainObject(input.window)) {
@@ -255,7 +267,19 @@ function normalizeFilters(input: unknown): ValidationResult<SemanticQueryFilters
 			seasonType: typeof input.seasonType === 'string' && input.seasonType.trim().length > 0 ? input.seasonType.trim() : null,
 			window,
 			dateFrom: typeof input.dateFrom === 'string' && input.dateFrom.trim().length > 0 ? input.dateFrom.trim() : null,
-			dateTo: typeof input.dateTo === 'string' && input.dateTo.trim().length > 0 ? input.dateTo.trim() : null
+			dateTo: typeof input.dateTo === 'string' && input.dateTo.trim().length > 0 ? input.dateTo.trim() : null,
+			conference:
+				typeof input.conference === 'string' && input.conference.trim().length > 0
+					? (input.conference.trim() as SemanticQueryFilters['conference'])
+					: null,
+			division:
+				typeof input.division === 'string' && input.division.trim().length > 0
+					? (input.division.trim() as SemanticQueryFilters['division'])
+					: null,
+			gameStatus:
+				typeof input.gameStatus === 'string' && input.gameStatus.trim().length > 0
+					? (input.gameStatus.trim() as SemanticQueryFilters['gameStatus'])
+					: null
 		}
 	};
 }
@@ -926,6 +950,38 @@ function determineSupportedPlan(
 		};
 	}
 
+	if (query.operation === 'standings' && query.entity === 'team') {
+		const subject = resolveTeamEntity(query.subject);
+		if (subject && 'warning' in subject) {
+			return subject.resolvedQuery === null ? subject : { ...subject, resolvedQuery: query };
+		}
+
+		return {
+			type: 'coverage_gap',
+			warning: buildWarning(
+				'unsupported_query_shape',
+				'standings/team is typed and discoverable, but execution is not implemented in this slice yet.'
+			),
+			resolvedQuery: buildCanonicalResolvedQuery(query, now, [], subject ?? undefined)
+		};
+	}
+
+	if (query.operation === 'game' && query.entity === 'team') {
+		const subject = resolveTeamEntity(query.subject);
+		if (subject && 'warning' in subject) {
+			return subject.resolvedQuery === null ? subject : { ...subject, resolvedQuery: query };
+		}
+
+		return {
+			type: 'coverage_gap',
+			warning: buildWarning(
+				'unsupported_query_shape',
+				'game/team is typed and discoverable, but execution is not implemented in this slice yet.'
+			),
+			resolvedQuery: buildCanonicalResolvedQuery(query, now, [], subject)
+		};
+	}
+
 	return {
 		type: 'coverage_gap',
 		warning: buildWarning(
@@ -1487,6 +1543,7 @@ export function validateSemanticQueryRequest(input: unknown): ValidationResult<S
 		operation !== 'compare' &&
 		operation !== 'trend' &&
 		operation !== 'split' &&
+		operation !== 'standings' &&
 		operation !== 'game' &&
 		operation !== 'event'
 	) {

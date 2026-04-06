@@ -10,7 +10,7 @@ describe('semantic capability registry', () => {
 	test('exposes only the active public stats tool contract', () => {
 		const capabilities = getPublicSemanticCapabilities();
 
-		assert.deepEqual(capabilities.operations, ['lookup', 'rank', 'trend', 'compare']);
+		assert.deepEqual(capabilities.operations, ['lookup', 'rank', 'trend', 'compare', 'standings', 'game']);
 		assert.deepEqual(capabilities.entities, ['player', 'team']);
 		assert.deepEqual(capabilities.outputModes, ['table', 'timeseries', 'comparison']);
 		assert.deepEqual(capabilities.seasons.supported, ['current', '2023-24']);
@@ -27,9 +27,26 @@ describe('semantic capability registry', () => {
 				{ operation: 'rank', entity: 'player', kind: 'none' },
 				{ operation: 'trend', entity: 'player', kind: 'exactly_one' },
 				{ operation: 'compare', entity: 'player', kind: 'exactly_two' },
-				{ operation: 'rank', entity: 'team', kind: 'zero_or_one' }
+				{ operation: 'rank', entity: 'team', kind: 'zero_or_one' },
+				{ operation: 'standings', entity: 'team', kind: 'zero_or_one' },
+				{ operation: 'game', entity: 'team', kind: 'exactly_one' }
 			]
 		);
+		assert.deepEqual(
+			capabilities.filters,
+			[
+				{ id: 'conference', entities: ['team'], operations: ['standings'], values: ['East', 'West'] },
+				{
+					id: 'division',
+					entities: ['team'],
+					operations: ['standings'],
+					values: ['Atlantic', 'Central', 'Southeast', 'Northwest', 'Pacific', 'Southwest']
+				},
+				{ id: 'gameStatus', entities: ['team'], operations: ['game'], values: ['upcoming', 'final', 'any'] }
+			]
+		);
+		assert.deepEqual(capabilities.resultCompleteness.fields, ['coverageStatus', 'requestedCount', 'returnedCount']);
+		assert.deepEqual(capabilities.resultCompleteness.coverageStatuses, ['complete', 'season_exhausted', 'partial_materialized']);
 		assert.equal(capabilities.metrics.some((metric) => 'requiredSources' in metric), false);
 	});
 
@@ -100,6 +117,24 @@ describe('semantic capability registry', () => {
 					orderBy: 'same_metric_asc',
 					defaultLimit: 10,
 					supportsWindow: false
+				},
+				{
+					key: 'standings/team',
+					subjectRule: 'zero_or_one',
+					outputModes: ['table'],
+					metrics: ['conference_rank', 'seed', 'wins', 'losses', 'win_pct', 'games_back', 'streak'],
+					orderBy: 'same_metric_desc',
+					defaultLimit: 10,
+					supportsWindow: false
+				},
+				{
+					key: 'game/team',
+					subjectRule: 'exactly_one',
+					outputModes: ['table'],
+					metrics: ['game_date', 'game_status', 'opponent_team', 'team_score', 'opponent_score', 'result'],
+					orderBy: 'none',
+					defaultLimit: 1,
+					supportsWindow: false
 				}
 			]
 		);
@@ -111,6 +146,9 @@ describe('semantic capability registry', () => {
 		assert.equal(isSupportedSemanticMetric('rank', 'player', 'ast'), true);
 		assert.equal(isSupportedSemanticMetric('rank', 'player', 'drtg'), false);
 		assert.equal(isSupportedSemanticMetric('rank', 'team', 'drtg'), true);
+		assert.equal(isSupportedSemanticMetric('standings', 'team', 'seed'), true);
+		assert.equal(isSupportedSemanticMetric('game', 'team', 'game_status'), true);
+		assert.equal(isSupportedSemanticMetric('game', 'team', 'wins'), false);
 	});
 
 	test('validates supported query shapes from the shared contract', () => {
@@ -144,5 +182,35 @@ describe('semantic capability registry', () => {
 
 		assert.equal(supported.ok, true);
 		assert.equal(unsupported.ok, true);
+	});
+
+	test('accepts supported standings and game query shapes with typed filters', () => {
+		const standingsQuery = validateSemanticCapabilityQueryShape({
+			operation: 'standings',
+			entity: 'team',
+			subject: {},
+			metrics: ['seed'],
+			filters: {
+				season: '2023-24',
+				seasonType: 'Regular Season',
+				conference: 'East'
+			},
+			outputMode: 'table'
+		});
+		const gameQuery = validateSemanticCapabilityQueryShape({
+			operation: 'game',
+			entity: 'team',
+			subject: {
+				names: ['Boston Celtics']
+			},
+			metrics: ['game_status', 'opponent_team'],
+			filters: {
+				gameStatus: 'upcoming'
+			},
+			outputMode: 'table'
+		});
+
+		assert.equal(standingsQuery.ok, true);
+		assert.equal(gameQuery.ok, true);
 	});
 });

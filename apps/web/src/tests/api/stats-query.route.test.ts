@@ -313,6 +313,95 @@ describe('POST /api/stats/query', () => {
 		assert.equal(payload.warnings[0]?.code, 'nightly_data_unavailable');
 	});
 
+	test('returns honest 200 coverage_gap for standings requests before execution support exists', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'standings',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['seed', 'wins'],
+						filters: {
+							season: '2023-24',
+							conference: 'East'
+						},
+						outputMode: 'table'
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: unknown;
+			warnings: { code: string }[];
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+					filters: { season: string; seasonType: string; conference: string };
+				};
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'coverage_gap');
+		assert.equal(payload.result, null);
+		assert.equal(payload.warnings[0]?.code, 'unsupported_query_shape');
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(payload.provenance.resolvedQuery.filters.season, '2023-24');
+		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.equal(payload.provenance.resolvedQuery.filters.conference, 'East');
+	});
+
+	test('returns honest 200 coverage_gap for game requests before execution support exists', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'game',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['game_status', 'opponent_team'],
+						filters: {
+							gameStatus: 'upcoming'
+						},
+						outputMode: 'table'
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: unknown;
+			warnings: { code: string }[];
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+					filters: { season: string; seasonType: string; gameStatus: string };
+				};
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'coverage_gap');
+		assert.equal(payload.result, null);
+		assert.equal(payload.warnings[0]?.code, 'unsupported_query_shape');
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(payload.provenance.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.provenance.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.equal(payload.provenance.resolvedQuery.filters.gameStatus, 'upcoming');
+	});
+
 	test('returns 200 ok when the seeded player directory is loaded on demand', async () => {
 		const response = await POST(
 			createPostEvent(

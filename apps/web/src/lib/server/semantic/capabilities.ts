@@ -4,6 +4,7 @@ import type {
 	SemanticQueryOperation,
 	SemanticQueryOutputMode
 } from '$lib/contracts/semantic-query';
+import type { QueryIntent } from '$lib/contracts/query-plan';
 import { listMetricDefinitions } from '$lib/server/metrics/registry';
 
 export type SemanticSubjectRuleKind = 'none' | 'exactly_one' | 'exactly_two' | 'zero_or_one';
@@ -18,6 +19,13 @@ export type PublicSemanticMetricCapability = {
 	id: string;
 	operations: SemanticQueryOperation[];
 	entities: SemanticQueryEntity[];
+};
+
+export type PublicSemanticFilterCapability = {
+	id: 'conference' | 'division' | 'gameStatus';
+	operations: SemanticQueryOperation[];
+	entities: SemanticQueryEntity[];
+	values: string[];
 };
 
 export type PublicSemanticQueryShapePlanning = {
@@ -48,6 +56,11 @@ export type PublicSemanticCapabilities = {
 		default: string;
 	};
 	metrics: PublicSemanticMetricCapability[];
+	filters: PublicSemanticFilterCapability[];
+	resultCompleteness: {
+		fields: Array<'coverageStatus' | 'requestedCount' | 'returnedCount'>;
+		coverageStatuses: Array<'complete' | 'season_exhausted' | 'partial_materialized'>;
+	};
 	subjectRules: SemanticCapabilitySubjectRule[];
 	queryShapes: PublicSemanticQueryShapeCapability[];
 };
@@ -62,7 +75,23 @@ type SupportedShape = {
 	planning: PublicSemanticQueryShapePlanning;
 };
 
-type SupportedShapeKey = 'lookup/player' | 'lookup/team' | 'rank/player' | 'trend/player' | 'compare/player' | 'rank/team';
+type SupportedShapeKey =
+	| 'lookup/player'
+	| 'lookup/team'
+	| 'rank/player'
+	| 'trend/player'
+	| 'compare/player'
+	| 'rank/team'
+	| 'standings/team'
+	| 'game/team';
+
+type IntentBackedShapeKey = Exclude<SupportedShapeKey, 'standings/team' | 'game/team'>;
+
+type SupportedMetricDefinition = {
+	id: string;
+	operations: SemanticQueryOperation[];
+	entities: SemanticQueryEntity[];
+};
 
 const SUPPORTED_SHAPES: SupportedShape[] = [
 	{
@@ -130,13 +159,35 @@ const SUPPORTED_SHAPES: SupportedShape[] = [
 			defaultLimit: 10,
 			supportsWindow: false
 		}
+	},
+	{
+		operation: 'standings',
+		entity: 'team',
+		outputModes: ['table'],
+		subjectRule: 'zero_or_one',
+		planning: {
+			orderBy: 'same_metric_desc',
+			defaultLimit: 10,
+			supportsWindow: false
+		}
+	},
+	{
+		operation: 'game',
+		entity: 'team',
+		outputModes: ['table'],
+		subjectRule: 'exactly_one',
+		planning: {
+			orderBy: 'none',
+			defaultLimit: 1,
+			supportsWindow: false
+		}
 	}
 ] as const;
 
 const SUPPORTED_SEASONS = ['current', '2023-24'] as const;
 const SUPPORTED_SEASON_TYPES = ['Regular Season'] as const;
 
-const INTENT_BY_SHAPE = new Map(
+const INTENT_BY_SHAPE = new Map<IntentBackedShapeKey, QueryIntent>(
 	[
 		['lookup/player', 'player_lookup'],
 		['lookup/team', 'team_lookup'],
@@ -147,6 +198,51 @@ const INTENT_BY_SHAPE = new Map(
 	] as const
 );
 
+const STANDINGS_METRIC_DEFINITIONS = [
+	{ id: 'conference_rank', operations: ['standings'], entities: ['team'] },
+	{ id: 'seed', operations: ['standings'], entities: ['team'] },
+	{ id: 'wins', operations: ['standings'], entities: ['team'] },
+	{ id: 'losses', operations: ['standings'], entities: ['team'] },
+	{ id: 'win_pct', operations: ['standings'], entities: ['team'] },
+	{ id: 'games_back', operations: ['standings'], entities: ['team'] },
+	{ id: 'streak', operations: ['standings'], entities: ['team'] }
+] satisfies SupportedMetricDefinition[];
+
+const GAME_METRIC_DEFINITIONS = [
+	{ id: 'game_date', operations: ['game'], entities: ['team'] },
+	{ id: 'game_status', operations: ['game'], entities: ['team'] },
+	{ id: 'opponent_team', operations: ['game'], entities: ['team'] },
+	{ id: 'team_score', operations: ['game'], entities: ['team'] },
+	{ id: 'opponent_score', operations: ['game'], entities: ['team'] },
+	{ id: 'result', operations: ['game'], entities: ['team'] }
+] satisfies SupportedMetricDefinition[];
+
+const SHAPE_SPECIFIC_METRIC_DEFINITIONS: SupportedMetricDefinition[] = [
+	...STANDINGS_METRIC_DEFINITIONS,
+	...GAME_METRIC_DEFINITIONS
+];
+
+const SUPPORTED_FILTERS: PublicSemanticFilterCapability[] = [
+	{
+		id: 'conference',
+		operations: ['standings'],
+		entities: ['team'],
+		values: ['East', 'West']
+	},
+	{
+		id: 'division',
+		operations: ['standings'],
+		entities: ['team'],
+		values: ['Atlantic', 'Central', 'Southeast', 'Northwest', 'Pacific', 'Southwest']
+	},
+	{
+		id: 'gameStatus',
+		operations: ['game'],
+		entities: ['team'],
+		values: ['upcoming', 'final', 'any']
+	}
+];
+
 function getShapeKey(operation: SemanticQueryOperation, entity: SemanticQueryEntity): SupportedShapeKey | null {
 	const key = `${operation}/${entity}`;
 	return key === 'lookup/player' ||
@@ -154,7 +250,9 @@ function getShapeKey(operation: SemanticQueryOperation, entity: SemanticQueryEnt
 		key === 'rank/player' ||
 		key === 'trend/player' ||
 		key === 'compare/player' ||
-		key === 'rank/team'
+		key === 'rank/team' ||
+		key === 'standings/team' ||
+		key === 'game/team'
 		? key
 		: null;
 }
@@ -174,10 +272,21 @@ function countStructuredSubjects(subject: SemanticQuery['subject']): number {
 
 function getIntentForShape(shape: Pick<SupportedShape, 'operation' | 'entity'>) {
 	const shapeKey = getShapeKey(shape.operation, shape.entity);
-	return shapeKey ? INTENT_BY_SHAPE.get(shapeKey) : undefined;
+	if (!shapeKey || !INTENT_BY_SHAPE.has(shapeKey as IntentBackedShapeKey)) {
+		return undefined;
+	}
+
+	return INTENT_BY_SHAPE.get(shapeKey as IntentBackedShapeKey);
 }
 
 function getSupportedMetricIdsForShape(shape: Pick<SupportedShape, 'operation' | 'entity'>): string[] {
+	const shapeSpecificMetrics = SHAPE_SPECIFIC_METRIC_DEFINITIONS.filter(
+		(metric) => metric.operations.includes(shape.operation) && metric.entities.includes(shape.entity)
+	).map((metric) => metric.id);
+	if (shapeSpecificMetrics.length > 0) {
+		return shapeSpecificMetrics;
+	}
+
 	const shapeIntent = getIntentForShape(shape);
 	if (!shapeIntent) {
 		return [];
@@ -245,8 +354,7 @@ export function getPublicSemanticCapabilities(): PublicSemanticCapabilities {
 			const supportedEntities = new Set<SemanticQueryEntity>();
 
 			for (const shape of SUPPORTED_SHAPES) {
-				const shapeKey = getShapeKey(shape.operation, shape.entity);
-				const intent = shapeKey ? INTENT_BY_SHAPE.get(shapeKey) : undefined;
+				const intent = getIntentForShape(shape);
 				if (!intent) {
 					continue;
 				}
@@ -271,6 +379,30 @@ export function getPublicSemanticCapabilities(): PublicSemanticCapabilities {
 			} satisfies PublicSemanticMetricCapability;
 		})
 		.filter((metric): metric is PublicSemanticMetricCapability => metric !== null);
+	const mergedMetrics = new Map<string, PublicSemanticMetricCapability>();
+
+	for (const metric of metrics) {
+		mergedMetrics.set(metric.id, {
+			id: metric.id,
+			operations: [...metric.operations],
+			entities: [...metric.entities]
+		});
+	}
+
+	for (const metric of SHAPE_SPECIFIC_METRIC_DEFINITIONS) {
+		const existing = mergedMetrics.get(metric.id);
+		if (existing) {
+			existing.operations = Array.from(new Set([...existing.operations, ...metric.operations]));
+			existing.entities = Array.from(new Set([...existing.entities, ...metric.entities]));
+			continue;
+		}
+
+		mergedMetrics.set(metric.id, {
+			id: metric.id,
+			operations: [...metric.operations],
+			entities: [...metric.entities]
+		});
+	}
 
 	return {
 		operations,
@@ -284,7 +416,17 @@ export function getPublicSemanticCapabilities(): PublicSemanticCapabilities {
 			supported: [...SUPPORTED_SEASON_TYPES],
 			default: 'Regular Season'
 		},
-		metrics,
+		metrics: Array.from(mergedMetrics.values()),
+		filters: SUPPORTED_FILTERS.map((filter) => ({
+			id: filter.id,
+			operations: [...filter.operations],
+			entities: [...filter.entities],
+			values: [...filter.values]
+		})),
+		resultCompleteness: {
+			fields: ['coverageStatus', 'requestedCount', 'returnedCount'],
+			coverageStatuses: ['complete', 'season_exhausted', 'partial_materialized']
+		},
 		subjectRules: SUPPORTED_SHAPES.map((shape) => ({
 			operation: shape.operation,
 			entity: shape.entity,
@@ -308,8 +450,15 @@ export function isSupportedSemanticMetric(
 	entity: SemanticQueryEntity,
 	metricId: string
 ): boolean {
-	const shapeKey = getShapeKey(operation, entity);
-	const shapeIntent = shapeKey ? INTENT_BY_SHAPE.get(shapeKey) : undefined;
+	if (
+		SHAPE_SPECIFIC_METRIC_DEFINITIONS.some(
+			(metric) => metric.id === metricId && metric.operations.includes(operation) && metric.entities.includes(entity)
+		)
+	) {
+		return true;
+	}
+
+	const shapeIntent = getIntentForShape({ operation, entity });
 	if (!shapeIntent) {
 		return false;
 	}
@@ -387,6 +536,54 @@ export function validateSemanticCapabilityQueryShape(
 			ok: false,
 			error: `query.filters.seasonType must be one of ${SUPPORTED_SEASON_TYPES.map((seasonType) => `'${seasonType}'`).join(', ')}.`
 		};
+	}
+
+	if (query.filters.conference !== undefined && query.filters.conference !== null) {
+		if (query.operation !== 'standings' || query.entity !== 'team') {
+			return {
+				ok: false,
+				error: 'query.filters.conference is only supported for standings/team.'
+			};
+		}
+
+		if (query.filters.conference !== 'East' && query.filters.conference !== 'West') {
+			return {
+				ok: false,
+				error: "query.filters.conference must be 'East' or 'West'."
+			};
+		}
+	}
+
+	if (query.filters.division !== undefined && query.filters.division !== null) {
+		if (query.operation !== 'standings' || query.entity !== 'team') {
+			return {
+				ok: false,
+				error: 'query.filters.division is only supported for standings/team.'
+			};
+		}
+
+		if (!SUPPORTED_FILTERS[1].values.includes(query.filters.division)) {
+			return {
+				ok: false,
+				error: `query.filters.division must be one of ${SUPPORTED_FILTERS[1].values.map((value) => `'${value}'`).join(', ')}.`
+			};
+		}
+	}
+
+	if (query.filters.gameStatus !== undefined && query.filters.gameStatus !== null) {
+		if (query.operation !== 'game' || query.entity !== 'team') {
+			return {
+				ok: false,
+				error: 'query.filters.gameStatus is only supported for game/team.'
+			};
+		}
+
+		if (!SUPPORTED_FILTERS[2].values.includes(query.filters.gameStatus)) {
+			return {
+				ok: false,
+				error: "query.filters.gameStatus must be one of 'upcoming', 'final', 'any'."
+			};
+		}
 	}
 
 	return { ok: true, value: query };

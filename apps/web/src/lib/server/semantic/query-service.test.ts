@@ -116,6 +116,146 @@ describe('validateSemanticQueryRequest', () => {
 		assert.equal(result.ok, true);
 	});
 
+	test('accepts valid structured standings requests for one team or league scope', () => {
+		const teamLookup = validateSemanticQueryRequest({
+			query: {
+				operation: 'standings',
+				entity: 'team',
+				subject: {
+					names: ['Boston']
+				},
+				metrics: ['seed', 'wins', 'losses'],
+				filters: {
+					season: '2023-24',
+					conference: 'East'
+				},
+				outputMode: 'table'
+			}
+		});
+		const leagueRanking = validateSemanticQueryRequest({
+			query: {
+				operation: 'standings',
+				entity: 'team',
+				subject: {},
+				metrics: ['conference_rank'],
+				filters: {
+					division: 'Atlantic'
+				},
+				outputMode: 'table'
+			}
+		});
+
+		assert.equal(teamLookup.ok, true);
+		assert.equal(leagueRanking.ok, true);
+	});
+
+	test('accepts valid structured team game requests', () => {
+		const result = validateSemanticQueryRequest({
+			query: {
+				operation: 'game',
+				entity: 'team',
+				subject: {
+					names: ['Boston']
+				},
+				metrics: ['game_date', 'game_status', 'opponent_team'],
+				filters: {
+					gameStatus: 'upcoming'
+				},
+				outputMode: 'table'
+			}
+		});
+
+		assert.equal(result.ok, true);
+	});
+
+	test('rejects standings requests with too many team subjects', () => {
+		const result = validateSemanticQueryRequest({
+			query: {
+				operation: 'standings',
+				entity: 'team',
+				subject: {
+					names: ['Boston', 'Cleveland']
+				},
+				metrics: ['seed'],
+				filters: {}
+			}
+		});
+
+		assert.equal(result.ok, false);
+		assert.match(result.error, /at most one subject/i);
+	});
+
+	test('rejects team game requests without exactly one team subject', () => {
+		const result = validateSemanticQueryRequest({
+			query: {
+				operation: 'game',
+				entity: 'team',
+				subject: {},
+				metrics: ['game_status'],
+				filters: {}
+			}
+		});
+
+		assert.equal(result.ok, false);
+		assert.match(result.error, /exactly one subject/i);
+	});
+
+	test('rejects invalid standings and game filters and field ids', () => {
+		const invalidConference = validateSemanticQueryRequest({
+			query: {
+				operation: 'standings',
+				entity: 'team',
+				subject: {},
+				metrics: ['seed'],
+				filters: {
+					conference: 'Eastern'
+				}
+			}
+		});
+		const invalidGameStatus = validateSemanticQueryRequest({
+			query: {
+				operation: 'game',
+				entity: 'team',
+				subject: {
+					names: ['Boston']
+				},
+				metrics: ['game_status'],
+				filters: {
+					gameStatus: 'live'
+				}
+			}
+		});
+		const invalidStandingsField = validateSemanticQueryRequest({
+			query: {
+				operation: 'standings',
+				entity: 'team',
+				subject: {},
+				metrics: ['drtg'],
+				filters: {}
+			}
+		});
+		const invalidGameField = validateSemanticQueryRequest({
+			query: {
+				operation: 'game',
+				entity: 'team',
+				subject: {
+					names: ['Boston']
+				},
+				metrics: ['wins'],
+				filters: {}
+			}
+		});
+
+		assert.equal(invalidConference.ok, false);
+		assert.match(invalidConference.error, /query\.filters\.conference/i);
+		assert.equal(invalidGameStatus.ok, false);
+		assert.match(invalidGameStatus.error, /query\.filters\.gameStatus/i);
+		assert.equal(invalidStandingsField.ok, false);
+		assert.match(invalidStandingsField.error, /not supported for standings\/team/i);
+		assert.equal(invalidGameField.ok, false);
+		assert.match(invalidGameField.error, /not supported for game\/team/i);
+	});
+
 	test('rejects deprecated allowLiveFallback request options', () => {
 		const result = validateSemanticQueryRequest({
 			query: {
@@ -474,6 +614,69 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.warnings[0]?.code, 'nightly_data_unavailable');
 		assert.equal(response.provenance.dataFreshnessMode, 'nightly');
 		assert.equal(response.provenance.sourceCalls[0]?.cacheStatus, 'miss');
+	});
+
+	test('returns honest coverage_gap for standings queries before execution support ships', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'standings',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['seed', 'wins'],
+					filters: {
+						season: '2023-24',
+						conference: 'East'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'coverage_gap');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'unsupported_query_shape');
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2023-24');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+		assert.equal(response.provenance.resolvedQuery?.filters.conference, 'East');
+	});
+
+	test('returns honest coverage_gap for game queries before execution support ships', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['game_status', 'opponent_team'],
+					filters: {
+						gameStatus: 'upcoming'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'coverage_gap');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'unsupported_query_shape');
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+		assert.equal(response.provenance.resolvedQuery?.filters.gameStatus, 'upcoming');
 	});
 
 	test('canonicalizes exact-name trend requests in resolvedQuery provenance', async () => {

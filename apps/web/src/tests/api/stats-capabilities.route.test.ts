@@ -16,6 +16,8 @@ describe('GET /api/stats/capabilities', () => {
 			seasons: { supported: string[]; default: string };
 			seasonTypes: { supported: string[]; default: string };
 			metrics: Array<{ id: string; entities: string[]; operations: string[] }>;
+			filters: Array<{ id: string; entities: string[]; operations: string[]; values: string[] }>;
+			resultCompleteness: { fields: string[]; coverageStatuses: string[] };
 			subjectRules: Array<{ operation: string; entity: string; kind: string }>;
 			queryShapes: Array<{
 				operation: string;
@@ -32,7 +34,7 @@ describe('GET /api/stats/capabilities', () => {
 		};
 
 		assert.equal(response.status, 200);
-		assert.deepEqual(payload.operations, ['lookup', 'rank', 'trend', 'compare']);
+		assert.deepEqual(payload.operations, ['lookup', 'rank', 'trend', 'compare', 'standings', 'game']);
 		assert.deepEqual(payload.entities, ['player', 'team']);
 		assert.deepEqual(payload.outputModes, ['table', 'timeseries', 'comparison']);
 		assert.deepEqual(payload.seasons, {
@@ -45,7 +47,26 @@ describe('GET /api/stats/capabilities', () => {
 		});
 		assert.deepEqual(
 			payload.metrics.map((metric) => metric.id),
-			['ast', 'reb', 'pts', 'wins', 'losses', 'win_pct', 'ortg', 'drtg']
+			[
+				'ast',
+				'reb',
+				'pts',
+				'wins',
+				'losses',
+				'win_pct',
+				'ortg',
+				'drtg',
+				'conference_rank',
+				'seed',
+				'games_back',
+				'streak',
+				'game_date',
+				'game_status',
+				'opponent_team',
+				'team_score',
+				'opponent_score',
+				'result'
+			]
 		);
 		assert.deepEqual(
 			payload.subjectRules.map((rule) => `${rule.operation}/${rule.entity}:${rule.kind}`),
@@ -55,9 +76,25 @@ describe('GET /api/stats/capabilities', () => {
 				'rank/player:none',
 				'trend/player:exactly_one',
 				'compare/player:exactly_two',
-				'rank/team:zero_or_one'
+				'rank/team:zero_or_one',
+				'standings/team:zero_or_one',
+				'game/team:exactly_one'
 			]
 		);
+		assert.deepEqual(payload.filters, [
+			{ id: 'conference', entities: ['team'], operations: ['standings'], values: ['East', 'West'] },
+			{
+				id: 'division',
+				entities: ['team'],
+				operations: ['standings'],
+				values: ['Atlantic', 'Central', 'Southeast', 'Northwest', 'Pacific', 'Southwest']
+			},
+			{ id: 'gameStatus', entities: ['team'], operations: ['game'], values: ['upcoming', 'final', 'any'] }
+		]);
+		assert.deepEqual(payload.resultCompleteness, {
+			fields: ['coverageStatus', 'requestedCount', 'returnedCount'],
+			coverageStatuses: ['complete', 'season_exhausted', 'partial_materialized']
+		});
 		assert.deepEqual(
 			payload.queryShapes.map((shape) => ({
 				key: `${shape.operation}/${shape.entity}`,
@@ -107,6 +144,20 @@ describe('GET /api/stats/capabilities', () => {
 					metrics: ['drtg'],
 					orderBy: 'same_metric_asc',
 					defaultLimit: 10,
+					supportsWindow: false
+				},
+				{
+					key: 'standings/team',
+					metrics: ['conference_rank', 'seed', 'wins', 'losses', 'win_pct', 'games_back', 'streak'],
+					orderBy: 'same_metric_desc',
+					defaultLimit: 10,
+					supportsWindow: false
+				},
+				{
+					key: 'game/team',
+					metrics: ['game_date', 'game_status', 'opponent_team', 'team_score', 'opponent_score', 'result'],
+					orderBy: 'none',
+					defaultLimit: 1,
 					supportsWindow: false
 				}
 			]
