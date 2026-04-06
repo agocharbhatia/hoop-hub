@@ -42,10 +42,11 @@ import {
 	extractPlayerTrendRows,
 	extractTeamLookupRow,
 	extractTeamRankingRows,
+	extractTeamStandingsRankingRows,
 	extractTeamStandingsRow,
 	SemanticExtractionError
 } from './extractors';
-import { validateSemanticCapabilityQueryShape } from './capabilities';
+import { getDefaultMetricSortDirection, validateSemanticCapabilityQueryShape } from './capabilities';
 import { saveSemanticTrace } from './trace-store';
 
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -114,7 +115,8 @@ type TeamStandingsPlan = {
 	type: 'team_standings';
 	query: SemanticQuery;
 	season: string;
-	subject: ResolvedTeamSubject;
+	limit: number;
+	subject: ResolvedTeamSubject | null;
 };
 
 type ExecutionPlan = LookupPlan | TeamLookupPlan | RankingPlan | TrendPlan | ComparisonPlan | TeamRankingPlan | TeamStandingsPlan;
@@ -965,21 +967,11 @@ function determineSupportedPlan(
 			return subject.resolvedQuery === null ? subject : { ...subject, resolvedQuery: query };
 		}
 
-		if (!subject) {
-			return {
-				type: 'coverage_gap',
-				warning: buildWarning(
-					'unsupported_query_shape',
-					'League-wide standings execution is not implemented in this slice; provide exactly one team.'
-				),
-				resolvedQuery: buildCanonicalResolvedQuery(query, now)
-			};
-		}
-
 		return {
 			type: 'team_standings',
 			query: buildCanonicalResolvedQuery(query, now, [], subject),
 			season: query.filters.season ?? resolveCurrentSeason(now),
+			limit: subject ? 1 : query.limit ?? 10,
 			subject
 		};
 	}
@@ -1276,6 +1268,11 @@ function buildMissingLookupRowWarning(plan: ExecutionPlan, retrieval: RetrievalO
 	}
 
 	if (plan.type === 'team_standings') {
+		if (!plan.subject) {
+			return null;
+		}
+		const subject = plan.subject;
+
 		const payload = retrieval.responses[0]?.result.payload as
 			| {
 					resultSet?: { headers?: unknown; rowSet?: unknown };
@@ -1303,7 +1300,7 @@ function buildMissingLookupRowWarning(plan: ExecutionPlan, retrieval: RetrievalO
 		}
 
 		const hasRow = resultSet.rowSet.some(
-			(row) => Array.isArray(row) && String(row[teamIdIndex] ?? '') === plan.subject.id
+			(row) => Array.isArray(row) && String(row[teamIdIndex] ?? '') === subject.id
 		);
 		return hasRow
 			? null
@@ -1418,12 +1415,31 @@ function parseExecutionResult(plan: ExecutionPlan, retrieval: RetrievalOutcome):
 	}
 
 	if (plan.type === 'team_standings') {
-		return extractTeamStandingsRow(
+		if (plan.subject) {
+			return extractTeamStandingsRow(
+				retrieval.responses[0]?.result.payload,
+				{ teamId: plan.subject.id, teamName: plan.subject.name },
+				plan.query.metrics,
+				plan.season,
+				plan.query.filters.seasonType ?? 'Regular Season',
+				{
+					conference: plan.query.filters.conference ?? null,
+					division: plan.query.filters.division ?? null
+				}
+			);
+		}
+
+		return extractTeamStandingsRankingRows(
 			retrieval.responses[0]?.result.payload,
-			{ teamId: plan.subject.id, teamName: plan.subject.name },
 			plan.query.metrics,
+			plan.limit,
+			Object.fromEntries(
+				plan.query.metrics.map((metric) => [
+					metric,
+					getDefaultMetricSortDirection('standings', 'team', metric) ?? 'desc'
+				])
+			),
 			plan.season,
-			plan.query.filters.seasonType ?? 'Regular Season',
 			{
 				conference: plan.query.filters.conference ?? null,
 				division: plan.query.filters.division ?? null

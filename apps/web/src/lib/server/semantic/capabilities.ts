@@ -30,6 +30,7 @@ export type PublicSemanticFilterCapability = {
 
 export type PublicSemanticQueryShapePlanning = {
 	orderBy: 'none' | 'same_metric_desc' | 'same_metric_asc';
+	metricSortDefaults: Record<string, 'asc' | 'desc'>;
 	defaultLimit: number | null;
 	supportsWindow: boolean;
 };
@@ -93,6 +94,8 @@ type SupportedMetricDefinition = {
 	entities: SemanticQueryEntity[];
 };
 
+type SupportedMetricSortDefaults = Partial<Record<SemanticQueryOperation, Partial<Record<SemanticQueryEntity, Record<string, 'asc' | 'desc'>>>>>;
+
 const SUPPORTED_SHAPES: SupportedShape[] = [
 	{
 		operation: 'lookup',
@@ -101,6 +104,7 @@ const SUPPORTED_SHAPES: SupportedShape[] = [
 		subjectRule: 'exactly_one',
 		planning: {
 			orderBy: 'none',
+			metricSortDefaults: {},
 			defaultLimit: null,
 			supportsWindow: false
 		}
@@ -112,6 +116,7 @@ const SUPPORTED_SHAPES: SupportedShape[] = [
 		subjectRule: 'exactly_one',
 		planning: {
 			orderBy: 'none',
+			metricSortDefaults: {},
 			defaultLimit: null,
 			supportsWindow: false
 		}
@@ -123,6 +128,7 @@ const SUPPORTED_SHAPES: SupportedShape[] = [
 		subjectRule: 'none',
 		planning: {
 			orderBy: 'same_metric_desc',
+			metricSortDefaults: {},
 			defaultLimit: 10,
 			supportsWindow: false
 		}
@@ -134,6 +140,7 @@ const SUPPORTED_SHAPES: SupportedShape[] = [
 		subjectRule: 'exactly_one',
 		planning: {
 			orderBy: 'none',
+			metricSortDefaults: {},
 			defaultLimit: null,
 			supportsWindow: true
 		}
@@ -145,6 +152,7 @@ const SUPPORTED_SHAPES: SupportedShape[] = [
 		subjectRule: 'exactly_two',
 		planning: {
 			orderBy: 'none',
+			metricSortDefaults: {},
 			defaultLimit: null,
 			supportsWindow: false
 		}
@@ -156,6 +164,7 @@ const SUPPORTED_SHAPES: SupportedShape[] = [
 		subjectRule: 'zero_or_one',
 		planning: {
 			orderBy: 'same_metric_asc',
+			metricSortDefaults: {},
 			defaultLimit: 10,
 			supportsWindow: false
 		}
@@ -167,6 +176,7 @@ const SUPPORTED_SHAPES: SupportedShape[] = [
 		subjectRule: 'zero_or_one',
 		planning: {
 			orderBy: 'same_metric_desc',
+			metricSortDefaults: {},
 			defaultLimit: 10,
 			supportsWindow: false
 		}
@@ -178,6 +188,7 @@ const SUPPORTED_SHAPES: SupportedShape[] = [
 		subjectRule: 'exactly_one',
 		planning: {
 			orderBy: 'none',
+			metricSortDefaults: {},
 			defaultLimit: 1,
 			supportsWindow: false
 		}
@@ -221,6 +232,30 @@ const SHAPE_SPECIFIC_METRIC_DEFINITIONS: SupportedMetricDefinition[] = [
 	...STANDINGS_METRIC_DEFINITIONS,
 	...GAME_METRIC_DEFINITIONS
 ];
+
+const METRIC_SORT_DEFAULTS: SupportedMetricSortDefaults = {
+	rank: {
+		player: {
+			ast: 'desc',
+			reb: 'desc',
+			pts: 'desc'
+		},
+		team: {
+			drtg: 'asc'
+		}
+	},
+	standings: {
+		team: {
+			conference_rank: 'asc',
+			seed: 'asc',
+			wins: 'desc',
+			losses: 'asc',
+			win_pct: 'desc',
+			games_back: 'asc',
+			streak: 'desc'
+		}
+	}
+};
 
 const SUPPORTED_FILTERS: PublicSemanticFilterCapability[] = [
 	{
@@ -299,6 +334,19 @@ function getSupportedMetricIdsForShape(shape: Pick<SupportedShape, 'operation' |
 				metric.allowedEntityScopes.includes(shape.entity as 'player' | 'team')
 		)
 		.map((metric) => metric.id);
+}
+
+function getMetricSortDefaultsForShape(shape: Pick<SupportedShape, 'operation' | 'entity'>): Record<string, 'asc' | 'desc'> {
+	const defaults = METRIC_SORT_DEFAULTS[shape.operation]?.[shape.entity];
+	return defaults ? { ...defaults } : {};
+}
+
+export function getDefaultMetricSortDirection(
+	operation: SemanticQueryOperation,
+	entity: SemanticQueryEntity,
+	metricId: string
+): 'asc' | 'desc' | null {
+	return METRIC_SORT_DEFAULTS[operation]?.[entity]?.[metricId] ?? null;
 }
 
 function validateStructuredSubjectRule(
@@ -439,7 +487,8 @@ export function getPublicSemanticCapabilities(): PublicSemanticCapabilities {
 			subjectRule: shape.subjectRule,
 			metrics: getSupportedMetricIdsForShape(shape),
 			planning: {
-				...shape.planning
+				...shape.planning,
+				metricSortDefaults: getMetricSortDefaultsForShape(shape)
 			}
 		}))
 	};

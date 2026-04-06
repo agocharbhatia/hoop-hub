@@ -367,6 +367,52 @@ describe('POST /api/stats/query', () => {
 		assert.equal(payload.provenance.resolvedQuery.filters.conference, 'East');
 	});
 
+	test('returns 200 ok for league-scoped standings conference-leader asks', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'standings',
+						entity: 'team',
+						subject: {},
+						metrics: ['conference_rank'],
+						filters: {
+							conference: 'East'
+						},
+						outputMode: 'table'
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: { shape: string; columns: string[]; rows: Array<Record<string, string | number>> };
+			provenance: {
+				resolvedQuery: {
+					subject: { ids: string[]; names: string[] };
+					filters: { season: string; seasonType: string; conference: string };
+				};
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.result.shape, 'ranking');
+		assert.deepEqual(payload.result.columns, ['rank', 'subject', 'metric', 'value']);
+		assert.deepEqual(payload.result.rows[0], {
+			rank: 1,
+			subject: 'Cleveland Cavaliers',
+			metric: 'conference_rank',
+			value: 1
+		});
+		assert.deepEqual(payload.provenance.resolvedQuery.subject, {
+			ids: [],
+			names: []
+		});
+		assert.equal(payload.provenance.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.provenance.resolvedQuery.filters.conference, 'East');
+	});
+
 	test('returns honest 200 coverage_gap for game requests before execution support exists', async () => {
 		const response = await POST(
 			createPostEvent(

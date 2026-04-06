@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
+	getDefaultMetricSortDirection,
 	getPublicSemanticCapabilities,
 	isSupportedSemanticMetric,
 	validateSemanticCapabilityQueryShape
@@ -60,6 +61,7 @@ describe('semantic capability registry', () => {
 				outputModes: shape.outputModes,
 				metrics: shape.metrics,
 				orderBy: shape.planning.orderBy,
+				metricSortDefaults: shape.planning.metricSortDefaults,
 				defaultLimit: shape.planning.defaultLimit,
 				supportsWindow: shape.planning.supportsWindow
 			})),
@@ -70,6 +72,7 @@ describe('semantic capability registry', () => {
 					outputModes: ['table'],
 					metrics: ['ast', 'reb', 'pts'],
 					orderBy: 'none',
+					metricSortDefaults: {},
 					defaultLimit: null,
 					supportsWindow: false
 				},
@@ -79,6 +82,7 @@ describe('semantic capability registry', () => {
 					outputModes: ['table'],
 					metrics: ['reb', 'wins', 'losses', 'win_pct', 'ortg', 'drtg'],
 					orderBy: 'none',
+					metricSortDefaults: {},
 					defaultLimit: null,
 					supportsWindow: false
 				},
@@ -88,6 +92,11 @@ describe('semantic capability registry', () => {
 					outputModes: ['table'],
 					metrics: ['ast', 'reb', 'pts'],
 					orderBy: 'same_metric_desc',
+					metricSortDefaults: {
+						ast: 'desc',
+						reb: 'desc',
+						pts: 'desc'
+					},
 					defaultLimit: 10,
 					supportsWindow: false
 				},
@@ -97,6 +106,7 @@ describe('semantic capability registry', () => {
 					outputModes: ['timeseries'],
 					metrics: ['ast', 'reb', 'pts'],
 					orderBy: 'none',
+					metricSortDefaults: {},
 					defaultLimit: null,
 					supportsWindow: true
 				},
@@ -106,6 +116,7 @@ describe('semantic capability registry', () => {
 					outputModes: ['comparison'],
 					metrics: ['ast', 'reb', 'pts'],
 					orderBy: 'none',
+					metricSortDefaults: {},
 					defaultLimit: null,
 					supportsWindow: false
 				},
@@ -115,6 +126,9 @@ describe('semantic capability registry', () => {
 					outputModes: ['table'],
 					metrics: ['drtg'],
 					orderBy: 'same_metric_asc',
+					metricSortDefaults: {
+						drtg: 'asc'
+					},
 					defaultLimit: 10,
 					supportsWindow: false
 				},
@@ -124,6 +138,15 @@ describe('semantic capability registry', () => {
 					outputModes: ['table'],
 					metrics: ['conference_rank', 'seed', 'wins', 'losses', 'win_pct', 'games_back', 'streak'],
 					orderBy: 'same_metric_desc',
+					metricSortDefaults: {
+						conference_rank: 'asc',
+						seed: 'asc',
+						wins: 'desc',
+						losses: 'asc',
+						win_pct: 'desc',
+						games_back: 'asc',
+						streak: 'desc'
+					},
 					defaultLimit: 10,
 					supportsWindow: false
 				},
@@ -133,11 +156,20 @@ describe('semantic capability registry', () => {
 					outputModes: ['table'],
 					metrics: ['game_date', 'game_status', 'opponent_team', 'team_score', 'opponent_score', 'result'],
 					orderBy: 'none',
+					metricSortDefaults: {},
 					defaultLimit: 1,
 					supportsWindow: false
 				}
 			]
 		);
+	});
+
+	test('exposes standings field sort defaults from shared capability metadata', () => {
+		assert.equal(getDefaultMetricSortDirection('standings', 'team', 'conference_rank'), 'asc');
+		assert.equal(getDefaultMetricSortDirection('standings', 'team', 'games_back'), 'asc');
+		assert.equal(getDefaultMetricSortDirection('standings', 'team', 'streak'), 'desc');
+		assert.equal(getDefaultMetricSortDirection('rank', 'team', 'drtg'), 'asc');
+		assert.equal(getDefaultMetricSortDirection('lookup', 'team', 'wins'), null);
 	});
 
 	test('keeps metric validation aligned with the shared capability surface', () => {

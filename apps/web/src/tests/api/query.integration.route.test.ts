@@ -329,6 +329,106 @@ describe('POST /api/query integration', () => {
 		assert.equal(toolResult?.response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
 	});
 
+	test('executes conference-leader asks end to end through league-scoped standings ranking', async () => {
+		usePlannerDecision({
+			type: 'planned',
+			toolRequests: [
+				{
+					toolName: 'stats_query',
+					query: {
+						operation: 'standings',
+						entity: 'team',
+						subject: {},
+						metrics: ['conference_rank'],
+						filters: {
+							season: null,
+							seasonType: null,
+							window: null,
+							dateFrom: null,
+							dateTo: null,
+							conference: 'East',
+							division: null
+						},
+						orderBy: null,
+						limit: 10,
+						outputMode: 'table'
+					}
+				}
+			]
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'Who is the conference leader in the East this season?'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const toolResult = payload.toolResults[0];
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(toolResult?.response.result?.shape, 'ranking');
+		assert.deepEqual(toolResult?.response.result?.rows[0], {
+			rank: 1,
+			subject: 'Cleveland Cavaliers',
+			metric: 'conference_rank',
+			value: 1
+		});
+		assert.equal(toolResult?.response.provenance.resolvedQuery?.filters.conference, 'East');
+	});
+
+	test('executes longest-streak asks end to end through league-scoped standings ranking', async () => {
+		usePlannerDecision({
+			type: 'planned',
+			toolRequests: [
+				{
+					toolName: 'stats_query',
+					query: {
+						operation: 'standings',
+						entity: 'team',
+						subject: {},
+						metrics: ['streak'],
+						filters: {
+							season: null,
+							seasonType: null,
+							window: null,
+							dateFrom: null,
+							dateTo: null,
+							conference: null,
+							division: null
+						},
+						orderBy: null,
+						limit: 10,
+						outputMode: 'table'
+					}
+				}
+			]
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: 'Which team has the longest current streak this season?'
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const toolResult = payload.toolResults[0];
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(toolResult?.response.result?.shape, 'ranking');
+		assert.deepEqual(toolResult?.response.result?.rows[0], {
+			rank: 1,
+			subject: 'Boston Celtics',
+			metric: 'streak',
+			value: 'W4'
+		});
+		assert.equal(toolResult?.response.provenance.resolvedQuery?.filters.season, '2025-26');
+	});
+
 	test('resolves curated comparison aliases through the shared player resolver', async () => {
 		usePlannerDecision({
 			type: 'planned',

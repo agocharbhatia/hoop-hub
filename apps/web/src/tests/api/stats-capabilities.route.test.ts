@@ -27,6 +27,7 @@ describe('GET /api/stats/capabilities', () => {
 				metrics: string[];
 				planning: {
 					orderBy: string;
+					metricSortDefaults: Record<string, string>;
 					defaultLimit: number | null;
 					supportsWindow: boolean;
 				};
@@ -100,6 +101,7 @@ describe('GET /api/stats/capabilities', () => {
 				key: `${shape.operation}/${shape.entity}`,
 				metrics: shape.metrics,
 				orderBy: shape.planning.orderBy,
+				metricSortDefaults: shape.planning.metricSortDefaults,
 				defaultLimit: shape.planning.defaultLimit,
 				supportsWindow: shape.planning.supportsWindow
 			})),
@@ -108,6 +110,7 @@ describe('GET /api/stats/capabilities', () => {
 					key: 'lookup/player',
 					metrics: ['ast', 'reb', 'pts'],
 					orderBy: 'none',
+					metricSortDefaults: {},
 					defaultLimit: null,
 					supportsWindow: false
 				},
@@ -115,6 +118,7 @@ describe('GET /api/stats/capabilities', () => {
 					key: 'lookup/team',
 					metrics: ['reb', 'wins', 'losses', 'win_pct', 'ortg', 'drtg'],
 					orderBy: 'none',
+					metricSortDefaults: {},
 					defaultLimit: null,
 					supportsWindow: false
 				},
@@ -122,6 +126,11 @@ describe('GET /api/stats/capabilities', () => {
 					key: 'rank/player',
 					metrics: ['ast', 'reb', 'pts'],
 					orderBy: 'same_metric_desc',
+					metricSortDefaults: {
+						ast: 'desc',
+						reb: 'desc',
+						pts: 'desc'
+					},
 					defaultLimit: 10,
 					supportsWindow: false
 				},
@@ -129,6 +138,7 @@ describe('GET /api/stats/capabilities', () => {
 					key: 'trend/player',
 					metrics: ['ast', 'reb', 'pts'],
 					orderBy: 'none',
+					metricSortDefaults: {},
 					defaultLimit: null,
 					supportsWindow: true
 				},
@@ -136,6 +146,7 @@ describe('GET /api/stats/capabilities', () => {
 					key: 'compare/player',
 					metrics: ['ast', 'reb', 'pts'],
 					orderBy: 'none',
+					metricSortDefaults: {},
 					defaultLimit: null,
 					supportsWindow: false
 				},
@@ -143,6 +154,9 @@ describe('GET /api/stats/capabilities', () => {
 					key: 'rank/team',
 					metrics: ['drtg'],
 					orderBy: 'same_metric_asc',
+					metricSortDefaults: {
+						drtg: 'asc'
+					},
 					defaultLimit: 10,
 					supportsWindow: false
 				},
@@ -150,6 +164,15 @@ describe('GET /api/stats/capabilities', () => {
 					key: 'standings/team',
 					metrics: ['conference_rank', 'seed', 'wins', 'losses', 'win_pct', 'games_back', 'streak'],
 					orderBy: 'same_metric_desc',
+					metricSortDefaults: {
+						conference_rank: 'asc',
+						seed: 'asc',
+						wins: 'desc',
+						losses: 'asc',
+						win_pct: 'desc',
+						games_back: 'asc',
+						streak: 'desc'
+					},
 					defaultLimit: 10,
 					supportsWindow: false
 				},
@@ -157,6 +180,7 @@ describe('GET /api/stats/capabilities', () => {
 					key: 'game/team',
 					metrics: ['game_date', 'game_status', 'opponent_team', 'team_score', 'opponent_score', 'result'],
 					orderBy: 'none',
+					metricSortDefaults: {},
 					defaultLimit: 1,
 					supportsWindow: false
 				}

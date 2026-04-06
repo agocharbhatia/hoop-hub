@@ -338,6 +338,53 @@ describe('GET /api/query-trace/:traceId', () => {
 		assert.equal(payload.resolvedQuery.filters.conference, 'East');
 	});
 
+	test('returns canonical structured traces for league-scoped standings longest-streak asks', async () => {
+		const statsResponse = await statsPost({
+			request: new Request('http://localhost/api/stats/query', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					query: {
+						operation: 'standings',
+						entity: 'team',
+						subject: {},
+						metrics: ['streak'],
+						filters: {
+							division: 'Atlantic'
+						},
+						outputMode: 'table'
+					}
+				})
+			})
+		} as Parameters<typeof statsPost>[0]);
+		const stats = (await statsResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(stats.traceId));
+		const payload = (await parseJson(response)) as {
+			status: string;
+			resolvedQuery: {
+				operation: string;
+				entity: string;
+				subject: { ids: string[]; names: string[] };
+				metrics: string[];
+				filters: { season: string; seasonType: string; division: string };
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.resolvedQuery.operation, 'standings');
+		assert.equal(payload.resolvedQuery.entity, 'team');
+		assert.deepEqual(payload.resolvedQuery.subject, {
+			ids: [],
+			names: []
+		});
+		assert.deepEqual(payload.resolvedQuery.metrics, ['streak']);
+		assert.equal(payload.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.equal(payload.resolvedQuery.filters.division, 'Atlantic');
+	});
+
 	test('returns honest structured traces for game requests before execution support exists', async () => {
 		const statsResponse = await statsPost({
 			request: new Request('http://localhost/api/stats/query', {

@@ -229,6 +229,7 @@
 - `game/team` requires exactly one team subject, grounds natural-language time into canonical date filters plus `gameStatus`, uses `scoreboardv2` as the canonical source in this slice, and stays current-window/current-season for actual materialized execution even though the contract is future-proofed for broader date support later.
 - Relative date semantics are locked: calendar phrases (`today`, `tonight`, `tomorrow`, `last night`) are strict to the anchored calendar day; game-relative phrases (`next game`, `previous game`) are chronological; temporal grounding should use `America/New_York`.
 - `seed` means published conference/playoff rank as reported by the standings source; the runtime should not compute alternate playoff-seed interpretations.
+- Slice `ship_league_scoped_standings_ranking_with_conference_and_division_filters` adds a shared per-metric sort-default seam to the semantic capabilities contract so planner metadata and standings execution use the same source of truth for field ordering instead of duplicating standings-specific sort rules in the executor.
 - Mixed `/api/query` answers should decompose into multiple minimal structured requests. Partial top-level answers stay `ok` when at least one tool result is usable.
 - The structured result contract should gain generic completeness metadata on `StatsQueryResult` so dynamic answer rendering can distinguish `complete`, `season_exhausted`, and `partial_materialized` without guessing from warning text.
 - Default bootstrap for this slice should materialize current standings, `2023-24` standings, and the current scoreboard horizon; historical game-day backfill is explicitly not part of the default bootstrap path.
@@ -293,4 +294,3 @@
 - Module scope: standings executor module, nightly standings materialization, team resolution and semantic traces
 - Interface contract: one-team `standings/team` works on POST /api/stats/query | default bootstrap materializes current and `2023-24` standings snapshots | semantic traces expose canonical resolved team standings queries
 - Tests: add executor tests for team standings lookup and supported seasons | add bootstrap tests for current plus `2023-24` standings snapshots | add route and trace tests for canonical team standings behavior
-

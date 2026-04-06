@@ -236,7 +236,9 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 	if (
 		query.entity === 'team' &&
 		query.operation !== 'rank' &&
-		query.operation !== 'lookup'
+		query.operation !== 'lookup' &&
+		query.operation !== 'standings' &&
+		query.operation !== 'game'
 	) {
 		return false;
 	}

@@ -691,6 +691,64 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
 	});
 
+	test('returns league-scoped standings rankings with conference filters and ascending standings field defaults', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'standings',
+					entity: 'team',
+					subject: {},
+					metrics: ['conference_rank'],
+					filters: {
+						season: '2025-26',
+						conference: 'East'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.shape, 'ranking');
+		assert.deepEqual(response.result?.columns, ['rank', 'subject', 'metric', 'value']);
+		assert.deepEqual(response.result?.rows, [
+			{ rank: 1, subject: 'Cleveland Cavaliers', metric: 'conference_rank', value: 1 },
+			{ rank: 2, subject: 'Boston Celtics', metric: 'conference_rank', value: 2 }
+		]);
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: [],
+			names: []
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+		assert.equal(response.provenance.resolvedQuery?.filters.conference, 'East');
+	});
+
+	test('returns league-scoped standings rankings with division filters and descending streak defaults', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'standings',
+					entity: 'team',
+					subject: {},
+					metrics: ['streak'],
+					filters: {
+						season: '2025-26',
+						division: 'Atlantic'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.shape, 'ranking');
+		assert.deepEqual(response.result?.rows, [{ rank: 1, subject: 'Boston Celtics', metric: 'streak', value: 'W4' }]);
+		assert.equal(response.provenance.resolvedQuery?.filters.division, 'Atlantic');
+	});
+
 	test('returns honest coverage_gap for game queries before execution support ships', async () => {
 		const response = await executeSemanticQuery(
 			{
