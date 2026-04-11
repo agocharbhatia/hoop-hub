@@ -748,7 +748,8 @@ describe('POST /api/query integration', () => {
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'coverage_gap');
-		assert.equal(payload.answer, 'Predictions are not supported in this slice.');
+		assert.match(payload.answer, /Who wins the championship this year/i);
+		assert.match(payload.answer, /Predictions are not supported in this slice\./i);
 		assert.equal(payload.toolResults.length, 0);
 		assert.equal(payload.traceId.length > 0, true);
 		assert.equal(executorCalls, 0);

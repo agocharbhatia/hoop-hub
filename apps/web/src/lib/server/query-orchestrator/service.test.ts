@@ -195,4 +195,234 @@ describe('createQueryOrchestratorService', () => {
 		assert.equal(rendererInput!.toolResults.length, 1);
 		assert.equal(rendererInput!.toolResults[0]?.response.traceId, 'trace-ortg');
 	});
+
+	test('returns a contextual natural-language answer when stored game data is not final yet', async () => {
+		const failedRequest: SemanticQueryRequest = {
+			question: 'Boston game last night',
+			query: {
+				operation: 'game',
+				entity: 'team',
+				subject: {
+					names: ['Boston Celtics']
+				},
+				metrics: ['game_date', 'opponent_team', 'team_score', 'opponent_score', 'result'],
+				filters: {
+					season: null,
+					seasonType: null,
+					window: null,
+					dateFrom: null,
+					dateTo: null,
+					gameStatus: 'final'
+				},
+				orderBy: null,
+				limit: 1,
+				outputMode: 'table'
+			}
+		};
+
+		const orchestrator = createQueryOrchestratorService({
+			planner: {
+				async planQuestion(): Promise<BatchPlannerDecision> {
+					return {
+						type: 'planned',
+						toolRequests: [
+							{
+								toolName: 'stats_query',
+								query: failedRequest.query
+							}
+						]
+					};
+				}
+			},
+			renderer: {
+				async renderAnswer() {
+					throw new Error('renderer should not be called for non-ok batches');
+				}
+			},
+			batchExecutor: {
+				async execute() {
+					return {
+						status: 'coverage_gap',
+						plannedToolRequests: [
+							{
+								toolName: 'stats_query',
+								request: failedRequest
+							}
+						],
+						toolResults: [
+							{
+								toolName: 'stats_query',
+								request: failedRequest,
+								response: {
+									status: 'coverage_gap',
+									result: null,
+									citations: [],
+									provenance: {
+										executor: 'semantic_executor',
+										resolvedQuery: failedRequest.query,
+										dataFreshnessMode: 'nightly',
+										sourceCalls: []
+									},
+									warnings: [
+										{
+											code: 'nightly_data_unavailable',
+											message: 'Stored nightly scoreboard data for the relevant game date is not final yet.'
+										}
+									],
+									traceId: 'trace-game-gap'
+								}
+							}
+						],
+						successfulToolResults: [],
+						warnings: [
+							{
+								code: 'nightly_data_unavailable',
+								message: 'Stored nightly scoreboard data for the relevant game date is not final yet.'
+							}
+						],
+						executedStructuredTraceIds: ['trace-game-gap']
+					};
+				}
+			},
+			buildSemanticNonOkResponse(type, question, warning) {
+				return {
+					status: type,
+					result: null,
+					citations: [],
+					provenance: {
+						executor: 'semantic_executor',
+						resolvedQuery: null,
+						dataFreshnessMode: 'nightly',
+						sourceCalls: []
+					},
+					warnings: [warning],
+					traceId: `${question}-${type}`
+				};
+			}
+		});
+
+		const response = await orchestrator.answerQuestion('Boston game last night');
+
+		assert.equal(response.status, 'coverage_gap');
+		assert.match(response.answer, /couldn't confirm/i);
+		assert.match(response.answer, /Boston game last night/i);
+		assert.match(response.answer, /non-final|still marked/i);
+		assert.match(response.answer, /rerun the nightly bootstrap|ask again/i);
+	});
+
+	test('returns a contextual natural-language answer for unsupported team-game windows', async () => {
+		const unsupportedRequest: SemanticQueryRequest = {
+			question: 'raptors last 5 games',
+			query: {
+				operation: 'game',
+				entity: 'team',
+				subject: {
+					names: ['Toronto Raptors']
+				},
+				metrics: ['game_date', 'game_status', 'opponent_team', 'team_score', 'opponent_score', 'result'],
+				filters: {
+					season: null,
+					seasonType: null,
+					window: {
+						type: 'last_n_games',
+						n: 5
+					},
+					dateFrom: null,
+					dateTo: null,
+					gameStatus: 'final'
+				},
+				orderBy: null,
+				limit: 1,
+				outputMode: 'table'
+			}
+		};
+
+		const orchestrator = createQueryOrchestratorService({
+			planner: {
+				async planQuestion(): Promise<BatchPlannerDecision> {
+					return {
+						type: 'planned',
+						toolRequests: [
+							{
+								toolName: 'stats_query',
+								query: unsupportedRequest.query
+							}
+						]
+					};
+				}
+			},
+			renderer: {
+				async renderAnswer() {
+					throw new Error('renderer should not be called for non-ok batches');
+				}
+			},
+			batchExecutor: {
+				async execute() {
+					return {
+						status: 'coverage_gap',
+						plannedToolRequests: [
+							{
+								toolName: 'stats_query',
+								request: unsupportedRequest
+							}
+						],
+						toolResults: [
+							{
+								toolName: 'stats_query',
+								request: unsupportedRequest,
+								response: {
+									status: 'coverage_gap',
+									result: null,
+									citations: [],
+									provenance: {
+										executor: 'semantic_executor',
+										resolvedQuery: unsupportedRequest.query,
+										dataFreshnessMode: 'nightly',
+										sourceCalls: []
+									},
+									warnings: [
+										{
+											code: 'unsupported_query_shape',
+											message: 'Single-event team game queries require either one exact date or a supported gameStatus.'
+										}
+									],
+									traceId: 'trace-team-window-gap'
+								}
+							}
+						],
+						successfulToolResults: [],
+						warnings: [
+							{
+								code: 'unsupported_query_shape',
+								message: 'Single-event team game queries require either one exact date or a supported gameStatus.'
+							}
+						],
+						executedStructuredTraceIds: ['trace-team-window-gap']
+					};
+				}
+			},
+			buildSemanticNonOkResponse(type, question, warning) {
+				return {
+					status: type,
+					result: null,
+					citations: [],
+					provenance: {
+						executor: 'semantic_executor',
+						resolvedQuery: null,
+						dataFreshnessMode: 'nightly',
+						sourceCalls: []
+					},
+					warnings: [warning],
+					traceId: `${question}-${type}`
+				};
+			}
+		});
+
+		const response = await orchestrator.answerQuestion('raptors last 5 games');
+
+		assert.equal(response.status, 'coverage_gap');
+		assert.match(response.answer, /couldn't answer/i);
+		assert.match(response.answer, /raptors last 5 games/i);
+		assert.match(response.answer, /exact date|date range|last night|next game/i);
+	});
 });

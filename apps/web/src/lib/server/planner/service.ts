@@ -24,26 +24,40 @@ export type PlannerService = {
  * Validates planner output before any executor call so model drift cannot bypass the typed runtime boundary.
  */
 export function createPlannerService(adapter: PlannerAdapter): PlannerService {
+	async function planWithOptionalRecovery(
+		question: string,
+		options?: { allowRecovery?: boolean }
+	): Promise<BatchPlannerDecision> {
+		const output = await adapter.planQuestion(question);
+		const validated = validatePlannerDecision(output);
+		if (!validated.ok) {
+			throw new Error(validated.error);
+		}
+
+		const normalized = normalizePlannerDecision(validated.value);
+		if (normalized.type === 'planned' && normalized.toolRequests.length > MAX_BATCH_TOOL_REQUESTS) {
+			return {
+				type: 'clarification_needed',
+				warning: {
+					code: 'clarification_needed',
+					message: `This question would require more than ${MAX_BATCH_TOOL_REQUESTS} tool requests. Ask a narrower question that needs up to ${MAX_BATCH_TOOL_REQUESTS}.`
+				}
+			};
+		}
+
+		if (options?.allowRecovery !== false) {
+			const recovered = await recoverMixedSupportedQuestion(question, normalized, adapter);
+			if (recovered) {
+				return recovered;
+			}
+		}
+
+		return normalized;
+	}
+
 	return {
 		async planQuestion(question: string): Promise<BatchPlannerDecision> {
-			const output = await adapter.planQuestion(question);
-			const validated = validatePlannerDecision(output);
-			if (!validated.ok) {
-				throw new Error(validated.error);
-			}
-
-			const normalized = normalizePlannerDecision(validated.value);
-			if (normalized.type === 'planned' && normalized.toolRequests.length > MAX_BATCH_TOOL_REQUESTS) {
-				return {
-					type: 'clarification_needed',
-					warning: {
-						code: 'clarification_needed',
-						message: `This question would require more than ${MAX_BATCH_TOOL_REQUESTS} tool requests. Ask a narrower question that needs up to ${MAX_BATCH_TOOL_REQUESTS}.`
-					}
-				};
-			}
-
-			return normalized;
+			return planWithOptionalRecovery(question);
 		}
 	};
 }
@@ -105,6 +119,72 @@ function normalizePlannerDecision(decision: BatchPlannerDecision): BatchPlannerD
 			}
 		})),
 		warnings: decision.warnings ?? []
+	};
+}
+
+function buildQuotedQuestion(question: string): string {
+	return `"${question.trim()}"`;
+}
+
+function normalizeQuestionWhitespace(question: string): string {
+	return question.replace(/\s+/g, ' ').trim();
+}
+
+function ensureQuestionMark(question: string, referenceQuestion: string): string {
+	if (!referenceQuestion.trim().endsWith('?')) {
+		return question;
+	}
+
+	return question.endsWith('?') ? question : `${question}?`;
+}
+
+function splitQuestionIntoClauses(question: string): string[] {
+	return normalizeQuestionWhitespace(question)
+		.split(/\s*,\s*|\s+and\s+/i)
+		.map((clause) => clause.trim())
+		.filter((clause) => clause.length > 0);
+}
+
+function isUnsupportedPredictionClause(clause: string): boolean {
+	return /\b(who will win|will win|going to win|gonna win|prediction|predict|should i bet|bet on)\b/i.test(clause);
+}
+
+async function recoverMixedSupportedQuestion(
+	question: string,
+	decision: BatchPlannerDecision,
+	adapter: PlannerAdapter
+): Promise<BatchPlannerDecision | null> {
+	if (decision.type !== 'coverage_gap' || decision.warning.code !== 'unsupported_query_shape') {
+		return null;
+	}
+
+	const clauses = splitQuestionIntoClauses(question);
+	const supportedClauses = clauses.filter((clause) => !isUnsupportedPredictionClause(clause));
+	if (supportedClauses.length === 0 || supportedClauses.length === clauses.length) {
+		return null;
+	}
+
+	const reducedQuestion = ensureQuestionMark(supportedClauses.join(' and '), question);
+	const recoveryOutput = await adapter.planQuestion(reducedQuestion);
+	const validated = validatePlannerDecision(recoveryOutput);
+	if (!validated.ok) {
+		return null;
+	}
+
+	const normalized = normalizePlannerDecision(validated.value);
+	if (normalized.type !== 'planned') {
+		return null;
+	}
+
+	return {
+		...normalized,
+		warnings: [
+			...(normalized.warnings ?? []),
+			{
+				code: 'dropped_unsupported_clause',
+				message: `Dropped the unsupported prediction part of ${buildQuotedQuestion(question)} and answered the supported standings/game parts instead.`
+			}
+		]
 	};
 }
 
@@ -327,9 +407,11 @@ function validatePlannerDecision(
 		}
 
 		if (
-			(input.warnings !== undefined &&
+			(input.warnings !== null &&
+				input.warnings !== undefined &&
 				!Array.isArray(input.warnings)) ||
-			(input.warnings !== undefined &&
+			(input.warnings !== null &&
+				input.warnings !== undefined &&
 			!input.warnings.every(
 				(warning) =>
 					isPlainObject(warning) &&

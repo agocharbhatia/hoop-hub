@@ -336,11 +336,36 @@ export function buildMissingTeamGameWarning(plan: TeamGamePlan, payloads: unknow
 		};
 	}
 
-	if (plan.selectionMode !== 'exact_date') {
+	if (plan.query.filters.gameStatus !== 'final') {
 		return null;
 	}
 
-	return null;
+	if (plan.selectionMode !== 'exact_date' && plan.selectionMode !== 'recent_final') {
+		return null;
+	}
+
+	const relevantDate = plan.requestDates[0];
+	if (!relevantDate) {
+		return null;
+	}
+
+	const subjectGames = payloads.flatMap((payload) =>
+		payload === null ? createEmptyPayloadGameList() : parseScoreboardGame(payload, plan.subject.id)
+	);
+	const gamesOnRelevantDate = subjectGames.filter((game) => game.gameDate === relevantDate);
+	if (gamesOnRelevantDate.length === 0) {
+		return null;
+	}
+
+	const hasFinalOnRelevantDate = gamesOnRelevantDate.some((game) => game.gameStatus === 'final');
+	if (hasFinalOnRelevantDate) {
+		return null;
+	}
+
+	return {
+		code: 'nightly_data_unavailable',
+		message: 'Stored nightly scoreboard data for the relevant game date is not final yet.'
+	};
 }
 
 export function extractTeamGameResult(plan: TeamGamePlan, payloads: unknown[]): StatsQueryResult {

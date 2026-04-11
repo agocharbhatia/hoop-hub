@@ -109,6 +109,21 @@ function maybeBuildScoreboardResult(request: EndpointFetchRequest): EndpointFetc
 	return buildOkResult(request, payload);
 }
 
+/* Helper functions */
+
+function buildScoreboardPayloadForStatus(gameDate: string, gameStatusId: number, gameStatusText: string): unknown {
+	return {
+		resource: 'scoreboardv2',
+		resultSets: [
+			{
+				name: 'GameHeader',
+				headers: ['GAME_DATE_EST', 'GAME_ID', 'GAME_STATUS_ID', 'GAME_STATUS_TEXT', 'HOME_TEAM_ID', 'VISITOR_TEAM_ID'],
+				rowSet: [[`${gameDate}T00:00:00`, 'g-1', gameStatusId, gameStatusText, '1610612738', '1610612761']]
+			}
+		]
+	};
+}
+
 function buildCareerStatsFixture(playerId: string, playerName: string, pts: number, ast: number, reb: number): unknown {
 	return {
 		resource: 'playercareerstats',
@@ -1489,6 +1504,107 @@ describe('bootstrapCurrentSeasonNightly', () => {
 		);
 		assert.equal(
 			requestProgress.find((request) => request.endpointId === 'playergamelog')?.status,
+			'succeeded'
+		);
+	});
+
+	test('reruns stale non-final past scoreboard rows on the same slate until they become final', async () => {
+		const now = new Date('2026-04-02T05:00:00.000Z');
+		const expectedCohort = deriveNightlyPlayerComparisonCohort(PLAYER_STATS_FIXTURE);
+		const staleScoreboardPayload = buildScoreboardPayloadForStatus('2026-03-31', 1, '7:00 pm ET');
+		const finalScoreboardPayload = buildScoreboardPayloadForStatus('2026-03-31', 3, 'Final');
+		const firstRunFetcher: NightlyBootstrapFetcher = async (request) => {
+			if (request.endpointId === 'leaguedashplayerstats') {
+				return buildOkResult(request, PLAYER_STATS_FIXTURE);
+			}
+
+			if (request.endpointId === 'leaguedashteamstats') {
+				return buildOkResult(request, TEAM_STATS_FIXTURE);
+			}
+
+			if (request.endpointId === 'leaguestandingsv3') {
+				return buildOkResult(request, STANDINGS_FIXTURE);
+			}
+
+			if (request.endpointId === 'scoreboardv2' && request.params.GameDate === '2026-03-31') {
+				return buildOkResult(request, staleScoreboardPayload);
+			}
+
+			const scoreboardResult = maybeBuildScoreboardResult(request);
+			if (scoreboardResult) {
+				return scoreboardResult;
+			}
+
+			if (request.endpointId === 'playercareerstats') {
+				return buildOkResult(request, buildCareerStatsFixture(request.params.PlayerID, `Player ${request.params.PlayerID}`, 10, 5, 4));
+			}
+
+			if (request.endpointId === 'playergamelog') {
+				return buildOkResult(request, {
+					resource: 'playergamelog',
+					resultSets: [{ name: 'PlayerGameLog', headers: ['GAME_DATE', 'PTS'], rowSet: [] }]
+				});
+			}
+
+			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
+		};
+
+		const firstRun = await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now,
+			fetcher: firstRunFetcher
+		});
+
+		assert.equal(firstRun.status, 'partial');
+		assert.equal(firstRun.failedRequests, 1);
+
+		const storedPastScoreboardRow = getDataStore().getLatestRawEndpointCache({
+			endpointId: 'scoreboardv2',
+			paramsJson: JSON.stringify({
+				DayOffset: '0',
+				GameDate: '2026-03-31',
+				LeagueID: '00'
+			}),
+			parserVersion: 'v1',
+			snapshotDate: '2026-04-02'
+		});
+		assert.equal(storedPastScoreboardRow, null);
+
+		const fetchedRequests: EndpointFetchRequest[] = [];
+		const secondRunFetcher: NightlyBootstrapFetcher = async (request) => {
+			fetchedRequests.push(request);
+
+			if (request.endpointId === 'scoreboardv2' && request.params.GameDate === '2026-03-31') {
+				return buildOkResult(request, finalScoreboardPayload);
+			}
+
+			assert.fail(`Unexpected endpoint '${request.endpointId}'.`);
+		};
+
+		const secondRun = await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now,
+			fetcher: secondRunFetcher
+		});
+
+		assert.equal(secondRun.status, 'completed');
+		assert.deepEqual(
+			fetchedRequests.map((request) => [request.endpointId, request.params.GameDate ?? request.params.PlayerID ?? '']),
+			[['scoreboardv2', '2026-03-31']]
+		);
+
+		const requestProgress = getDataStore().listNightlyRunRequestsForSlate('2026-04-01');
+		assert.equal(requestProgress.length, BASE_LOOKUP_VARIANT_COUNT + expectedCohort.length * 3);
+		assert.equal(
+			requestProgress.find(
+				(request) => request.endpointId === 'scoreboardv2' && request.paramsJson.includes('"GameDate":"2026-03-31"')
+			)?.attemptCount,
+			2
+		);
+		assert.equal(
+			requestProgress.find(
+				(request) => request.endpointId === 'scoreboardv2' && request.paramsJson.includes('"GameDate":"2026-03-31"')
+			)?.status,
 			'succeeded'
 		);
 	});

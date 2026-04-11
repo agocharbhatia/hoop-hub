@@ -134,7 +134,7 @@ function sortRowsByDirection<T extends StatsQueryRow>(rows: T[], direction: 'asc
 
 function normalizeStreakValue(value: unknown): number {
 	const normalizedValue = String(value ?? '').trim().toUpperCase();
-	const match = normalizedValue.match(/^([WL])(\d+)$/);
+	const match = normalizedValue.match(/^([WL])\s*(\d+)$/);
 	if (!match) {
 		throw new SemanticExtractionError(`Unable to normalize standings streak value '${String(value)}'.`);
 	}

@@ -233,6 +233,27 @@ describe('createPlannerService', () => {
 		);
 	});
 
+	test('normalizes null planned warnings into an empty warning list', async () => {
+		const planner = createPlannerService(
+			createAdapter({
+				type: 'planned',
+				toolRequests: [buildStandingsQuery('seed')].map((query) => ({
+					toolName: 'stats_query' as const,
+					query
+				})),
+				warnings: null
+			})
+		);
+
+		const decision = await planner.planQuestion('What seed are the Lakers?');
+
+		assert.equal(decision.type, 'planned');
+		if (decision.type !== 'planned') {
+			throw new Error('Expected planned decision.');
+		}
+		assert.deepEqual(decision.warnings, []);
+	});
+
 	test('returns planned decisions for scoring-language player trends and preserves rolling windows', async () => {
 		const planner = createPlannerService(
 			createAdapter({
@@ -475,6 +496,55 @@ describe('createPlannerService', () => {
 				message: 'Dropped the prediction clause because forecasts are unsupported in this slice.'
 			}
 		]);
+	});
+
+	test('recovers supported sub-queries from mixed unsupported prediction asks', async () => {
+		let callCount = 0;
+		const planner = createPlannerService({
+			async planQuestion(question) {
+				callCount += 1;
+				if (callCount === 1) {
+					assert.match(question, /who will win that game/i);
+					return {
+						type: 'coverage_gap',
+						warning: {
+							code: 'unsupported_query_shape',
+							message: 'Predictions are not supported in this slice.'
+						}
+					};
+				}
+
+				assert.equal(question, 'Who leads the East and when do the Celtics play next?');
+				return {
+					type: 'planned',
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: buildStandingsQuery('conference_rank')
+						},
+						{
+							toolName: 'stats_query',
+							query: buildGameQuery()
+						}
+					],
+					warnings: []
+				};
+			}
+		});
+
+		const decision = await planner.planQuestion(
+			'Who leads the East, when do the Celtics play next, and who will win that game?'
+		);
+
+		assert.equal(callCount, 2);
+		assert.equal(decision.type, 'planned');
+		if (decision.type !== 'planned') {
+			throw new Error('Expected planned decision.');
+		}
+		const warnings = decision.warnings ?? [];
+		assert.equal(decision.toolRequests.length, 2);
+		assert.equal(warnings[0]?.code, 'dropped_unsupported_clause');
+		assert.match(warnings[0]?.message ?? '', /prediction/i);
 	});
 
 	test('normalizes implicit current-season planner outputs before executor validation', async () => {

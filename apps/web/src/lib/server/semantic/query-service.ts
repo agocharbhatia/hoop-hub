@@ -824,10 +824,13 @@ function determineSupportedPlan(
 	query: SemanticQuery,
 	now: Date
 ): ExecutionPlan | WarningResult {
-	if (query.orderBy && query.operation !== 'rank') {
+	if (query.orderBy && query.operation !== 'rank' && query.operation !== 'standings') {
 		return {
 			type: 'coverage_gap',
-			warning: buildWarning('unsupported_order_by', 'query.orderBy is only supported for ranking queries in this slice.'),
+			warning: buildWarning(
+				'unsupported_order_by',
+				'query.orderBy is only supported for ranking and standings queries in this slice.'
+			),
 			resolvedQuery: query
 		};
 	}

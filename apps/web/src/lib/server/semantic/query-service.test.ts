@@ -814,6 +814,37 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.provenance.resolvedQuery?.filters.conference, 'East');
 	});
 
+	test('accepts standings queries when the planner includes a same-metric orderBy', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'standings',
+					entity: 'team',
+					subject: {},
+					metrics: ['conference_rank'],
+					filters: {
+						season: '2025-26',
+						conference: 'East'
+					},
+					orderBy: {
+						metric: 'conference_rank',
+						direction: 'asc'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.shape, 'ranking');
+		assert.equal(response.warnings.length, 0);
+		assert.deepEqual(response.provenance.resolvedQuery?.orderBy, {
+			metric: 'conference_rank',
+			direction: 'asc'
+		});
+	});
+
 	test('returns league-scoped standings rankings with division filters and descending streak defaults', async () => {
 		const response = await executeSemanticQuery(
 			{
@@ -954,6 +985,45 @@ describe('executeSemanticQuery', () => {
 				result: 'W'
 			}
 		]);
+	});
+
+	test('returns nightly_data_unavailable when a last-night team game exists but the stored status is not final yet', async () => {
+		const now = new Date('2026-04-06T22:45:00.000Z');
+		resetDataStoreForTests();
+		putScoreboardCache(
+			'2026-04-05',
+			createScoreboardPayload('2026-04-05', {
+				gameId: 'g-tor-bos',
+				gameStatus: 'upcoming',
+				homeTeamId: '1610612738',
+				visitorTeamId: '1610612761'
+			}),
+			now
+		);
+		putScoreboardCache('2026-04-06', createEmptyScoreboardPayload(), now);
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Toronto Raptors']
+					},
+					metrics: ['game_date', 'opponent_team', 'team_score', 'opponent_score', 'result'],
+					filters: {
+						gameStatus: 'final'
+					},
+					outputMode: 'table'
+				}
+			},
+			now
+		);
+
+		assert.equal(response.status, 'coverage_gap');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'nightly_data_unavailable');
+		assert.match(response.warnings[0]?.message ?? '', /not final yet/i);
 	});
 
 	test('returns strict tomorrow rows without collapsing into chronological next-game semantics', async () => {

@@ -34,12 +34,18 @@ Rules:
 - If the GitHub issue and task file appear to conflict, preserve the task graph ordering/dependencies from `tasks.yaml` and treat the issue body as the detailed implementation brief unless there is a newer explicit clarification in the issue thread.
 - If `Parent PRD Issue` is non-empty and the task issue is missing needed context, read the parent PRD issue or local mirrored PRD before broad implementation.
 - Read `agents/current-state.md` before relying on older roadmap or legacy planner code.
+- Read `.sandcastle/testing-standards.md` before planning the slice test approach.
 - Use the linked GitHub issue, local mirrored PRDs under `.docs/prds/`, and `agents/current-state.md` as the main planning context for slice intent and boundaries.
 - Keep the semantic executor as the grounding and execution authority. Do not move canonical player resolution into the planner.
 - Do not add new product behavior to the legacy mock planner/query-engine path unless the task explicitly requires compatibility coverage.
 - Keep `POST /api/stats/query` public as the direct structured executor route.
-- Follow TDD for non-trivial behavior: add or update behavior-first tests before broad implementation.
+- Follow TDD for non-trivial behavior: derive a concrete slice test matrix from the task acceptance criteria, then add or update behavior-first tests before broad implementation.
+- For query-facing slices, explicitly derive `query_acceptance_examples` and `answer_quality_expectations` from the task before broad implementation, even if the issue body did not spell them out cleanly.
 - Prefer deterministic tests with fakes over live-model assertions.
+- Planner service tests with mocked adapter outputs and `/api/query` tests with injected planner decisions are not sufficient on their own for query-facing slices.
+- If the slice changes planner behavior, `/api/query`, supported query shapes, answer rendering, or query traces, add or update real natural-language query smoke coverage in `apps/web/smoke/query-acceptance.smoke.test.ts` using the exact supported phrasings for the slice.
+- Query smoke is not complete unless at least one assertion checks answer quality, not just tool shape or status. Assert the answer sounds natural for the supported ask and handles limitations honestly when relevant.
+- Keep real planner smoke cheap: fixture-backed semantic data only, `HOOP_HUB_ENABLE_LIVE_NBA=0`, and a tiny acceptance corpus.
 - For library or API integration details, use up-to-date official documentation rather than guessing.
 - Work only on this task.
 - Preserve existing behavior outside the task scope.
