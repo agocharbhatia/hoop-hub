@@ -18,6 +18,7 @@ import { fetchStatsEndpointWithCache, type EndpointFetchRequest, type EndpointFe
 import { getEndpointCatalogEntry } from '$lib/server/data';
 import { normalizeMetricQuery, resolveMetrics, validateMetricsForIntent } from '$lib/server/metrics/resolve-metrics';
 import {
+	buildLeagueStandingsRequest,
 	buildLeagueWidePlayerRankingRequest,
 	buildLeagueWideTeamDefenseRequest
 } from '$lib/server/nightly/current-season';
@@ -41,9 +42,18 @@ import {
 	extractPlayerTrendRows,
 	extractTeamLookupRow,
 	extractTeamRankingRows,
+	extractTeamStandingsRankingRows,
+	extractTeamStandingsRow,
 	SemanticExtractionError
 } from './extractors';
-import { validateSemanticCapabilityQueryShape } from './capabilities';
+import {
+	buildMissingTeamGameWarning,
+	buildTeamGameRequests,
+	createTeamGamePlan,
+	extractTeamGameResult,
+	type TeamGamePlan
+} from './team-game';
+import { getDefaultMetricSortDirection, validateSemanticCapabilityQueryShape } from './capabilities';
 import { saveSemanticTrace } from './trace-store';
 
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -108,7 +118,15 @@ type TeamRankingPlan = {
 	subject: ResolvedTeamSubject | null;
 };
 
-type ExecutionPlan = LookupPlan | TeamLookupPlan | RankingPlan | TrendPlan | ComparisonPlan | TeamRankingPlan;
+type TeamStandingsPlan = {
+	type: 'team_standings';
+	query: SemanticQuery;
+	season: string;
+	limit: number;
+	subject: ResolvedTeamSubject | null;
+};
+
+type ExecutionPlan = LookupPlan | TeamLookupPlan | RankingPlan | TrendPlan | ComparisonPlan | TeamRankingPlan | TeamStandingsPlan | TeamGamePlan;
 
 type RetrievalOutcome = {
 	sourceCalls: TraceSourceCall[];
@@ -222,6 +240,18 @@ function normalizeFilters(input: unknown): ValidationResult<SemanticQueryFilters
 		return { ok: false, error: 'query.filters.dateTo must be a string when provided.' };
 	}
 
+	if (!isNullableString(input.conference)) {
+		return { ok: false, error: 'query.filters.conference must be a string when provided.' };
+	}
+
+	if (!isNullableString(input.division)) {
+		return { ok: false, error: 'query.filters.division must be a string when provided.' };
+	}
+
+	if (!isNullableString(input.gameStatus)) {
+		return { ok: false, error: 'query.filters.gameStatus must be a string when provided.' };
+	}
+
 	let window: SemanticQueryFilters['window'] = null;
 	if (input.window !== undefined && input.window !== null) {
 		if (!isPlainObject(input.window)) {
@@ -255,7 +285,19 @@ function normalizeFilters(input: unknown): ValidationResult<SemanticQueryFilters
 			seasonType: typeof input.seasonType === 'string' && input.seasonType.trim().length > 0 ? input.seasonType.trim() : null,
 			window,
 			dateFrom: typeof input.dateFrom === 'string' && input.dateFrom.trim().length > 0 ? input.dateFrom.trim() : null,
-			dateTo: typeof input.dateTo === 'string' && input.dateTo.trim().length > 0 ? input.dateTo.trim() : null
+			dateTo: typeof input.dateTo === 'string' && input.dateTo.trim().length > 0 ? input.dateTo.trim() : null,
+			conference:
+				typeof input.conference === 'string' && input.conference.trim().length > 0
+					? (input.conference.trim() as SemanticQueryFilters['conference'])
+					: null,
+			division:
+				typeof input.division === 'string' && input.division.trim().length > 0
+					? (input.division.trim() as SemanticQueryFilters['division'])
+					: null,
+			gameStatus:
+				typeof input.gameStatus === 'string' && input.gameStatus.trim().length > 0
+					? (input.gameStatus.trim() as SemanticQueryFilters['gameStatus'])
+					: null
 		}
 	};
 }
@@ -782,10 +824,13 @@ function determineSupportedPlan(
 	query: SemanticQuery,
 	now: Date
 ): ExecutionPlan | WarningResult {
-	if (query.orderBy && query.operation !== 'rank') {
+	if (query.orderBy && query.operation !== 'rank' && query.operation !== 'standings') {
 		return {
 			type: 'coverage_gap',
-			warning: buildWarning('unsupported_order_by', 'query.orderBy is only supported for ranking queries in this slice.'),
+			warning: buildWarning(
+				'unsupported_order_by',
+				'query.orderBy is only supported for ranking and standings queries in this slice.'
+			),
 			resolvedQuery: query
 		};
 	}
@@ -926,6 +971,57 @@ function determineSupportedPlan(
 		};
 	}
 
+	if (query.operation === 'standings' && query.entity === 'team') {
+		const subject = resolveTeamEntity(query.subject);
+		if (subject && 'warning' in subject) {
+			return subject.resolvedQuery === null ? subject : { ...subject, resolvedQuery: query };
+		}
+
+		return {
+			type: 'team_standings',
+			query: buildCanonicalResolvedQuery(query, now, [], subject),
+			season: query.filters.season ?? resolveCurrentSeason(now),
+			limit: subject ? 1 : query.limit ?? 10,
+			subject
+		};
+	}
+
+	if (query.operation === 'game' && query.entity === 'team') {
+		const subject = resolveTeamEntity(query.subject);
+		if (subject && 'warning' in subject) {
+			return subject.resolvedQuery === null ? subject : { ...subject, resolvedQuery: query };
+		}
+		if (!subject) {
+			return {
+				type: 'coverage_gap',
+				warning: buildWarning('unsupported_subject_filter', 'game/team requires exactly one resolved team subject.'),
+				resolvedQuery: query
+			};
+		}
+		const season = query.filters.season ?? resolveCurrentSeason(now);
+		if (season !== resolveCurrentSeason(now)) {
+			return {
+				type: 'coverage_gap',
+				warning: buildWarning('unsupported_season', 'game/team execution is limited to the current season in this slice.'),
+				resolvedQuery: buildCanonicalResolvedQuery(query, now, [], subject)
+			};
+		}
+
+		const canonicalQuery = buildCanonicalResolvedQuery(query, now, [], subject);
+		try {
+			return createTeamGamePlan(canonicalQuery, season, subject, now);
+		} catch (error) {
+			return {
+				type: 'coverage_gap',
+				warning: buildWarning(
+					'unsupported_query_shape',
+					error instanceof Error ? error.message : 'game/team could not be planned from the provided filters.'
+				),
+				resolvedQuery: canonicalQuery
+			};
+		}
+	}
+
 	return {
 		type: 'coverage_gap',
 		warning: buildWarning(
@@ -1032,6 +1128,10 @@ function buildTeamRankingRequest(plan: TeamRankingPlan): EndpointFetchRequest {
 	return buildLeagueWideTeamDefenseRequest(plan.season, plan.query.filters.seasonType ?? 'Regular Season');
 }
 
+function buildTeamStandingsRequest(plan: TeamStandingsPlan): EndpointFetchRequest {
+	return buildLeagueStandingsRequest(plan.season, plan.query.filters.seasonType ?? 'Regular Season');
+}
+
 function buildEndpointRequests(plan: ExecutionPlan): EndpointFetchRequest[] {
 	if (plan.type === 'player_lookup') {
 		return [buildPlayerLookupRequest(plan)];
@@ -1051,6 +1151,14 @@ function buildEndpointRequests(plan: ExecutionPlan): EndpointFetchRequest[] {
 
 	if (plan.type === 'player_comparison') {
 		return buildPlayerComparisonRequests(plan);
+	}
+
+	if (plan.type === 'team_standings') {
+		return [buildTeamStandingsRequest(plan)];
+	}
+
+	if (plan.type === 'team_game') {
+		return buildTeamGameRequests(plan);
 	}
 
 	return [buildTeamRankingRequest(plan)];
@@ -1193,6 +1301,56 @@ function buildMissingLookupRowWarning(plan: ExecutionPlan, retrieval: RetrievalO
 			: null;
 	}
 
+	if (plan.type === 'team_standings') {
+		if (!plan.subject) {
+			return null;
+		}
+		const subject = plan.subject;
+
+		const payload = retrieval.responses[0]?.result.payload as
+			| {
+					resultSet?: { headers?: unknown; rowSet?: unknown };
+					resultSets?: Array<{ name?: string; headers?: unknown; rowSet?: unknown }>;
+			  }
+			| null
+			| undefined;
+		const resultSet =
+			(payload?.resultSet && Array.isArray(payload.resultSet.headers) && Array.isArray(payload.resultSet.rowSet)
+				? payload.resultSet
+				: null) ??
+			(Array.isArray(payload?.resultSets)
+				? payload.resultSets.find(
+						(entry) => entry.name === 'Standings' && Array.isArray(entry.headers) && Array.isArray(entry.rowSet)
+					)
+				: null);
+
+		if (!resultSet || !Array.isArray(resultSet.headers) || !Array.isArray(resultSet.rowSet)) {
+			return null;
+		}
+
+		const teamIdIndex = resultSet.headers.indexOf('TeamID');
+		if (teamIdIndex < 0) {
+			return null;
+		}
+
+		const hasRow = resultSet.rowSet.some(
+			(row) => Array.isArray(row) && String(row[teamIdIndex] ?? '') === subject.id
+		);
+		return hasRow
+			? null
+			: buildWarning(
+					'nightly_data_unavailable',
+					'No stored nightly standings row was available for the resolved team subject.'
+				);
+	}
+
+	if (plan.type === 'team_game') {
+		return buildMissingTeamGameWarning(
+			plan,
+			retrieval.responses.map((response) => response.result.payload)
+		);
+	}
+
 	if (plan.type !== 'player_lookup') {
 		return null;
 	}
@@ -1294,6 +1452,46 @@ function parseExecutionResult(plan: ExecutionPlan, retrieval: RetrievalOutcome):
 			})),
 			plan.query.metrics,
 			plan.season
+		);
+	}
+
+	if (plan.type === 'team_standings') {
+		if (plan.subject) {
+			return extractTeamStandingsRow(
+				retrieval.responses[0]?.result.payload,
+				{ teamId: plan.subject.id, teamName: plan.subject.name },
+				plan.query.metrics,
+				plan.season,
+				plan.query.filters.seasonType ?? 'Regular Season',
+				{
+					conference: plan.query.filters.conference ?? null,
+					division: plan.query.filters.division ?? null
+				}
+			);
+		}
+
+		return extractTeamStandingsRankingRows(
+			retrieval.responses[0]?.result.payload,
+			plan.query.metrics,
+			plan.limit,
+			Object.fromEntries(
+				plan.query.metrics.map((metric) => [
+					metric,
+					getDefaultMetricSortDirection('standings', 'team', metric) ?? 'desc'
+				])
+			),
+			plan.season,
+			{
+				conference: plan.query.filters.conference ?? null,
+				division: plan.query.filters.division ?? null
+			}
+		);
+	}
+
+	if (plan.type === 'team_game') {
+		return extractTeamGameResult(
+			plan,
+			retrieval.responses.map((response) => response.result.payload)
 		);
 	}
 
@@ -1487,6 +1685,7 @@ export function validateSemanticQueryRequest(input: unknown): ValidationResult<S
 		operation !== 'compare' &&
 		operation !== 'trend' &&
 		operation !== 'split' &&
+		operation !== 'standings' &&
 		operation !== 'game' &&
 		operation !== 'event'
 	) {
@@ -1615,6 +1814,50 @@ export async function executeSemanticQuery(request: SemanticQueryRequest, now: D
 	const computeStartedAt = performance.now();
 	const missingPayloadWarning = buildMissingPayloadWarning(retrieval);
 	const missingLookupRowWarning = buildMissingLookupRowWarning(analysis, retrieval);
+	const teamGamePartialResult =
+		analysis.type === 'team_game' && missingPayloadWarning
+			? extractTeamGameResult(
+					analysis,
+					retrieval.responses.map((response) => response.result.payload)
+				)
+			: null;
+
+	if (
+		teamGamePartialResult &&
+		teamGamePartialResult.coverageStatus === 'partial_materialized' &&
+		teamGamePartialResult.rows.length > 0
+	) {
+		const warnings = [missingPayloadWarning].filter((warning): warning is StatsQueryWarning => warning !== null);
+		const latencyMs = buildLatency({
+			planning: planningLatencyMs,
+			retrieval: retrieval.retrievalLatencyMs,
+			compute: Math.round(performance.now() - computeStartedAt),
+			render: 0
+		});
+		const trace = buildTraceFromResponse(
+			traceId,
+			normalizedQuestion,
+			'ok',
+			analysis.query,
+			retrieval.dataFreshnessMode,
+			retrieval.sourceCalls,
+			retrieval.citations,
+			warnings,
+			latencyMs,
+			retrieval.cache
+		);
+		saveSemanticTrace(trace);
+		return makeResponse(
+			'ok',
+			teamGamePartialResult,
+			retrieval.citations,
+			analysis.query,
+			retrieval.dataFreshnessMode,
+			retrieval.sourceCalls,
+			warnings,
+			traceId
+		);
+	}
 
 	if (missingPayloadWarning || missingLookupRowWarning) {
 		const warning = missingPayloadWarning ?? missingLookupRowWarning ?? buildWarning('nightly_data_unavailable', 'No stored nightly data was available.');

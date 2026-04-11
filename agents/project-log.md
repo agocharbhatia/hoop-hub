@@ -149,6 +149,7 @@
 - Nightly/bootstrap lookup materialization now plans one shared season-source variant set for both current season and `2023-24` backfill: player season base, team season base, and team season advanced rows. Future lookup expansion should extend that shared seam instead of hand-adding season-specific requests in separate planners.
 - Slice `ship_structured_player_season_lookup` adds `lookup/player` to the public semantic capability contract and executes it by filtering stored league-wide season rows for one canonical player. The shipped row contract is identity-first (`playerId`, `playerName`), then canonical season metadata (`season`, `seasonType`), then requested metrics; missing stored subject rows should fail as `nightly_data_unavailable` instead of a generic extraction error.
 - Slice `ship_structured_team_season_lookup` extends that lookup contract to teams through the semantic executor, not the planner. Team season lookup now grounds exactly one canonical team with ambiguity-safe resolution, merges stored base plus advanced `leaguedashteamstats` rows into one table row, and advertises the expanded `lookup/team` metric surface through the shared public capabilities contract so validation, trace provenance, and tool discovery stay aligned.
+- Slice `ship_team_specific_standings_queries_backed_by_nightly_standings_snapshots` adds `standings/team` execution for exactly one canonical team on the structured route. Nightly bootstrap now materializes `leaguestandingsv3` snapshots for both the current season and `2023-24` through the same season-source planning seam used for lookup backfill, and structured traces now expose canonical resolved team standings queries backed only by stored nightly standings rows.
 ## unify_semantic_metrics_and_capabilities
 
 - Title: Unify Semantic Metrics And Capabilities
@@ -218,6 +219,25 @@
 - Title: Ship Answer-First /api/query For One Tool Result
 - Module scope: query route orchestration, planner and renderer service boundaries, answer response contract, app query UI
 - Interface contract: POST /api/query returns an answer-first payload instead of raw StatsQueryResponse | POST /api/stats/query remains the stable single-query structured tool contract | the one-request path uses separate planning and answer-rendering steps
+
+## 2026-04-05
+
+- Slice planning locked for `standings_schedule_results_runtime`.
+- New semantic shapes are `standings/team` and `game/team`, while `lookup/team` remains the home for season-stat metrics.
+- The public structured route stays one expanded `stats_query` tool contract; planner/runtime growth should come from shared capabilities, not new tool names or handwritten prompt families.
+- `standings/team` supports both current and `2023-24`, uses zero-or-one subject with optional `conference` and `division` filters, and owns standings-native facts such as seed/rank, record, games back, streak, home/road splits, and related standings-state fields.
+- `game/team` requires exactly one team subject, grounds natural-language time into canonical date filters plus `gameStatus`, uses `scoreboardv2` as the canonical source in this slice, and stays current-window/current-season for actual materialized execution even though the contract is future-proofed for broader date support later.
+- Relative date semantics are locked: calendar phrases (`today`, `tonight`, `tomorrow`, `last night`) are strict to the anchored calendar day; game-relative phrases (`next game`, `previous game`) are chronological; temporal grounding should use `America/New_York`.
+- `seed` means published conference/playoff rank as reported by the standings source; the runtime should not compute alternate playoff-seed interpretations.
+- Slice `ship_league_scoped_standings_ranking_with_conference_and_division_filters` adds a shared per-metric sort-default seam to the semantic capabilities contract so planner metadata and standings execution use the same source of truth for field ordering instead of duplicating standings-specific sort rules in the executor.
+- Mixed `/api/query` answers should decompose into multiple minimal structured requests. Partial top-level answers stay `ok` when at least one tool result is usable.
+- The structured result contract should gain generic completeness metadata on `StatsQueryResult` so dynamic answer rendering can distinguish `complete`, `season_exhausted`, and `partial_materialized` without guessing from warning text.
+- Default bootstrap for this slice should materialize current standings, `2023-24` standings, and the current scoreboard horizon; historical game-day backfill is explicitly not part of the default bootstrap path.
+- New executor work should be extracted into shape-specific modules rather than continuing to grow `semantic/query-service.ts` as one monolith.
+- TDD bar for the slice is locked around red tests first for capabilities, structured validation, semantic execution, nightly/bootstrap materialization, mixed-batch `/api/query` behavior, and honest traces including dropped-clause warnings.
+- PRD published: `Grounded Standings Schedule And Results Runtime Expansion` ([#43](https://github.com/agocharbhatia/hoop-hub/issues/43)). Core architecture choice: add `standings/team` and `game/team` as first-class semantic shapes under the existing single structured `stats_query` boundary, keep one semantic home per fact family, and drive planner growth from shared capabilities plus nightly-backed materialization instead of handwritten query families.
+- Workflow assumptions: land the slice through TDD with red tests first, extract shape-specific executor modules instead of deepening `query-service.ts`, keep standings support current plus `2023-24`, keep default game execution current-window/current-season via `scoreboardv2`, and express dynamic incomplete game answers through structured completeness metadata instead of warning-text conventions.
+- Sandcastle task execution should no longer rely only on `.sandcastle/tasks.yaml` summaries. The local worker prompt now explicitly tells task runs to fetch and read the linked GitHub issue (and parent PRD issue when needed) before implementation, while still treating `tasks.yaml` as the execution graph and dependency source of truth.
 - Tests: add route contract tests for one-request answer responses | add deterministic planner and renderer boundary tests for the one-tool path | update UI-facing tests or helpers to consume the new answer payload
 ## add_honest_orchestration_traces_for_answer_route_requests
 
@@ -262,3 +282,68 @@
 - Module scope: answer renderer, answer artifact contract, app answer presentation
 - Interface contract: /api/query returns answer text, minimal artifacts, and raw toolResults | v1 artifacts stay limited to table and text_block | the UI can surface supporting tables and warnings from the main payload
 - Tests: add renderer tests for grounded answer shaping from multiple tool results | add route tests for answer payload artifacts and toolResults | add UI tests for supporting tables and warnings
+## ship_typed_standings_and_game_contracts_with_honest_non_ok_behavior
+
+- Title: Ship Typed Standings And Game Contracts With Honest Non-Ok Behavior
+- Module scope: semantic contracts and capability registry, structured validator, semantic and orchestration trace boundaries
+- Interface contract: POST /api/stats/query accepts typed standings and game requests | shared capabilities advertise standings/game field ids and new filters | non-executing standings/game paths fail honestly with canonical traces
+- Tests: add capability registry and capabilities route tests for the new shapes | add structured validator tests for standings/game requests and filters | add route and trace tests for honest non-ok behavior on the new shapes
+## ship_team_specific_standings_queries_backed_by_nightly_standings_snapshots
+
+- Title: Ship Team-Specific Standings Queries Backed By Nightly Standings Snapshots
+- Module scope: standings executor module, nightly standings materialization, team resolution and semantic traces
+- Interface contract: one-team `standings/team` works on POST /api/stats/query | default bootstrap materializes current and `2023-24` standings snapshots | semantic traces expose canonical resolved team standings queries
+- Tests: add executor tests for team standings lookup and supported seasons | add bootstrap tests for current plus `2023-24` standings snapshots | add route and trace tests for canonical team standings behavior
+## ship_league_scoped_standings_ranking_with_conference_and_division_filters
+
+- Title: Ship League-Scoped Standings Ranking With Conference And Division Filters
+- Module scope: standings ranking execution, standings field planning metadata, conference and division filter handling
+- Interface contract: zero-subject `standings/team` ranks teams over supported standings fields | `conference` and `division` filter support is real end-to-end | per-field sort defaults come from shared capability metadata
+- Tests: add executor tests for zero-subject standings ranking and filters | add capability tests for per-field sort metadata | add route and trace tests for league-scoped standings asks
+
+## ship_single_event_team_game_queries_for_next_and_recent_results
+
+- `game/team` now executes through a dedicated scoreboard-backed module instead of staying inline in `query-service.ts`; keep future range/completeness work on that seam rather than re-growing the monolith.
+- The default scoreboard horizon is currently `slateDate - 1` through `slateDate + 3`, which is the minimum nightly-backed window needed for last-night, next-game, tomorrow, and strict no-game-day asks in this slice.
+- Exact-date asks inside the materialized horizon should return grounded `ok` responses even when the team did not play, while chronology-based asks should stay conservative and return `nightly_data_unavailable` if any required horizon date is missing.
+## ship_single_event_team_game_queries_for_next_and_recent_results
+
+- Title: Ship Single-Event Team Game Queries For Next And Recent Results
+- Module scope: game executor module, temporal grounding and game status handling, scoreboard horizon materialization
+- Interface contract: single-event `game/team` works for one team through POST /api/stats/query | calendar-relative and game-relative semantics remain distinct | default bootstrap materializes the current scoreboard horizon
+- Tests: add executor tests for next game, last night, tomorrow, and no-game-day cases | add bootstrap tests for scoreboard horizon materialization | add route and trace tests for canonical team game behavior
+
+## ship_bounded_team_game_ranges_with_completeness_metadata
+
+- `game/team` range semantics now live in `team-game.ts`: inclusive date windows and `next N games` both flow through the same requested-count and coverage-status seam instead of route-level branching.
+- Partial stored scoreboard coverage should only stay top-level `ok` when at least one grounded game row exists; expose the gap through `coverageStatus: 'partial_materialized'` plus the existing `nightly_data_unavailable` warning instead of hiding it in prose.
+- Fully materialized chronology asks that return fewer rows than requested should report `season_exhausted`, while bounded calendar windows with materialized empty days stay `complete`.
+## ship_bounded_team_game_ranges_with_completeness_metadata
+
+- Title: Ship Bounded Team Game Ranges With Completeness Metadata
+- Module scope: multi-row game execution, structured result completeness metadata, route behavior for incomplete but useful game answers
+- Interface contract: `game/team` supports bounded ranges and `next N games` | structured results expose `coverageStatus`, `requestedCount`, and `returnedCount` | incomplete but grounded game answers remain explicit and machine-readable
+- Tests: add executor tests for bounded ranges and `next N games` | add result-contract tests for completeness metadata states | add route tests for explicit incomplete-but-grounded game responses
+
+## expand_planner_and_answer_route_for_standings_plus_game_questions
+
+- Planned `/api/query` batches can now carry planner-originated warnings; use that path for explicit dropped-clause notices instead of smuggling those warnings into renderer prose or pretending the plan was fully supported.
+- The planner-side contract must stay aligned with semantic capabilities for standings/game filters too, not just operation/entity/metric enums. Date ranges, `conference`, `division`, and `gameStatus` are real planner outputs now and should be updated in the same shared-contract pass when this surface grows again.
+## expand_planner_and_answer_route_for_standings_plus_game_questions
+
+- Title: Expand Planner And Answer Route For Standings Plus Game Questions
+- Module scope: planner capability-driven expansion, answer-route mixed batch orchestration, dropped-clause warnings and orchestration traces
+- Interface contract: /api/query can answer standings-only, game-only, and mixed standings/game asks | mixed unsupported non-essential clauses can be dropped with explicit warnings | orchestration traces remain honest with no fake single resolved query
+- Tests: add planner tests deriving the new shapes from shared capabilities | add /api/query integration tests for standings-only, game-only, and mixed asks | add /api/query-trace tests for dropped-clause warnings and honest orchestration traces
+
+## Regression Notes
+
+- Planner and executor contracts drifted on nullable planned warnings: the OpenAI planner schema allowed `warnings: null`, but `createPlannerService` rejected that instead of normalizing it to `[]`, which surfaced as internal server errors before any tool execution.
+- Standings planning and semantic execution drifted on `orderBy`: shared capabilities exposed standings as a sortable shape, but `determineSupportedPlan` still rejected `orderBy` for every non-`rank` query. Keep planner capability metadata and semantic executor guards in lockstep whenever a shape gains new planning affordances.
+- Extractor `summary` strings are trace/debug-oriented, not user-facing answer text. When a new semantic shape ships, add default-renderer synthesis coverage at the same time or `/api/query` will fall back to generic summaries like `Returned 1 grounded game row...`.
+- For `game/team` with `gameStatus = final`, distinguish `no game on that date` from `game exists but stored scoreboard status is not final yet`. The latter is an honesty/coverage-gap case (`nightly_data_unavailable`), not a negative result.
+- Current nightly bootstrap treats an exact-snapshot `scoreboardv2` success as authoritative for that `slateDate` and short-circuits future reruns to cache. If the first stored payload for yesterday's game date was still pregame/incomplete, rerunning the same `slateDate` will not refresh it; recovery requires deleting the stale exact-snapshot row or writing a newer snapshot date that the read path can see.
+- For query-facing AFK slices, mocked planner/service tests and planner-stubbed `/api/query` tests are not enough. The loop now needs a small real-planner NL query smoke against fixture-backed data so the exact user phrasings being shipped are validated before Sandcastle can finish.
+- Query-facing acceptance needs to assert answer quality too, not just status codes and resolved queries. Add regressions for natural phrasing, contextual non-ok responses, and mixed supported/unsupported questions so the loop cannot pass while the UI still sounds robotic or drops answerable sub-parts.
+- The long-term answer architecture is: semantic/query layers decide what is true, while the answer renderer decides how to say it. Default `/api/query` answers should come from grounded LLM synthesis with deterministic fallback, and smoke coverage should exercise the real planner plus real answer renderer together instead of treating response wording as an afterthought.
+- Slice specs should now carry explicit query examples and answer-quality expectations. If the task says a query is supported, the loop should prove both that it resolves correctly and that the returned answer sounds natural, answers supported sub-parts, and handles limitations honestly.

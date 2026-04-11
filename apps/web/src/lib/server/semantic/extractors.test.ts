@@ -5,6 +5,7 @@ import {
 	extractPlayerComparisonRows,
 	extractPlayerRankingRows,
 	extractPlayerTrendRows,
+	extractTeamStandingsRankingRows,
 	extractTeamRankingRows
 } from './extractors';
 
@@ -56,5 +57,25 @@ describe('semantic extractors', () => {
 		assert.equal(result.rows.length, 3);
 		assert.deepEqual(result.columns, ['rank', 'subject', 'metric', 'value']);
 		assert.equal(result.rows[0]?.subject, 'Minnesota Timberwolves');
+	});
+
+	test('normalizes standings streak values with embedded spaces for ranking queries', () => {
+		const payload = {
+			resultSets: [
+				{
+					name: 'Standings',
+					headers: ['TeamCity', 'TeamName', 'Conference', 'Division', 'PlayoffRank', 'WINS', 'LOSSES', 'WinPCT', 'ConferenceGamesBack', 'strCurrentStreak'],
+					rowSet: [
+						['Cleveland', 'Cavaliers', 'East', 'Central', 1, 62, 20, 0.756, 0, 'W 3'],
+						['Boston', 'Celtics', 'East', 'Atlantic', 2, 61, 21, 0.744, 1, 'W 2']
+					]
+				}
+			]
+		};
+		const result = extractTeamStandingsRankingRows(payload, ['streak'], 1, { streak: 'desc' });
+
+		assert.equal(result.rows.length, 1);
+		assert.equal(result.rows[0]?.subject, 'Cleveland Cavaliers');
+		assert.equal(result.rows[0]?.value, 'W 3');
 	});
 });

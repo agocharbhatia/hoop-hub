@@ -1,6 +1,7 @@
 import {
 	MAX_BATCH_TOOL_REQUESTS,
 	type BatchPlannerDecision,
+	type PlannerWarningCode,
 	type QueryPlannerToolRequest
 } from '$lib/contracts/planner';
 import type {
@@ -23,26 +24,40 @@ export type PlannerService = {
  * Validates planner output before any executor call so model drift cannot bypass the typed runtime boundary.
  */
 export function createPlannerService(adapter: PlannerAdapter): PlannerService {
+	async function planWithOptionalRecovery(
+		question: string,
+		options?: { allowRecovery?: boolean }
+	): Promise<BatchPlannerDecision> {
+		const output = await adapter.planQuestion(question);
+		const validated = validatePlannerDecision(output);
+		if (!validated.ok) {
+			throw new Error(validated.error);
+		}
+
+		const normalized = normalizePlannerDecision(validated.value);
+		if (normalized.type === 'planned' && normalized.toolRequests.length > MAX_BATCH_TOOL_REQUESTS) {
+			return {
+				type: 'clarification_needed',
+				warning: {
+					code: 'clarification_needed',
+					message: `This question would require more than ${MAX_BATCH_TOOL_REQUESTS} tool requests. Ask a narrower question that needs up to ${MAX_BATCH_TOOL_REQUESTS}.`
+				}
+			};
+		}
+
+		if (options?.allowRecovery !== false) {
+			const recovered = await recoverMixedSupportedQuestion(question, normalized, adapter);
+			if (recovered) {
+				return recovered;
+			}
+		}
+
+		return normalized;
+	}
+
 	return {
 		async planQuestion(question: string): Promise<BatchPlannerDecision> {
-			const output = await adapter.planQuestion(question);
-			const validated = validatePlannerDecision(output);
-			if (!validated.ok) {
-				throw new Error(validated.error);
-			}
-
-			const normalized = normalizePlannerDecision(validated.value);
-			if (normalized.type === 'planned' && normalized.toolRequests.length > MAX_BATCH_TOOL_REQUESTS) {
-				return {
-					type: 'clarification_needed',
-					warning: {
-						code: 'clarification_needed',
-						message: `This question would require more than ${MAX_BATCH_TOOL_REQUESTS} tool requests. Ask a narrower question that needs up to ${MAX_BATCH_TOOL_REQUESTS}.`
-					}
-				};
-			}
-
-			return normalized;
+			return planWithOptionalRecovery(question);
 		}
 	};
 }
@@ -102,7 +117,74 @@ function normalizePlannerDecision(decision: BatchPlannerDecision): BatchPlannerD
 					season: normalizeSeasonFilter(toolRequest.query.filters.season)
 				}
 			}
-		}))
+		})),
+		warnings: decision.warnings ?? []
+	};
+}
+
+function buildQuotedQuestion(question: string): string {
+	return `"${question.trim()}"`;
+}
+
+function normalizeQuestionWhitespace(question: string): string {
+	return question.replace(/\s+/g, ' ').trim();
+}
+
+function ensureQuestionMark(question: string, referenceQuestion: string): string {
+	if (!referenceQuestion.trim().endsWith('?')) {
+		return question;
+	}
+
+	return question.endsWith('?') ? question : `${question}?`;
+}
+
+function splitQuestionIntoClauses(question: string): string[] {
+	return normalizeQuestionWhitespace(question)
+		.split(/\s*,\s*|\s+and\s+/i)
+		.map((clause) => clause.trim())
+		.filter((clause) => clause.length > 0);
+}
+
+function isUnsupportedPredictionClause(clause: string): boolean {
+	return /\b(who will win|will win|going to win|gonna win|prediction|predict|should i bet|bet on)\b/i.test(clause);
+}
+
+async function recoverMixedSupportedQuestion(
+	question: string,
+	decision: BatchPlannerDecision,
+	adapter: PlannerAdapter
+): Promise<BatchPlannerDecision | null> {
+	if (decision.type !== 'coverage_gap' || decision.warning.code !== 'unsupported_query_shape') {
+		return null;
+	}
+
+	const clauses = splitQuestionIntoClauses(question);
+	const supportedClauses = clauses.filter((clause) => !isUnsupportedPredictionClause(clause));
+	if (supportedClauses.length === 0 || supportedClauses.length === clauses.length) {
+		return null;
+	}
+
+	const reducedQuestion = ensureQuestionMark(supportedClauses.join(' and '), question);
+	const recoveryOutput = await adapter.planQuestion(reducedQuestion);
+	const validated = validatePlannerDecision(recoveryOutput);
+	if (!validated.ok) {
+		return null;
+	}
+
+	const normalized = normalizePlannerDecision(validated.value);
+	if (normalized.type !== 'planned') {
+		return null;
+	}
+
+	return {
+		...normalized,
+		warnings: [
+			...(normalized.warnings ?? []),
+			{
+				code: 'dropped_unsupported_clause',
+				message: `Dropped the unsupported prediction part of ${buildQuotedQuestion(question)} and answered the supported standings/game parts instead.`
+			}
+		]
 	};
 }
 
@@ -141,15 +223,47 @@ function validateFilters(filters: unknown): filters is SemanticQuery['filters'] 
 		return false;
 	}
 
-	if (filters.dateFrom !== null && filters.dateFrom !== undefined) {
+	if (filters.dateFrom !== null && filters.dateFrom !== undefined && typeof filters.dateFrom !== 'string') {
 		return false;
 	}
 
-	if (filters.dateTo !== null && filters.dateTo !== undefined) {
+	if (filters.dateTo !== null && filters.dateTo !== undefined && typeof filters.dateTo !== 'string') {
 		return false;
 	}
 
 	if (filters.seasonType !== null && filters.seasonType !== undefined && typeof filters.seasonType !== 'string') {
+		return false;
+	}
+
+	if (
+		filters.conference !== null &&
+		filters.conference !== undefined &&
+		filters.conference !== 'East' &&
+		filters.conference !== 'West'
+	) {
+		return false;
+	}
+
+	if (
+		filters.division !== null &&
+		filters.division !== undefined &&
+		filters.division !== 'Atlantic' &&
+		filters.division !== 'Central' &&
+		filters.division !== 'Southeast' &&
+		filters.division !== 'Northwest' &&
+		filters.division !== 'Pacific' &&
+		filters.division !== 'Southwest'
+	) {
+		return false;
+	}
+
+	if (
+		filters.gameStatus !== null &&
+		filters.gameStatus !== undefined &&
+		filters.gameStatus !== 'upcoming' &&
+		filters.gameStatus !== 'final' &&
+		filters.gameStatus !== 'any'
+	) {
 		return false;
 	}
 
@@ -236,7 +350,9 @@ function validateSemanticQueryShape(query: unknown): query is SemanticQuery {
 	if (
 		query.entity === 'team' &&
 		query.operation !== 'rank' &&
-		query.operation !== 'lookup'
+		query.operation !== 'lookup' &&
+		query.operation !== 'standings' &&
+		query.operation !== 'game'
 	) {
 		return false;
 	}
@@ -263,6 +379,17 @@ function validatePlannerToolRequest(input: unknown): input is QueryPlannerToolRe
 	return isPlainObject(input) && input.toolName === 'stats_query' && validateSemanticQueryShape(input.query);
 }
 
+function isSupportedPlannerWarningCode(code: unknown): code is PlannerWarningCode {
+	return (
+		code === 'unsupported_query_shape' ||
+		code === 'unsupported_metric' ||
+		code === 'clarification_needed' ||
+		code === 'missing_metric' ||
+		code === 'compare_requires_two_subjects' ||
+		code === 'dropped_unsupported_clause'
+	);
+}
+
 function validatePlannerDecision(
 	input: unknown
 ): { ok: true; value: BatchPlannerDecision } | { ok: false; error: string } {
@@ -279,11 +406,29 @@ function validatePlannerDecision(
 			return { ok: false, error: 'Planner planned toolRequests failed validation.' };
 		}
 
+		if (
+			(input.warnings !== null &&
+				input.warnings !== undefined &&
+				!Array.isArray(input.warnings)) ||
+			(input.warnings !== null &&
+				input.warnings !== undefined &&
+			!input.warnings.every(
+				(warning) =>
+					isPlainObject(warning) &&
+					isSupportedPlannerWarningCode(warning.code) &&
+					typeof warning.message === 'string' &&
+					warning.message.trim().length > 0
+			))
+		) {
+			return { ok: false, error: 'Planner planned warnings failed validation.' };
+		}
+
 		return {
 			ok: true,
 			value: {
 				type: 'planned',
-				toolRequests: input.toolRequests
+				toolRequests: input.toolRequests,
+				warnings: input.warnings ?? []
 			}
 		};
 	}
@@ -293,7 +438,8 @@ function validatePlannerDecision(
 			return { ok: false, error: 'Planner non-ok decisions require a warning object.' };
 		}
 
-		if (typeof input.warning.code !== 'string' || input.warning.code.trim().length === 0) {
+		const warningCode = input.warning.code;
+		if (typeof warningCode !== 'string' || warningCode.trim().length === 0) {
 			return { ok: false, error: 'Planner warnings require a code.' };
 		}
 
@@ -301,13 +447,7 @@ function validatePlannerDecision(
 			return { ok: false, error: 'Planner warnings require a message.' };
 		}
 
-		if (
-			input.warning.code !== 'unsupported_query_shape' &&
-			input.warning.code !== 'unsupported_metric' &&
-			input.warning.code !== 'clarification_needed' &&
-			input.warning.code !== 'missing_metric' &&
-			input.warning.code !== 'compare_requires_two_subjects'
-		) {
+		if (!isSupportedPlannerWarningCode(warningCode)) {
 			return { ok: false, error: 'Planner warning code is not supported.' };
 		}
 
@@ -316,7 +456,7 @@ function validatePlannerDecision(
 			value: {
 				type: input.type,
 				warning: {
-					code: input.warning.code,
+					code: warningCode,
 					message: input.warning.message
 				}
 			}

@@ -1,0 +1,29 @@
+{
+	"resource": "leaguestandingsv3",
+	"resultSets": [
+		{
+			"name": "Standings",
+			"headers": [
+				"LeagueID",
+				"SeasonID",
+				"TeamID",
+				"TeamCity",
+				"TeamName",
+				"Conference",
+				"Division",
+				"PlayoffRank",
+				"DivisionRank",
+				"WINS",
+				"LOSSES",
+				"WinPCT",
+				"ConferenceGamesBack",
+				"strCurrentStreak"
+			],
+			"rowSet": [
+				["00", "22023", "1610612738", "Boston", "Celtics", "East", "Atlantic", 1, 1, 64, 18, 0.78, 0.0, "W2"],
+				["00", "22023", "1610612739", "Cleveland", "Cavaliers", "East", "Central", 4, 1, 48, 34, 0.585, 16.0, "L1"],
+				["00", "22023", "1610612746", "LA", "Clippers", "West", "Pacific", 5, 2, 51, 31, 0.622, 6.0, "W1"]
+			]
+		}
+	]
+}

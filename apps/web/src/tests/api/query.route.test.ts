@@ -201,7 +201,8 @@ describe('POST /api/query', () => {
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'coverage_gap');
-		assert.equal(payload.answer, 'Predictions are not supported in this slice.');
+		assert.match(payload.answer, /Who wins the title this year/i);
+		assert.match(payload.answer, /Predictions are not supported in this slice\./i);
 		assert.equal(payload.toolResults.length, 0);
 		assert.equal(defaultPlannerFactoryCalls, 0);
 		assert.equal(rendererCalls, 0);
@@ -242,7 +243,8 @@ describe('POST /api/query', () => {
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'clarification_needed');
-		assert.equal(payload.answer, 'Player trend questions need a metric like points, assists, or rebounds.');
+		assert.match(payload.answer, /Show me Jokic over his last 5/i);
+		assert.match(payload.answer, /Player trend questions need a metric like points, assists, or rebounds\./i);
 		assert.equal(payload.toolResults.length, 0);
 		assert.equal(payload.warnings[0]?.code, 'missing_metric');
 		assert.equal(executorCalls, 0);
@@ -699,6 +701,118 @@ describe('POST /api/query', () => {
 		assert.equal(executedRequests.length, 2);
 	});
 
+	test('uses the default renderer to synthesize standings and next-game answers from structured rows', async () => {
+		_setQueryRouteDependenciesForTests({
+			async planQuestion(): Promise<BatchPlannerDecision> {
+				return {
+					type: 'planned',
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'standings',
+								entity: 'team',
+								subject: {},
+								metrics: ['conference_rank'],
+								filters: {
+									season: null,
+									seasonType: 'Regular Season',
+									window: null,
+									dateFrom: null,
+									dateTo: null,
+									conference: 'East',
+									division: null,
+									gameStatus: null
+								},
+								orderBy: {
+									metric: 'conference_rank',
+									direction: 'asc'
+								},
+								limit: 1,
+								outputMode: 'table'
+							}
+						},
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'game',
+								entity: 'team',
+								subject: {
+									names: ['Boston Celtics']
+								},
+								metrics: ['game_date', 'game_status', 'opponent_team'],
+								filters: {
+									season: null,
+									seasonType: 'Regular Season',
+									window: null,
+									dateFrom: null,
+									dateTo: null,
+									conference: null,
+									division: null,
+									gameStatus: 'upcoming'
+								},
+								orderBy: null,
+								limit: 1,
+								outputMode: 'table'
+							}
+						}
+					]
+				};
+			},
+			async executeSemanticQuery(request): Promise<StatsQueryResponse> {
+				if (request.query.operation === 'standings') {
+					return buildStatsResponse(request, {
+						result: {
+							shape: 'ranking',
+							columns: ['rank', 'subject', 'metric', 'value'],
+							rows: [{ rank: 1, subject: 'Cleveland Cavaliers', metric: 'conference_rank', value: 1 }],
+							summary: 'Cleveland Cavaliers leads conference_rank standings for 2025-26 at 1.'
+						},
+						traceId: 'trace-standings'
+					});
+				}
+
+				return buildStatsResponse(request, {
+					result: {
+						shape: 'table',
+						columns: ['teamId', 'teamName', 'gameId', 'season', 'seasonType', 'game_date', 'game_status', 'opponent_team'],
+						rows: [
+							{
+								teamId: '1610612738',
+								teamName: 'Boston Celtics',
+								gameId: '0022500001',
+								season: '2025-26',
+								seasonType: 'Regular Season',
+								game_date: '2026-04-07',
+								game_status: 'upcoming',
+								opponent_team: 'Charlotte Hornets'
+							}
+						],
+						summary: 'Returned 1 grounded game row for Boston Celtics.'
+					},
+					traceId: 'trace-game'
+				});
+			}
+		});
+
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					question: "Who's first in the East and who do the Celtics play next?"
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as QueryAnswerResponse;
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(
+			payload.answer,
+			'Cleveland Cavaliers are first in the East for this season. Boston Celtics play the Charlotte Hornets next on 2026-04-07.'
+		);
+		assert.equal(payload.toolResults.length, 2);
+	});
+
 	test('preserves text_block artifacts from the renderer in the public answer payload', async () => {
 		_setQueryRouteDependenciesForTests({
 			async planQuestion(): Promise<BatchPlannerDecision> {
@@ -1086,7 +1200,8 @@ describe('POST /api/query', () => {
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'coverage_gap');
-		assert.equal(payload.answer, 'No stored nightly endpoint payload was available for one or more required requests.');
+		assert.match(payload.answer, /Show me Jokic over his last 5/i);
+		assert.match(payload.answer, /nightly snapshot is missing some of the required data/i);
 		assert.equal(payload.toolResults.length, 1);
 		assert.equal(payload.artifacts.length, 0);
 		assert.notEqual(payload.traceId.length, 0);
@@ -1180,7 +1295,8 @@ describe('POST /api/query', () => {
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'coverage_gap');
-		assert.equal(payload.answer, 'No stored nightly endpoint payload was available for ortg.');
+		assert.match(payload.answer, /Boston Celtics offensive and defensive rating/i);
+		assert.match(payload.answer, /No stored nightly endpoint payload was available for ortg\./i);
 		assert.equal(payload.toolResults.length, 2);
 		assert.equal(payload.artifacts.length, 0);
 		assert.deepEqual(payload.warnings, [

@@ -69,6 +69,7 @@ const DEFAULT_PHASE_DELAY_MS: Record<NightlyRunRequestPhase, number> = {
 	trend: 150,
 	historical: 100
 };
+const SCOREBOARD_FINAL_STATUS_ID = '3';
 
 /* Helper functions */
 
@@ -154,6 +155,55 @@ function wait(ms: number): Promise<void> {
 	}
 
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/* Scoreboard completeness helpers */
+
+function isPastScoreboardRequest(request: EndpointFetchRequest, slateDate: string): boolean {
+	return request.endpointId === 'scoreboardv2' && typeof request.params.GameDate === 'string' && request.params.GameDate < slateDate;
+}
+
+function hasNonFinalScoreboardGamesForDate(payload: unknown, gameDate: string): boolean {
+	const scoreboardPayload = payload as {
+		resultSets?: Array<{ name?: string; headers?: unknown; rowSet?: unknown }>;
+	};
+	const gameHeader = Array.isArray(scoreboardPayload?.resultSets)
+		? scoreboardPayload.resultSets.find(
+				(resultSet) =>
+					resultSet.name === 'GameHeader' && Array.isArray(resultSet.headers) && Array.isArray(resultSet.rowSet)
+			)
+		: null;
+	if (!gameHeader || !Array.isArray(gameHeader.headers) || !Array.isArray(gameHeader.rowSet)) {
+		return false;
+	}
+
+	const gameDateIndex = gameHeader.headers.indexOf('GAME_DATE_EST');
+	const gameStatusIndex = gameHeader.headers.indexOf('GAME_STATUS_ID');
+	if (gameDateIndex < 0 || gameStatusIndex < 0) {
+		return false;
+	}
+
+	const rowsOnGameDate = gameHeader.rowSet.filter(
+		(row) => Array.isArray(row) && String(row[gameDateIndex] ?? '').slice(0, 10) === gameDate
+	);
+	if (rowsOnGameDate.length === 0) {
+		return false;
+	}
+
+	return rowsOnGameDate.some((row) => String(row[gameStatusIndex] ?? '') !== SCOREBOARD_FINAL_STATUS_ID);
+}
+
+function shouldRetryScoreboardRequest(
+	request: EndpointFetchRequest,
+	slateDate: string,
+	payload: unknown | null,
+	exactSnapshotDate: boolean
+): boolean {
+	if (!exactSnapshotDate || payload === null || !isPastScoreboardRequest(request, slateDate)) {
+		return false;
+	}
+
+	return hasNonFinalScoreboardGamesForDate(payload, request.params.GameDate);
 }
 
 function loadStoredNightlyPayload(
@@ -279,13 +329,19 @@ async function materializePlannedRequests(
 		const storedPayload = loadStoredNightlyPayload(request.request, slateDate, {
 			exactSnapshotDate: request.exactSnapshotDate
 		});
-		if (progressByKey.get(request.requestKey)?.status === 'succeeded' && storedPayload !== null) {
+		const shouldRetryStoredPayload = shouldRetryScoreboardRequest(
+			request.request,
+			slateDate,
+			storedPayload,
+			request.exactSnapshotDate
+		);
+		if (progressByKey.get(request.requestKey)?.status === 'succeeded' && storedPayload !== null && !shouldRetryStoredPayload) {
 			completedRequests += 1;
 			resolvedPayloads.set(request.requestKey, storedPayload);
 			continue;
 		}
 
-		if (storedPayload !== null) {
+		if (storedPayload !== null && !shouldRetryStoredPayload) {
 			const completedAt = new Date().toISOString();
 			store.markNightlyRunRequestSucceeded({
 				runId,
@@ -331,6 +387,22 @@ async function materializePlannedRequests(
 				});
 
 				if (result.payload !== null && result.sourceStatus === 'ok') {
+					if (shouldRetryScoreboardRequest(request.request, slateDate, result.payload, request.exactSnapshotDate)) {
+						const errorDetail = `scoreboard for ${request.request.params.GameDate} is not final yet`;
+						store.markNightlyRunRequestFailed({
+							runId,
+							slateDate,
+							requestKey: request.requestKey,
+							completedAt: new Date().toISOString(),
+							errorDetail
+						});
+						failures.push({
+							endpointId: request.request.endpointId,
+							errorDetail
+						});
+						continue;
+					}
+
 					const completedAt = new Date();
 					persistAuthoritativeNightlyCache(request.request, result, slateDate, completedAt);
 					store.markNightlyRunRequestSucceeded({

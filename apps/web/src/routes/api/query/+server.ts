@@ -1,6 +1,9 @@
 import { json } from '@sveltejs/kit';
 import type { AnswerRendererService } from '$lib/server/answer-renderer/service';
-import { createDefaultAnswerRendererService } from '$lib/server/answer-renderer/service';
+import {
+	createDefaultAnswerRendererService,
+	createDeterministicAnswerRendererService
+} from '$lib/server/answer-renderer/service';
 import type { PlannerService } from '$lib/server/planner/service';
 import { createPlannerService } from '$lib/server/planner/service';
 import { createQueryOrchestratorService, type QueryOrchestratorService } from '$lib/server/query-orchestrator/service';
@@ -46,7 +49,7 @@ export function _setQueryRouteDependenciesForTests(
 			renderer: {
 				renderAnswer:
 					dependencies.renderAnswer ??
-					createDefaultAnswerRendererService().renderAnswer
+					createDeterministicAnswerRendererService().renderAnswer
 			},
 			batchExecutor: createSemanticBatchExecutor({
 				validateSemanticQueryRequest,

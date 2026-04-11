@@ -117,9 +117,33 @@ function buildTeamSeasonStatsParams(season: string, measureType: 'Base' | 'Advan
 	};
 }
 
+function buildLeagueStandingsParams(season: string): Record<string, string> {
+	return {
+		LeagueID: '00',
+		Season: season,
+		SeasonType: 'Regular Season',
+		SeasonYear: ''
+	};
+}
+
+function buildScoreboardParams(gameDate: string): Record<string, string> {
+	return {
+		DayOffset: '0',
+		GameDate: gameDate,
+		LeagueID: '00'
+	};
+}
+
 const PLAYER_SEASON_FIXTURE = loadFixture('../semantic/fixtures/leaguedashplayerstats.json');
 const TEAM_BASE_FIXTURE = loadFixture('../semantic/fixtures/leaguedashteamstats-base.json');
 const TEAM_ADVANCED_FIXTURE = loadFixture('../semantic/fixtures/leaguedashteamstats.json');
+const TEAM_STANDINGS_FIXTURE = loadFixture('../semantic/fixtures/leaguestandingsv3.json');
+const TEAM_STANDINGS_CURRENT_FIXTURE = loadFixture('../semantic/fixtures/leaguestandingsv3-current.json');
+const SCOREBOARD_2026_03_31_FIXTURE = loadFixture('../semantic/fixtures/scoreboardv2-2026-03-31.json');
+const SCOREBOARD_2026_04_01_FIXTURE = loadFixture('../semantic/fixtures/scoreboardv2-2026-04-01.json');
+const SCOREBOARD_2026_04_02_FIXTURE = loadFixture('../semantic/fixtures/scoreboardv2-2026-04-02.json');
+const SCOREBOARD_2026_04_03_FIXTURE = loadFixture('../semantic/fixtures/scoreboardv2-2026-04-03.json');
+const SCOREBOARD_2026_04_04_FIXTURE = loadFixture('../semantic/fixtures/scoreboardv2-2026-04-04.json');
 const CURRY_CAREER_FIXTURE = loadFixture('../semantic/fixtures/playercareerstats-curry.json');
 const LILLARD_CAREER_FIXTURE = loadFixture('../semantic/fixtures/playercareerstats-lillard.json');
 const ACHIUWA_CAREER_FIXTURE = loadFixture('../semantic/fixtures/playercareerstats-achiuwa.json');
@@ -156,6 +180,41 @@ const DETERMINISTIC_FIXTURE_ENTRIES: DeterministicFixtureEntry[] = [
 		endpointId: 'leaguedashteamstats',
 		params: buildTeamSeasonStatsParams('2025-26', 'Advanced'),
 		payload: TEAM_ADVANCED_FIXTURE
+	},
+	{
+		endpointId: 'leaguestandingsv3',
+		params: buildLeagueStandingsParams('2023-24'),
+		payload: TEAM_STANDINGS_FIXTURE
+	},
+	{
+		endpointId: 'leaguestandingsv3',
+		params: buildLeagueStandingsParams('2025-26'),
+		payload: TEAM_STANDINGS_CURRENT_FIXTURE
+	},
+	{
+		endpointId: 'scoreboardv2',
+		params: buildScoreboardParams('2026-03-31'),
+		payload: SCOREBOARD_2026_03_31_FIXTURE
+	},
+	{
+		endpointId: 'scoreboardv2',
+		params: buildScoreboardParams('2026-04-01'),
+		payload: SCOREBOARD_2026_04_01_FIXTURE
+	},
+	{
+		endpointId: 'scoreboardv2',
+		params: buildScoreboardParams('2026-04-02'),
+		payload: SCOREBOARD_2026_04_02_FIXTURE
+	},
+	{
+		endpointId: 'scoreboardv2',
+		params: buildScoreboardParams('2026-04-03'),
+		payload: SCOREBOARD_2026_04_03_FIXTURE
+	},
+	{
+		endpointId: 'scoreboardv2',
+		params: buildScoreboardParams('2026-04-04'),
+		payload: SCOREBOARD_2026_04_04_FIXTURE
 	},
 	{
 		endpointId: 'playercareerstats',
@@ -218,6 +277,48 @@ const LOOKUP_FIXTURE_REQUIREMENTS: DeterministicLookupFixtureRequirement[] = [
 		params: buildTeamSeasonStatsParams('2025-26', 'Base'),
 		metricIds: ['wins', 'losses', 'win_pct', 'reb'],
 		requiredColumns: ['TEAM_ID', 'TEAM_NAME', 'W', 'L', 'W_PCT', 'REB']
+	},
+	{
+		endpointId: 'leaguestandingsv3',
+		params: buildLeagueStandingsParams('2023-24'),
+		metricIds: ['conference_rank', 'seed', 'wins', 'losses', 'win_pct', 'games_back', 'streak'],
+		requiredColumns: ['TeamID', 'TeamCity', 'TeamName', 'Conference', 'Division', 'PlayoffRank', 'WINS', 'LOSSES', 'WinPCT', 'ConferenceGamesBack', 'strCurrentStreak']
+	},
+	{
+		endpointId: 'leaguestandingsv3',
+		params: buildLeagueStandingsParams('2025-26'),
+		metricIds: ['conference_rank', 'seed', 'wins', 'losses', 'win_pct', 'games_back', 'streak'],
+		requiredColumns: ['TeamID', 'TeamCity', 'TeamName', 'Conference', 'Division', 'PlayoffRank', 'WINS', 'LOSSES', 'WinPCT', 'ConferenceGamesBack', 'strCurrentStreak']
+	},
+	{
+		endpointId: 'scoreboardv2',
+		params: buildScoreboardParams('2026-03-31'),
+		metricIds: ['game_date', 'game_status', 'opponent_team', 'team_score', 'opponent_score', 'result'],
+		requiredColumns: ['GAME_DATE_EST', 'GAME_ID', 'GAME_STATUS_ID', 'HOME_TEAM_ID', 'VISITOR_TEAM_ID']
+	},
+	{
+		endpointId: 'scoreboardv2',
+		params: buildScoreboardParams('2026-04-01'),
+		metricIds: ['game_date', 'game_status', 'opponent_team', 'team_score', 'opponent_score', 'result'],
+		requiredColumns: ['GAME_DATE_EST', 'GAME_ID', 'GAME_STATUS_ID', 'HOME_TEAM_ID', 'VISITOR_TEAM_ID']
+	},
+	{
+		endpointId: 'scoreboardv2',
+		params: buildScoreboardParams('2026-04-02'),
+		metricIds: ['game_date', 'game_status', 'opponent_team', 'team_score', 'opponent_score', 'result'],
+		requiredColumns: ['GAME_DATE_EST', 'GAME_ID', 'GAME_STATUS_ID', 'HOME_TEAM_ID', 'VISITOR_TEAM_ID']
+	},
+	{
+		endpointId: 'scoreboardv2',
+		params: buildScoreboardParams('2026-04-03'),
+		metricIds: ['game_date', 'game_status', 'opponent_team', 'team_score', 'opponent_score', 'result'],
+		requiredColumns: ['GAME_DATE_EST', 'GAME_ID', 'GAME_STATUS_ID', 'HOME_TEAM_ID', 'VISITOR_TEAM_ID']
+	},
+	{
+		endpointId: 'scoreboardv2',
+		params: buildScoreboardParams('2026-04-04'),
+		metricIds: ['game_date', 'game_status', 'opponent_team', 'team_score', 'opponent_score', 'result'],
+		requiredColumns: ['GAME_DATE_EST', 'GAME_ID', 'GAME_STATUS_ID', 'HOME_TEAM_ID', 'VISITOR_TEAM_ID']
 	},
 	{
 		endpointId: 'leaguedashteamstats',

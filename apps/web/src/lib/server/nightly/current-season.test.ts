@@ -3,9 +3,11 @@ import { describe, test } from 'node:test';
 import {
 	DEFAULT_NIGHTLY_ACTIVE_PLAYER_COHORT_SIZE,
 	NIGHTLY_PLAYER_COHORT_ALLOWLIST_IDS,
+	buildLeagueStandingsRequest,
 	buildSupportedSeasonLookupRequests,
 	buildPlayerTrendBootstrapRequests,
 	deriveNightlyPlayerComparisonCohort,
+	planCurrentSeasonLeagueWideRequests,
 	prioritizeNightlyPlayerBootstrapOrder,
 	resolveSeasonForSlateDate
 } from './current-season';
@@ -73,7 +75,7 @@ describe('current-season nightly planning', () => {
 		assert.deepEqual(
 			buildSupportedSeasonLookupRequests('2025-26').map((request) => ({
 				endpointId: request.endpointId,
-				measureType: request.params.MeasureType
+				measureType: request.params.MeasureType ?? null
 			})),
 			[
 				{
@@ -87,8 +89,33 @@ describe('current-season nightly planning', () => {
 				{
 					endpointId: 'leaguedashteamstats',
 					measureType: 'Advanced'
+				},
+				{
+					endpointId: 'leaguestandingsv3',
+					measureType: null
 				}
 			]
+		);
+	});
+
+	test('builds nightly league standings requests for standings snapshots', () => {
+		assert.deepEqual(buildLeagueStandingsRequest('2025-26'), {
+			endpointId: 'leaguestandingsv3',
+			params: {
+				LeagueID: '00',
+				Season: '2025-26',
+				SeasonType: 'Regular Season',
+				SeasonYear: ''
+			}
+		});
+	});
+
+	test('plans the default current scoreboard horizon around the slate date', () => {
+		assert.deepEqual(
+			planCurrentSeasonLeagueWideRequests('2026-04-01')
+				.filter((entry) => entry.endpointId === 'scoreboardv2')
+				.map((entry) => entry.request.params.GameDate),
+			['2026-03-31', '2026-04-01', '2026-04-02', '2026-04-03', '2026-04-04']
 		);
 	});
 

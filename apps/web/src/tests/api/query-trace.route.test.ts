@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import { resetDataStoreForTests } from '$lib/server/data/store';
+import { createNightlyBootstrapFixtureFetcher } from '$lib/server/nightly/bootstrap-fixtures';
+import { bootstrapCurrentSeasonNightly } from '$lib/server/nightly/bootstrap-service';
 import { executeSemanticQuery } from '$lib/server/semantic/query-service';
 import { POST as queryPost, _setQueryRouteDependenciesForTests } from '../../routes/api/query/+server';
 import { seedSemanticFixtureCache } from '../helpers/seed-semantic-fixture-cache';
@@ -284,6 +286,310 @@ describe('GET /api/query-trace/:traceId', () => {
 		});
 		assert.equal(payload.resolvedQuery.filters.season, '2025-26');
 		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
+	});
+
+	test('returns canonical structured traces for one-team standings requests', async () => {
+		const statsResponse = await statsPost({
+			request: new Request('http://localhost/api/stats/query', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					query: {
+						operation: 'standings',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['seed', 'wins'],
+						filters: {
+							season: '2023-24',
+							conference: 'East'
+						},
+						outputMode: 'table'
+					}
+				})
+			})
+		} as Parameters<typeof statsPost>[0]);
+		const stats = (await statsResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(stats.traceId));
+		const payload = (await parseJson(response)) as {
+			status: string;
+			warnings: Array<{ code: string }>;
+			resolvedQuery: {
+				operation: string;
+				entity: string;
+				subject: { ids: string[]; names: string[] };
+				metrics: string[];
+				filters: { season: string; seasonType: string; conference: string };
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.warnings.length, 0);
+		assert.equal(payload.resolvedQuery.operation, 'standings');
+		assert.equal(payload.resolvedQuery.entity, 'team');
+		assert.deepEqual(payload.resolvedQuery.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.deepEqual(payload.resolvedQuery.metrics, ['seed', 'wins']);
+		assert.equal(payload.resolvedQuery.filters.season, '2023-24');
+		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.equal(payload.resolvedQuery.filters.conference, 'East');
+	});
+
+	test('returns orchestration traces with explicit dropped-clause warnings for mixed standings and game batches', async () => {
+		_setQueryRouteDependenciesForTests({
+			async planQuestion() {
+				return {
+					type: 'planned',
+					toolRequests: [
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'standings',
+								entity: 'team',
+								subject: {},
+								metrics: ['conference_rank'],
+								filters: {
+									season: null,
+									seasonType: null,
+									window: null,
+									dateFrom: null,
+									dateTo: null,
+									conference: 'East',
+									division: null,
+									gameStatus: null
+								},
+								orderBy: null,
+								limit: 10,
+								outputMode: 'table'
+							}
+						},
+						{
+							toolName: 'stats_query',
+							query: {
+								operation: 'game',
+								entity: 'team',
+								subject: {
+									names: ['Boston Celtics']
+								},
+								metrics: ['game_date', 'game_status', 'opponent_team'],
+								filters: {
+									season: null,
+									seasonType: null,
+									window: null,
+									dateFrom: '2026-04-03',
+									dateTo: '2026-04-05',
+									conference: null,
+									division: null,
+									gameStatus: 'upcoming'
+								},
+								orderBy: null,
+								limit: 1,
+								outputMode: 'table'
+							}
+						}
+					],
+					warnings: [
+						{
+							code: 'dropped_unsupported_clause',
+							message: 'Dropped the prediction clause because forecasts are unsupported in this slice.'
+						}
+					]
+				};
+			},
+			executeSemanticQuery
+		});
+
+		const queryResponse = await queryPost(
+			createQueryPostEvent('Who leads the East, when do the Celtics play next, and who will win that game?')
+		);
+		const query = (await queryResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(query.traceId));
+		const payload = (await parseJson(response)) as {
+			status: string;
+			plannedToolRequests: Array<{ request: { query: { operation: string } } }>;
+			executedStructuredTraceIds: string[];
+			warnings: Array<{ code: string; message: string }>;
+			resolvedQuery?: unknown;
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.deepEqual(
+			payload.plannedToolRequests.map((plannedToolRequest) => plannedToolRequest.request.query.operation),
+			['standings', 'game']
+		);
+		assert.equal(payload.executedStructuredTraceIds.length, 2);
+		assert.equal(payload.warnings[0]?.code, 'dropped_unsupported_clause');
+		assert.match(payload.warnings[0]?.message ?? '', /prediction clause/i);
+		assert.equal(payload.warnings.some((warning) => warning.code === 'nightly_data_unavailable'), true);
+		assert.equal('resolvedQuery' in payload, false);
+	});
+
+	test('returns canonical structured traces for league-scoped standings longest-streak asks', async () => {
+		const statsResponse = await statsPost({
+			request: new Request('http://localhost/api/stats/query', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					query: {
+						operation: 'standings',
+						entity: 'team',
+						subject: {},
+						metrics: ['streak'],
+						filters: {
+							division: 'Atlantic'
+						},
+						outputMode: 'table'
+					}
+				})
+			})
+		} as Parameters<typeof statsPost>[0]);
+		const stats = (await statsResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(stats.traceId));
+		const payload = (await parseJson(response)) as {
+			status: string;
+			resolvedQuery: {
+				operation: string;
+				entity: string;
+				subject: { ids: string[]; names: string[] };
+				metrics: string[];
+				filters: { season: string; seasonType: string; division: string };
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.equal(payload.resolvedQuery.operation, 'standings');
+		assert.equal(payload.resolvedQuery.entity, 'team');
+		assert.deepEqual(payload.resolvedQuery.subject, {
+			ids: [],
+			names: []
+		});
+		assert.deepEqual(payload.resolvedQuery.metrics, ['streak']);
+		assert.equal(payload.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.equal(payload.resolvedQuery.filters.division, 'Atlantic');
+	});
+
+	test('returns honest structured traces for game requests before execution support exists', async () => {
+		const statsResponse = await statsPost({
+			request: new Request('http://localhost/api/stats/query', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					query: {
+						operation: 'game',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['game_status', 'opponent_team'],
+						filters: {
+							gameStatus: 'upcoming'
+						},
+						outputMode: 'table'
+					}
+				})
+			})
+		} as Parameters<typeof statsPost>[0]);
+		const stats = (await statsResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(stats.traceId));
+		const payload = (await parseJson(response)) as {
+			status: string;
+			warnings: Array<{ code: string }>;
+			resolvedQuery: {
+				operation: string;
+				entity: string;
+				subject: { ids: string[]; names: string[] };
+				metrics: string[];
+				filters: { season: string; seasonType: string; gameStatus: string };
+			};
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'coverage_gap');
+		assert.equal(payload.warnings[0]?.code, 'nightly_data_unavailable');
+		assert.equal(payload.resolvedQuery.operation, 'game');
+		assert.equal(payload.resolvedQuery.entity, 'team');
+		assert.deepEqual(payload.resolvedQuery.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.deepEqual(payload.resolvedQuery.metrics, ['game_status', 'opponent_team']);
+		assert.equal(payload.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.equal(payload.resolvedQuery.filters.gameStatus, 'upcoming');
+	});
+
+	test('returns canonical structured traces for grounded team game execution', async () => {
+		await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now: new Date('2026-04-02T05:00:00.000Z'),
+			fetcher: createNightlyBootstrapFixtureFetcher()
+		});
+
+		const statsResponse = await statsPost({
+			request: new Request('http://localhost/api/stats/query', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					query: {
+						operation: 'game',
+						entity: 'team',
+						subject: {
+							names: ['Denver']
+						},
+						metrics: ['game_date', 'opponent_team', 'team_score', 'opponent_score', 'result'],
+						filters: {
+							dateFrom: '2026-04-01',
+							dateTo: '2026-04-01',
+							gameStatus: 'final'
+						},
+						outputMode: 'table'
+					}
+				})
+			})
+		} as Parameters<typeof statsPost>[0]);
+		const stats = (await statsResponse.json()) as { traceId: string };
+
+		const response = await GET(createTraceEvent(stats.traceId));
+		const payload = (await parseJson(response)) as {
+			status: string;
+			warnings: Array<{ code: string }>;
+			resolvedQuery: {
+				operation: string;
+				entity: string;
+				subject: { ids: string[]; names: string[] };
+				metrics: string[];
+				filters: { season: string; seasonType: string; dateFrom: string; dateTo: string; gameStatus: string };
+			};
+			sourceCalls: Array<{ endpointId: string }>;
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.deepEqual(payload.warnings, []);
+		assert.equal(payload.resolvedQuery.operation, 'game');
+		assert.equal(payload.resolvedQuery.entity, 'team');
+		assert.deepEqual(payload.resolvedQuery.subject, {
+			ids: ['1610612743'],
+			names: ['Denver Nuggets']
+		});
+		assert.deepEqual(payload.resolvedQuery.metrics, ['game_date', 'opponent_team', 'team_score', 'opponent_score', 'result']);
+		assert.equal(payload.resolvedQuery.filters.season, '2025-26');
+		assert.equal(payload.resolvedQuery.filters.seasonType, 'Regular Season');
+		assert.equal(payload.resolvedQuery.filters.dateFrom, '2026-04-01');
+		assert.equal(payload.resolvedQuery.filters.dateTo, '2026-04-01');
+		assert.equal(payload.resolvedQuery.filters.gameStatus, 'final');
+		assert.equal(payload.sourceCalls.some((sourceCall) => sourceCall.endpointId === 'scoreboardv2'), true);
 	});
 
 	test('returns canonical player season lookup provenance for structured traces', async () => {

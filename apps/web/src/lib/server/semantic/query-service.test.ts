@@ -1,12 +1,101 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
-import { resetDataStoreForTests } from '$lib/server/data/store';
+import { getEndpointCatalogEntry } from '$lib/server/data/catalog';
+import { buildRawEndpointCacheKey, getDataStore, resetDataStoreForTests, stableStringify } from '$lib/server/data/store';
+import { createNightlyBootstrapFixtureFetcher } from '$lib/server/nightly/bootstrap-fixtures';
+import { bootstrapCurrentSeasonNightly } from '$lib/server/nightly/bootstrap-service';
 import { ensurePlayerDirectoryAvailable, setPlayerDirectoryRefreshLoaderForTests } from '$lib/server/players/player-directory';
 import { seedSemanticFixtureCache } from '../../../tests/helpers/seed-semantic-fixture-cache';
 import { executeSemanticQuery, validateSemanticQueryRequest } from './query-service';
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
 const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;
+
+function createScoreboardPayload(
+	gameDate: string,
+	options: {
+		gameId: string;
+		gameStatus: 'upcoming' | 'final';
+		homeTeamId?: string;
+		visitorTeamId?: string;
+		teamScore?: number | null;
+		opponentScore?: number | null;
+	}
+): unknown {
+	const homeTeamId = options.homeTeamId ?? '1610612738';
+	const visitorTeamId = options.visitorTeamId ?? '1610612749';
+	const gameStatusId = options.gameStatus === 'final' ? 3 : 1;
+
+	return {
+		resource: 'scoreboardv2',
+		resultSets: [
+			{
+				name: 'GameHeader',
+				headers: ['GAME_DATE_EST', 'GAME_SEQUENCE', 'GAME_ID', 'GAME_STATUS_ID', 'HOME_TEAM_ID', 'VISITOR_TEAM_ID'],
+				rowSet: [[`${gameDate}T00:00:00`, 1, options.gameId, gameStatusId, homeTeamId, visitorTeamId]]
+			},
+			{
+				name: 'LineScore',
+				headers: ['GAME_ID', 'TEAM_ID', 'PTS'],
+				rowSet: [
+					[options.gameId, '1610612738', options.teamScore ?? null],
+					[options.gameId, homeTeamId === '1610612738' ? visitorTeamId : homeTeamId, options.opponentScore ?? null]
+				]
+			}
+		]
+	};
+}
+
+function createEmptyScoreboardPayload(): unknown {
+	return {
+		resource: 'scoreboardv2',
+		resultSets: [
+			{
+				name: 'GameHeader',
+				headers: ['GAME_DATE_EST', 'GAME_SEQUENCE', 'GAME_ID', 'GAME_STATUS_ID', 'HOME_TEAM_ID', 'VISITOR_TEAM_ID'],
+				rowSet: []
+			},
+			{
+				name: 'LineScore',
+				headers: ['GAME_ID', 'TEAM_ID', 'PTS'],
+				rowSet: []
+			}
+		]
+	};
+}
+
+function putScoreboardCache(gameDate: string, payload: unknown, now: Date): void {
+	const catalogEntry = getEndpointCatalogEntry('scoreboardv2');
+	if (!catalogEntry) {
+		throw new Error("Missing endpoint catalog entry for 'scoreboardv2'.");
+	}
+
+	const params = {
+		DayOffset: '0',
+		GameDate: gameDate,
+		LeagueID: '00'
+	};
+	const normalizedParams = JSON.parse(stableStringify(params)) as Record<string, string>;
+	const snapshotDate = now.toISOString().slice(0, 10);
+	const cacheKey = buildRawEndpointCacheKey({
+		endpointId: 'scoreboardv2',
+		params: normalizedParams,
+		parserVersion: catalogEntry.parserVersion,
+		snapshotDate
+	});
+
+	getDataStore().putRawEndpointCache({
+		cacheKey,
+		endpointId: 'scoreboardv2',
+		paramsJson: JSON.stringify(normalizedParams),
+		payloadJson: JSON.stringify(payload),
+		fetchedAt: now.toISOString(),
+		expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+		snapshotDate,
+		parserVersion: catalogEntry.parserVersion,
+		isProvisional: false
+	});
+}
 
 describe('validateSemanticQueryRequest', () => {
 	test('accepts a valid player ranking request', () => {
@@ -114,6 +203,146 @@ describe('validateSemanticQueryRequest', () => {
 		});
 
 		assert.equal(result.ok, true);
+	});
+
+	test('accepts valid structured standings requests for one team or league scope', () => {
+		const teamLookup = validateSemanticQueryRequest({
+			query: {
+				operation: 'standings',
+				entity: 'team',
+				subject: {
+					names: ['Boston']
+				},
+				metrics: ['seed', 'wins', 'losses'],
+				filters: {
+					season: '2023-24',
+					conference: 'East'
+				},
+				outputMode: 'table'
+			}
+		});
+		const leagueRanking = validateSemanticQueryRequest({
+			query: {
+				operation: 'standings',
+				entity: 'team',
+				subject: {},
+				metrics: ['conference_rank'],
+				filters: {
+					division: 'Atlantic'
+				},
+				outputMode: 'table'
+			}
+		});
+
+		assert.equal(teamLookup.ok, true);
+		assert.equal(leagueRanking.ok, true);
+	});
+
+	test('accepts valid structured team game requests', () => {
+		const result = validateSemanticQueryRequest({
+			query: {
+				operation: 'game',
+				entity: 'team',
+				subject: {
+					names: ['Boston']
+				},
+				metrics: ['game_date', 'game_status', 'opponent_team'],
+				filters: {
+					gameStatus: 'upcoming'
+				},
+				outputMode: 'table'
+			}
+		});
+
+		assert.equal(result.ok, true);
+	});
+
+	test('rejects standings requests with too many team subjects', () => {
+		const result = validateSemanticQueryRequest({
+			query: {
+				operation: 'standings',
+				entity: 'team',
+				subject: {
+					names: ['Boston', 'Cleveland']
+				},
+				metrics: ['seed'],
+				filters: {}
+			}
+		});
+
+		assert.equal(result.ok, false);
+		assert.match(result.error, /at most one subject/i);
+	});
+
+	test('rejects team game requests without exactly one team subject', () => {
+		const result = validateSemanticQueryRequest({
+			query: {
+				operation: 'game',
+				entity: 'team',
+				subject: {},
+				metrics: ['game_status'],
+				filters: {}
+			}
+		});
+
+		assert.equal(result.ok, false);
+		assert.match(result.error, /exactly one subject/i);
+	});
+
+	test('rejects invalid standings and game filters and field ids', () => {
+		const invalidConference = validateSemanticQueryRequest({
+			query: {
+				operation: 'standings',
+				entity: 'team',
+				subject: {},
+				metrics: ['seed'],
+				filters: {
+					conference: 'Eastern'
+				}
+			}
+		});
+		const invalidGameStatus = validateSemanticQueryRequest({
+			query: {
+				operation: 'game',
+				entity: 'team',
+				subject: {
+					names: ['Boston']
+				},
+				metrics: ['game_status'],
+				filters: {
+					gameStatus: 'live'
+				}
+			}
+		});
+		const invalidStandingsField = validateSemanticQueryRequest({
+			query: {
+				operation: 'standings',
+				entity: 'team',
+				subject: {},
+				metrics: ['drtg'],
+				filters: {}
+			}
+		});
+		const invalidGameField = validateSemanticQueryRequest({
+			query: {
+				operation: 'game',
+				entity: 'team',
+				subject: {
+					names: ['Boston']
+				},
+				metrics: ['wins'],
+				filters: {}
+			}
+		});
+
+		assert.equal(invalidConference.ok, false);
+		assert.match(invalidConference.error, /query\.filters\.conference/i);
+		assert.equal(invalidGameStatus.ok, false);
+		assert.match(invalidGameStatus.error, /query\.filters\.gameStatus/i);
+		assert.equal(invalidStandingsField.ok, false);
+		assert.match(invalidStandingsField.error, /not supported for standings\/team/i);
+		assert.equal(invalidGameField.ok, false);
+		assert.match(invalidGameField.error, /not supported for game\/team/i);
 	});
 
 	test('rejects deprecated allowLiveFallback request options', () => {
@@ -474,6 +703,509 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.warnings[0]?.code, 'nightly_data_unavailable');
 		assert.equal(response.provenance.dataFreshnessMode, 'nightly');
 		assert.equal(response.provenance.sourceCalls[0]?.cacheStatus, 'miss');
+	});
+
+	test('returns canonical one-team standings rows for supported seasons', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'standings',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['seed', 'wins'],
+					filters: {
+						season: '2023-24',
+						conference: 'East'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.shape, 'table');
+		assert.deepEqual(response.result?.columns, ['teamId', 'teamName', 'season', 'seasonType', 'seed', 'wins']);
+		assert.deepEqual(response.result?.rows[0], {
+			teamId: '1610612738',
+			teamName: 'Boston Celtics',
+			season: '2023-24',
+			seasonType: 'Regular Season',
+			seed: 1,
+			wins: 64
+		});
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2023-24');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+		assert.equal(response.provenance.resolvedQuery?.filters.conference, 'East');
+		assert.equal(response.provenance.dataFreshnessMode, 'nightly');
+		assert.equal(response.provenance.sourceCalls[0]?.sourceStatus, 'ok');
+		assert.equal(response.warnings.length, 0);
+	});
+
+	test('defaults current-season team standings queries to the nightly-supported current season', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'standings',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['seed', 'wins', 'streak'],
+					filters: {},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.result?.columns, ['teamId', 'teamName', 'season', 'seasonType', 'seed', 'wins', 'streak']);
+		assert.deepEqual(response.result?.rows[0], {
+			teamId: '1610612738',
+			teamName: 'Boston Celtics',
+			season: '2025-26',
+			seasonType: 'Regular Season',
+			seed: 2,
+			wins: 58,
+			streak: 'W4'
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+	});
+
+	test('returns league-scoped standings rankings with conference filters and ascending standings field defaults', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'standings',
+					entity: 'team',
+					subject: {},
+					metrics: ['conference_rank'],
+					filters: {
+						season: '2025-26',
+						conference: 'East'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.shape, 'ranking');
+		assert.deepEqual(response.result?.columns, ['rank', 'subject', 'metric', 'value']);
+		assert.deepEqual(response.result?.rows, [
+			{ rank: 1, subject: 'Cleveland Cavaliers', metric: 'conference_rank', value: 1 },
+			{ rank: 2, subject: 'Boston Celtics', metric: 'conference_rank', value: 2 }
+		]);
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: [],
+			names: []
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+		assert.equal(response.provenance.resolvedQuery?.filters.conference, 'East');
+	});
+
+	test('accepts standings queries when the planner includes a same-metric orderBy', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'standings',
+					entity: 'team',
+					subject: {},
+					metrics: ['conference_rank'],
+					filters: {
+						season: '2025-26',
+						conference: 'East'
+					},
+					orderBy: {
+						metric: 'conference_rank',
+						direction: 'asc'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.shape, 'ranking');
+		assert.equal(response.warnings.length, 0);
+		assert.deepEqual(response.provenance.resolvedQuery?.orderBy, {
+			metric: 'conference_rank',
+			direction: 'asc'
+		});
+	});
+
+	test('returns league-scoped standings rankings with division filters and descending streak defaults', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'standings',
+					entity: 'team',
+					subject: {},
+					metrics: ['streak'],
+					filters: {
+						season: '2025-26',
+						division: 'Atlantic'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.shape, 'ranking');
+		assert.deepEqual(response.result?.rows, [{ rank: 1, subject: 'Boston Celtics', metric: 'streak', value: 'W4' }]);
+		assert.equal(response.provenance.resolvedQuery?.filters.division, 'Atlantic');
+	});
+
+	test('returns nightly_data_unavailable for game queries when the scoreboard horizon is missing', async () => {
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['game_status', 'opponent_team'],
+					filters: {
+						gameStatus: 'upcoming'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-03-25T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'coverage_gap');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'nightly_data_unavailable');
+		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
+			ids: ['1610612738'],
+			names: ['Boston Celtics']
+		});
+		assert.equal(response.provenance.resolvedQuery?.filters.season, '2025-26');
+		assert.equal(response.provenance.resolvedQuery?.filters.seasonType, 'Regular Season');
+		assert.equal(response.provenance.resolvedQuery?.filters.gameStatus, 'upcoming');
+	});
+
+	test('returns the next upcoming team game from the canonical scoreboard horizon', async () => {
+		await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now: new Date('2026-04-02T05:00:00.000Z'),
+			fetcher: createNightlyBootstrapFixtureFetcher()
+		});
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['game_date', 'game_status', 'opponent_team'],
+					filters: {
+						gameStatus: 'upcoming'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-04-02T05:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.result?.rows, [
+			{
+				teamId: '1610612738',
+				teamName: 'Boston Celtics',
+				gameId: '0022500991',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				game_date: '2026-04-03',
+				game_status: 'upcoming',
+				opponent_team: 'Milwaukee Bucks'
+			}
+		]);
+		assert.equal(response.result?.coverageStatus, 'complete');
+		assert.equal(response.result?.requestedCount, 1);
+		assert.equal(response.result?.returnedCount, 1);
+	});
+
+	test('returns the prior final team result for strict last-night asks', async () => {
+		await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now: new Date('2026-04-02T05:00:00.000Z'),
+			fetcher: createNightlyBootstrapFixtureFetcher()
+		});
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Denver']
+					},
+					metrics: ['game_date', 'opponent_team', 'team_score', 'opponent_score', 'result'],
+					filters: {
+						dateFrom: '2026-04-01',
+						dateTo: '2026-04-01',
+						gameStatus: 'final'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-04-02T05:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.result?.rows, [
+			{
+				teamId: '1610612743',
+				teamName: 'Denver Nuggets',
+				gameId: '0022500990',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				game_date: '2026-04-01',
+				opponent_team: 'Minnesota Timberwolves',
+				team_score: 112,
+				opponent_score: 105,
+				result: 'W'
+			}
+		]);
+	});
+
+	test('returns nightly_data_unavailable when a last-night team game exists but the stored status is not final yet', async () => {
+		const now = new Date('2026-04-06T22:45:00.000Z');
+		resetDataStoreForTests();
+		putScoreboardCache(
+			'2026-04-05',
+			createScoreboardPayload('2026-04-05', {
+				gameId: 'g-tor-bos',
+				gameStatus: 'upcoming',
+				homeTeamId: '1610612738',
+				visitorTeamId: '1610612761'
+			}),
+			now
+		);
+		putScoreboardCache('2026-04-06', createEmptyScoreboardPayload(), now);
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Toronto Raptors']
+					},
+					metrics: ['game_date', 'opponent_team', 'team_score', 'opponent_score', 'result'],
+					filters: {
+						gameStatus: 'final'
+					},
+					outputMode: 'table'
+				}
+			},
+			now
+		);
+
+		assert.equal(response.status, 'coverage_gap');
+		assert.equal(response.result, null);
+		assert.equal(response.warnings[0]?.code, 'nightly_data_unavailable');
+		assert.match(response.warnings[0]?.message ?? '', /not final yet/i);
+	});
+
+	test('returns strict tomorrow rows without collapsing into chronological next-game semantics', async () => {
+		await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now: new Date('2026-04-02T05:00:00.000Z'),
+			fetcher: createNightlyBootstrapFixtureFetcher()
+		});
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['game_date', 'game_status', 'opponent_team'],
+					filters: {
+						dateFrom: '2026-04-03',
+						dateTo: '2026-04-03',
+						gameStatus: 'upcoming'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-04-02T05:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.result?.rows, [
+			{
+				teamId: '1610612738',
+				teamName: 'Boston Celtics',
+				gameId: '0022500991',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				game_date: '2026-04-03',
+				game_status: 'upcoming',
+				opponent_team: 'Milwaukee Bucks'
+			}
+		]);
+	});
+
+	test('returns honest no-game-day answers for strict calendar dates inside the materialized horizon', async () => {
+		await bootstrapCurrentSeasonNightly({
+			slateDate: '2026-04-01',
+			now: new Date('2026-04-02T05:00:00.000Z'),
+			fetcher: createNightlyBootstrapFixtureFetcher()
+		});
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['game_date', 'game_status', 'opponent_team'],
+					filters: {
+						dateFrom: '2026-04-04',
+						dateTo: '2026-04-04',
+						gameStatus: 'any'
+					},
+					outputMode: 'table'
+				}
+			},
+			new Date('2026-04-03T12:00:00.000Z')
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.result?.rows, []);
+		assert.equal(response.result?.coverageStatus, 'complete');
+		assert.equal(response.result?.requestedCount, 1);
+		assert.equal(response.result?.returnedCount, 0);
+	});
+
+	test('returns bounded upcoming game ranges with complete completeness metadata', async () => {
+		const now = new Date('2026-04-02T05:00:00.000Z');
+		resetDataStoreForTests();
+		putScoreboardCache('2026-04-02', createScoreboardPayload('2026-04-02', { gameId: 'g-1', gameStatus: 'upcoming', visitorTeamId: '1610612752' }), now);
+		putScoreboardCache('2026-04-03', createScoreboardPayload('2026-04-03', { gameId: 'g-2', gameStatus: 'upcoming', visitorTeamId: '1610612749' }), now);
+		putScoreboardCache('2026-04-04', createScoreboardPayload('2026-04-04', { gameId: 'g-3', gameStatus: 'upcoming', visitorTeamId: '1610612755' }), now);
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['game_date', 'game_status', 'opponent_team'],
+					filters: {
+						dateFrom: '2026-04-02',
+						dateTo: '2026-04-04',
+						gameStatus: 'upcoming'
+					},
+					limit: 3,
+					outputMode: 'table'
+				}
+			},
+			now
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.coverageStatus, 'complete');
+		assert.equal(response.result?.requestedCount, 3);
+		assert.equal(response.result?.returnedCount, 3);
+		assert.deepEqual(
+			response.result?.rows.map((row) => row.game_date),
+			['2026-04-02', '2026-04-03', '2026-04-04']
+		);
+	});
+
+	test('returns season_exhausted for next N games when the remaining season contains fewer grounded games', async () => {
+		const now = new Date('2026-04-02T05:00:00.000Z');
+		resetDataStoreForTests();
+		putScoreboardCache('2026-04-02', createEmptyScoreboardPayload(), now);
+		putScoreboardCache('2026-04-03', createScoreboardPayload('2026-04-03', { gameId: 'g-2', gameStatus: 'upcoming', visitorTeamId: '1610612749' }), now);
+		putScoreboardCache('2026-04-04', createEmptyScoreboardPayload(), now);
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['game_date', 'game_status', 'opponent_team'],
+					filters: {
+						gameStatus: 'upcoming'
+					},
+					limit: 2,
+					outputMode: 'table'
+				}
+			},
+			now
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.result?.coverageStatus, 'season_exhausted');
+		assert.equal(response.result?.requestedCount, 2);
+		assert.equal(response.result?.returnedCount, 1);
+		assert.deepEqual(response.result?.rows.map((row) => row.game_date), ['2026-04-03']);
+	});
+
+	test('returns ok plus explicit partial_materialized metadata when stored game range coverage is incomplete but grounded rows exist', async () => {
+		const now = new Date('2026-04-02T05:00:00.000Z');
+		resetDataStoreForTests();
+		putScoreboardCache('2026-04-02', createScoreboardPayload('2026-04-02', { gameId: 'g-1', gameStatus: 'upcoming', visitorTeamId: '1610612752' }), now);
+		putScoreboardCache('2026-04-04', createScoreboardPayload('2026-04-04', { gameId: 'g-3', gameStatus: 'upcoming', visitorTeamId: '1610612755' }), now);
+
+		const response = await executeSemanticQuery(
+			{
+				query: {
+					operation: 'game',
+					entity: 'team',
+					subject: {
+						names: ['Boston']
+					},
+					metrics: ['game_date', 'game_status', 'opponent_team'],
+					filters: {
+						dateFrom: '2026-04-02',
+						dateTo: '2026-04-04',
+						gameStatus: 'upcoming'
+					},
+					limit: 3,
+					outputMode: 'table'
+				}
+			},
+			now
+		);
+
+		assert.equal(response.status, 'ok');
+		assert.equal(response.warnings[0]?.code, 'nightly_data_unavailable');
+		assert.equal(response.result?.coverageStatus, 'partial_materialized');
+		assert.equal(response.result?.requestedCount, 3);
+		assert.equal(response.result?.returnedCount, 2);
+		assert.deepEqual(response.result?.rows.map((row) => row.game_date), ['2026-04-02', '2026-04-04']);
 	});
 
 	test('canonicalizes exact-name trend requests in resolvedQuery provenance', async () => {

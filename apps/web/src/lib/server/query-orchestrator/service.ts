@@ -56,6 +56,7 @@ export function createQueryOrchestratorService(
 				question,
 				toolRequests: decision.toolRequests
 			});
+			const warnings = [...(decision.warnings ?? []), ...executedBatch.warnings];
 
 			if (executedBatch.status !== 'ok') {
 				saveQueryOrchestrationTrace(
@@ -63,26 +64,27 @@ export function createQueryOrchestratorService(
 					question,
 					executedBatch.status,
 					executedBatch,
-					executedBatch.warnings,
+					warnings,
 					planningLatencyMs,
 					0
 				);
 				return buildNonOkAnswerResponse(
+					question,
 					orchestrationTraceId,
 					executedBatch.toolResults,
 					executedBatch.status,
-					executedBatch.warnings
+					warnings
 				);
 			}
 
 			const renderStartedAt = performance.now();
 			const rendered = await dependencies.renderer.renderAnswer({
 				question,
-				toolResults: executedBatch.successfulToolResults
+				toolResults: executedBatch.successfulToolResults,
+				warnings
 			});
 			const renderLatencyMs = Math.round(performance.now() - renderStartedAt);
 			const citations = collectCitations(executedBatch.successfulToolResults);
-			const warnings = executedBatch.warnings;
 
 			saveQueryOrchestrationTrace(
 				orchestrationTraceId,
@@ -138,7 +140,7 @@ function buildPlannedNonOkResponse(
 		}
 	});
 
-	return buildNonOkAnswerResponse(traceId, [], decision.type, response.warnings);
+	return buildNonOkAnswerResponse(question, traceId, [], decision.type, response.warnings);
 }
 
 function saveQueryOrchestrationTrace(
@@ -166,6 +168,7 @@ function saveQueryOrchestrationTrace(
 }
 
 function buildNonOkAnswerResponse(
+	question: string,
 	traceId: string,
 	toolResults: QueryAnswerToolResult[],
 	status: Exclude<StatsQueryResponse['status'], 'ok'>,
@@ -173,13 +176,48 @@ function buildNonOkAnswerResponse(
 ): QueryAnswerResponse {
 	return {
 		status,
-		answer: warnings[0]?.message ?? 'Unable to process this query.',
+		answer: buildNonOkAnswerText(question, status, warnings),
 		artifacts: [],
 		toolResults,
 		citations: collectCitations(toolResults),
 		warnings,
 		traceId
 	};
+}
+
+function buildNonOkAnswerText(
+	question: string,
+	status: Exclude<StatsQueryResponse['status'], 'ok'>,
+	warnings: StatsQueryResponse['warnings']
+): string {
+	const primaryWarning = warnings[0];
+	const normalizedQuestion = question.trim();
+	if (!primaryWarning) {
+		return `I couldn't answer "${normalizedQuestion}" from the current stats slice.`;
+	}
+
+	if (primaryWarning.code === 'nightly_data_unavailable') {
+		if (/not final yet/i.test(primaryWarning.message)) {
+			return `I couldn't confirm "${normalizedQuestion}" because the stored nightly scoreboard for that game date is still marked non-final. Try rerunning the nightly bootstrap for the current slate date, or ask again after the nightly refresh completes.`;
+		}
+
+		return `I couldn't fully answer "${normalizedQuestion}" because the nightly snapshot is missing some of the required data. Try rerunning the nightly bootstrap, or narrow the question to one team and one exact date or date range.`;
+	}
+
+	if (
+		primaryWarning.code === 'unsupported_query_shape' &&
+		/Single-event team game queries require either one exact date or a supported gameStatus\./i.test(
+			primaryWarning.message
+		)
+	) {
+		return `I couldn't answer "${normalizedQuestion}" as written because this stats slice only supports a team's next game, a recent final result, one exact date, or an explicit date range. Try "Did the Raptors win last night?" or "Show the Raptors games from April 1, 2026 to April 5, 2026."`;
+	}
+
+	if (status === 'clarification_needed') {
+		return `I need a narrower version of "${normalizedQuestion}" before I can answer it. ${primaryWarning.message}`;
+	}
+
+	return `I couldn't answer "${normalizedQuestion}" with the current stats slice. ${primaryWarning.message}`;
 }
 
 function collectCitations(toolResults: QueryAnswerToolResult[]): QueryAnswerResponse['citations'] {

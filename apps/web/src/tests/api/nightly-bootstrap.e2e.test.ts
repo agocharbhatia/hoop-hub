@@ -193,6 +193,30 @@ describe('nightly bootstrap end-to-end coverage', () => {
 		assert.equal(beforeStatsPayload.status, 'coverage_gap');
 		assert.equal(beforeStatsPayload.warnings[0]?.code, 'nightly_data_unavailable');
 
+		const beforeStandingsResponse = await statsPost(
+			createStatsPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'standings',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['seed', 'wins', 'streak'],
+						filters: {
+							season: '2023-24',
+							conference: 'East'
+						},
+						outputMode: 'table'
+					}
+				})
+			)
+		);
+		const beforeStandingsPayload = (await parseJson(beforeStandingsResponse)) as StatsQueryResponse;
+		assert.equal(beforeStandingsResponse.status, 200);
+		assert.equal(beforeStandingsPayload.status, 'coverage_gap');
+		assert.equal(beforeStandingsPayload.warnings[0]?.code, 'nightly_data_unavailable');
+
 		const bootstrapResult = await bootstrapCurrentSeasonNightly({
 			slateDate: BOOTSTRAP_SLATE_DATE,
 			now: BOOTSTRAP_NOW,
@@ -230,6 +254,39 @@ describe('nightly bootstrap end-to-end coverage', () => {
 		assert.equal(afterStatsResponse.status, 200);
 		assert.equal(afterStatsPayload.status, 'ok');
 		assert.equal(afterStatsPayload.provenance.dataFreshnessMode, 'nightly');
+
+		const afterStandingsResponse = await statsPost(
+			createStatsPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'standings',
+						entity: 'team',
+						subject: {
+							names: ['Boston']
+						},
+						metrics: ['seed', 'wins', 'streak'],
+						filters: {
+							season: '2023-24',
+							conference: 'East'
+						},
+						outputMode: 'table'
+					}
+				})
+			)
+		);
+		const afterStandingsPayload = (await parseJson(afterStandingsResponse)) as StatsQueryResponse;
+		assert.equal(afterStandingsResponse.status, 200);
+		assert.equal(afterStandingsPayload.status, 'ok');
+		assert.equal(afterStandingsPayload.provenance.dataFreshnessMode, 'nightly');
+		assert.deepEqual(afterStandingsPayload.result?.rows[0], {
+			teamId: '1610612738',
+			teamName: 'Boston Celtics',
+			season: '2023-24',
+			seasonType: 'Regular Season',
+			seed: 1,
+			wins: 64,
+			streak: 'W2'
+		});
 	});
 
 	test('keeps previous-day nightly snapshots readable on later days for planner and structured execution', async () => {

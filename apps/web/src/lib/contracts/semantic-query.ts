@@ -1,6 +1,6 @@
 import type { Citation, DataFreshnessMode, TraceSourceCall } from './chat';
 
-export type SemanticQueryOperation = 'lookup' | 'rank' | 'compare' | 'trend' | 'split' | 'game' | 'event';
+export type SemanticQueryOperation = 'lookup' | 'rank' | 'compare' | 'trend' | 'split' | 'standings' | 'game' | 'event';
 
 export type SemanticQueryEntity = 'player' | 'team' | 'game' | 'event' | 'league';
 
@@ -22,6 +22,9 @@ export type SemanticQueryFilters = {
 	window?: SemanticQueryWindow | null;
 	dateFrom?: string | null;
 	dateTo?: string | null;
+	conference?: 'East' | 'West' | null;
+	division?: 'Atlantic' | 'Central' | 'Southeast' | 'Northwest' | 'Pacific' | 'Southwest' | null;
+	gameStatus?: 'upcoming' | 'final' | 'any' | null;
 };
 
 export type SemanticQueryOrderBy = {
@@ -56,6 +59,9 @@ export type StatsQueryResult = {
 	columns: string[];
 	rows: StatsQueryRow[];
 	summary?: string;
+	coverageStatus?: 'complete' | 'season_exhausted' | 'partial_materialized';
+	requestedCount?: number;
+	returnedCount?: number;
 };
 
 export type StatsQueryWarning = {

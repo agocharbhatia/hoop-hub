@@ -1,404 +1,284 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import type { QueryAnswerResponse, QueryAnswerToolResult } from '$lib/contracts/answer-response';
-import type { SemanticQueryRequest, StatsQueryResponse } from '$lib/contracts/semantic-query';
+import type { QueryAnswerToolResult } from '$lib/contracts/answer-response';
 import {
-	createAnswerRendererService,
 	createDefaultAnswerRendererService,
-	type AnswerRendererAdapter
+	createDeterministicAnswerRendererService
 } from './service';
 
 /* Helper functions */
 
-function buildRequest(metric = 'ast'): SemanticQueryRequest {
-	return {
-		question: 'Who averaged the most assists in 2023-24?',
-		query: {
-			operation: 'rank',
-			entity: 'player',
-			subject: {},
-			metrics: [metric],
-			filters: {
-				season: '2023-24',
-				seasonType: null,
-				window: null,
-				dateFrom: null,
-				dateTo: null
-			},
-			orderBy: {
-				metric,
-				direction: 'desc'
-			},
-			limit: 10,
-			outputMode: 'table'
-		}
-	};
-}
-
-function buildResponse(overrides: Partial<StatsQueryResponse> = {}): StatsQueryResponse {
-	return {
-		status: 'ok',
-		result: {
-			shape: 'ranking',
-			columns: ['player', 'ast'],
-			rows: [{ player: 'Tyrese Haliburton', ast: 10.9 }],
-			summary: 'Tyrese Haliburton led the league in assists at 10.9 per game.'
-		},
-		citations: [{ source: 'stats.nba.com', detail: 'LeagueDashPlayerStats' }],
-		provenance: {
-			executor: 'semantic_executor',
-			resolvedQuery: buildRequest().query,
-			dataFreshnessMode: 'nightly',
-			sourceCalls: []
-		},
-		warnings: [],
-		traceId: 'trace-ranked',
-		...overrides
-	};
-}
-
-function buildToolResult(responseOverrides: Partial<StatsQueryResponse> = {}): QueryAnswerToolResult {
+function buildToolResult(result: QueryAnswerToolResult['response']['result'], resolvedQuery: QueryAnswerToolResult['response']['provenance']['resolvedQuery']): QueryAnswerToolResult {
 	return {
 		toolName: 'stats_query',
-		request: buildRequest(),
-		response: buildResponse(responseOverrides)
-	};
-}
-
-function createAdapter(output: unknown): AnswerRendererAdapter {
-	return {
-		async renderAnswer() {
-			return output;
+		request: {
+			question: 'placeholder',
+			query: resolvedQuery!
+		},
+		response: {
+			status: 'ok',
+			result,
+			citations: [],
+			provenance: {
+				executor: 'semantic_executor',
+				resolvedQuery,
+				dataFreshnessMode: 'nightly',
+				sourceCalls: []
+			},
+			warnings: [],
+			traceId: 'trace-1'
 		}
 	};
 }
 
-describe('createAnswerRendererService', () => {
-	test('accepts text_block artifacts as the minimal v1 narrative artifact shape', async () => {
-		const renderer = createAnswerRendererService(
-			createAdapter({
-				answer: 'Boston posted strong two-way ratings in 2023-24.',
-				artifacts: [{ type: 'text_block', text: 'Boston finished first in offense and top tier on defense.' }]
-			})
-		);
-
+describe('default answer renderer', () => {
+	test('renders a natural historical standings answer for a single team row', async () => {
+		const renderer = createDeterministicAnswerRendererService();
 		const rendered = await renderer.renderAnswer({
-			question: buildRequest().question!,
-			toolResults: [buildToolResult()]
-		});
-
-		assert.deepEqual(rendered.artifacts, [
-			{
-				type: 'text_block',
-				text: 'Boston finished first in offense and top tier on defense.'
-			}
-		]);
-	});
-
-	test('returns grounded answer text and table artifacts for one successful tool result', async () => {
-		const renderer = createAnswerRendererService(
-			createAdapter({
-				answer: 'Tyrese Haliburton led the league in assists at 10.9 per game.',
-				artifacts: [
-					{
-						type: 'table',
-						shape: 'ranking',
-						columns: ['player', 'ast'],
-						rows: [{ player: 'Tyrese Haliburton', ast: 10.9 }]
-					}
-				]
-			})
-		);
-
-		const rendered = await renderer.renderAnswer({
-			question: buildRequest().question!,
-			toolResults: [buildToolResult()]
-		});
-
-		assert.equal(rendered.answer, 'Tyrese Haliburton led the league in assists at 10.9 per game.');
-		assert.deepEqual(rendered.artifacts, [
-			{
-				type: 'table',
-				shape: 'ranking',
-				columns: ['player', 'ast'],
-				rows: [{ player: 'Tyrese Haliburton', ast: 10.9 }]
-			}
-		]);
-	});
-
-	test('rejects invalid renderer outputs instead of returning untyped answer payloads', async () => {
-		const renderer = createAnswerRendererService(
-			createAdapter({
-				answer: '',
-				artifacts: [{ type: 'chart' }]
-			})
-		);
-
-		await assert.rejects(
-			async () =>
-				renderer.renderAnswer({
-					question: buildRequest().question!,
-					toolResults: [buildToolResult()]
-				}),
-			/error/i
-		);
-	});
-
-	test('can build a full answer payload from one successful tool result', async () => {
-		const renderer = createAnswerRendererService(
-			createAdapter({
-				answer: 'Tyrese Haliburton led the league in assists at 10.9 per game.',
-				artifacts: [
-					{
-						type: 'table',
-						shape: 'ranking',
-						columns: ['player', 'ast'],
-						rows: [{ player: 'Tyrese Haliburton', ast: 10.9 }]
-					}
-				]
-			})
-		);
-
-		const toolResult = buildToolResult();
-		const rendered = await renderer.renderAnswer({
-			question: buildRequest().question!,
-			toolResults: [toolResult]
-		});
-
-		const answerPayload: QueryAnswerResponse = {
-			status: toolResult.response.status,
-			answer: rendered.answer,
-			artifacts: rendered.artifacts,
-			toolResults: [toolResult],
-			citations: toolResult.response.citations,
-			warnings: toolResult.response.warnings,
-			traceId: toolResult.response.traceId
-		};
-
-		assert.equal(answerPayload.status, 'ok');
-		assert.equal(answerPayload.toolResults.length, 1);
-		assert.equal(answerPayload.citations.length, 1);
-		assert.equal(answerPayload.traceId, 'trace-ranked');
-	});
-});
-
-describe('createDefaultAnswerRendererService', () => {
-	test('synthesizes a natural sentence for single-row lookup results instead of reusing generic lookup summaries', async () => {
-		const renderer = createDefaultAnswerRendererService();
-		const teamLookupRequest: SemanticQueryRequest = {
-			question: 'Show the Boston Celtics offensive and defensive rating in 2023-24',
-			query: {
-				operation: 'lookup',
-				entity: 'team',
-				subject: {
-					names: ['Boston Celtics']
-				},
-				metrics: ['ortg', 'drtg'],
-				filters: {
-					season: '2023-24',
-					seasonType: 'Regular Season',
-					window: null,
-					dateFrom: null,
-					dateTo: null
-				},
-				orderBy: null,
-				limit: null,
-				outputMode: 'table'
-			}
-		};
-
-		const rendered = await renderer.renderAnswer({
-			question: teamLookupRequest.question!,
+			question: 'how was bostons season in 2023-2024',
 			toolResults: [
-				{
-					toolName: 'stats_query',
-					request: teamLookupRequest,
-					response: {
-						status: 'ok',
-						result: {
-							shape: 'table',
-							columns: ['teamId', 'teamName', 'season', 'seasonType', 'ortg', 'drtg'],
-							rows: [
-								{
-									teamId: '1610612738',
-									teamName: 'Boston Celtics',
-									season: '2023-24',
-									seasonType: 'Regular Season',
-									ortg: 122.2,
-									drtg: 110.6
-								}
-							],
-							summary: 'Returned Boston Celtics season metrics for 2023-24.'
-						},
-						citations: [{ source: 'stats.nba.com', detail: 'team lookup' }],
-						provenance: {
-							executor: 'semantic_executor',
-							resolvedQuery: teamLookupRequest.query,
-							dataFreshnessMode: 'nightly',
-							sourceCalls: []
-						},
-						warnings: [],
-						traceId: 'trace-team-lookup'
-					}
-				}
-			]
-		});
-
-		assert.equal(
-			rendered.answer,
-			'The Boston Celtics finished the 2023-24 regular season with an offensive rating of 122.2 and a defensive rating of 110.6.'
-		);
-		assert.deepEqual(rendered.artifacts, [
-			{
-				type: 'table',
-				shape: 'table',
-				columns: ['teamId', 'teamName', 'season', 'seasonType', 'ortg', 'drtg'],
-				rows: [
+				buildToolResult(
 					{
-						teamId: '1610612738',
-						teamName: 'Boston Celtics',
-						season: '2023-24',
-						seasonType: 'Regular Season',
-						ortg: 122.2,
-						drtg: 110.6
-					}
-				]
-			}
-		]);
-	});
-
-	test('synthesizes natural player lookup prose with plural metric labels', async () => {
-		const renderer = createDefaultAnswerRendererService();
-		const playerLookupRequest: SemanticQueryRequest = {
-			question: 'Show Nikola Jokic points and rebounds this season',
-			query: {
-				operation: 'lookup',
-				entity: 'player',
-				subject: {
-					names: ['Nikola Jokic']
-				},
-				metrics: ['pts', 'reb'],
-				filters: {
-					season: '2025-26',
-					seasonType: 'Regular Season',
-					window: null,
-					dateFrom: null,
-					dateTo: null
-				},
-				orderBy: null,
-				limit: null,
-				outputMode: 'table'
-			}
-		};
-
-		const rendered = await renderer.renderAnswer({
-			question: playerLookupRequest.question!,
-			toolResults: [
-				{
-					toolName: 'stats_query',
-					request: playerLookupRequest,
-					response: {
-						status: 'ok',
-						result: {
-							shape: 'table',
-							columns: ['playerId', 'playerName', 'season', 'seasonType', 'pts', 'reb'],
-							rows: [
-								{
-									playerId: '203999',
-									playerName: 'Nikola Jokic',
-									season: '2025-26',
-									seasonType: 'Regular Season',
-									pts: 27.7,
-									reb: 13
-								}
-							],
-							summary: 'Returned Nikola Jokic season metrics for 2025-26.'
-						},
-						citations: [{ source: 'stats.nba.com', detail: 'player lookup' }],
-						provenance: {
-							executor: 'semantic_executor',
-							resolvedQuery: playerLookupRequest.query,
-							dataFreshnessMode: 'nightly',
-							sourceCalls: []
-						},
-						warnings: [],
-						traceId: 'trace-player-lookup'
-					}
-				}
-			]
-		});
-
-		assert.equal(
-			rendered.answer,
-			'Nikola Jokic averaged 27.7 points and 13 rebounds in the 2025-26 regular season.'
-		);
-	});
-
-	test('combines grounded summaries and preserves one table artifact per successful batched tool result', async () => {
-		const renderer = createDefaultAnswerRendererService();
-		const offensiveRequest = buildRequest('ortg');
-		const defensiveRequest = buildRequest('drtg');
-
-		const rendered = await renderer.renderAnswer({
-			question: offensiveRequest.question!,
-			toolResults: [
-				buildToolResult({
-					result: {
 						shape: 'table',
-						columns: ['team', 'ortg'],
-						rows: [{ team: 'Boston Celtics', ortg: 123.2 }],
-						summary: 'Boston posted a 123.2 offensive rating in 2023-24.'
+						columns: ['teamId', 'teamName', 'season', 'seasonType', 'wins', 'losses', 'win_pct', 'conference_rank', 'seed', 'games_back', 'streak'],
+						rows: [
+							{
+								teamId: '1610612738',
+								teamName: 'Boston Celtics',
+								season: '2023-24',
+								seasonType: 'Regular Season',
+								wins: 64,
+								losses: 18,
+								win_pct: 0.78,
+								conference_rank: 1,
+								seed: 1,
+								games_back: 0,
+								streak: 'W 2'
+							}
+						]
 					},
-					provenance: {
-						executor: 'semantic_executor',
-						resolvedQuery: offensiveRequest.query,
-						dataFreshnessMode: 'nightly',
-						sourceCalls: []
-					},
-					traceId: 'trace-ortg'
-				}),
-				{
-					toolName: 'stats_query',
-					request: defensiveRequest,
-					response: {
-						status: 'ok',
-						result: {
-							shape: 'table',
-							columns: ['team', 'drtg'],
-							rows: [{ team: 'Boston Celtics', drtg: 111.6 }],
-							summary: 'Boston allowed a 111.6 defensive rating in 2023-24.'
+					{
+						operation: 'standings',
+						entity: 'team',
+						subject: {
+							names: ['Boston Celtics']
 						},
-						citations: [{ source: 'stats.nba.com', detail: 'drtg' }],
-						provenance: {
-							executor: 'semantic_executor',
-							resolvedQuery: defensiveRequest.query,
-							dataFreshnessMode: 'nightly',
-							sourceCalls: []
+						metrics: ['wins', 'losses', 'win_pct', 'conference_rank', 'seed', 'games_back', 'streak'],
+						filters: {
+							season: '2023-24',
+							seasonType: 'Regular Season',
+							window: null,
+							dateFrom: null,
+							dateTo: null,
+							conference: null,
+							division: null,
+							gameStatus: null
 						},
-						warnings: [],
-						traceId: 'trace-drtg'
+						orderBy: null,
+						limit: 1,
+						outputMode: 'table'
 					}
-				}
+				)
 			]
 		});
 
-		assert.equal(
-			rendered.answer,
-			'Boston posted a 123.2 offensive rating in 2023-24. Boston allowed a 111.6 defensive rating in 2023-24.'
-		);
-		assert.deepEqual(rendered.artifacts, [
-			{
-				type: 'table',
-				shape: 'table',
-				columns: ['team', 'ortg'],
-				rows: [{ team: 'Boston Celtics', ortg: 123.2 }]
-			},
-			{
-				type: 'table',
-				shape: 'table',
-				columns: ['team', 'drtg'],
-				rows: [{ team: 'Boston Celtics', drtg: 111.6 }]
+		assert.match(rendered.answer, /2023-24 regular season/i);
+		assert.match(rendered.answer, /64 wins and 18 losses/i);
+		assert.match(rendered.answer, /No\. 1 seed/i);
+		assert.match(rendered.answer, /2-game winning streak/i);
+		assert.doesNotMatch(rendered.answer, /W 2/i);
+	});
+
+	test('renders longest-streak standings rankings in natural language', async () => {
+		const renderer = createDeterministicAnswerRendererService();
+		const rendered = await renderer.renderAnswer({
+			question: 'which team has the longest streak this season',
+			toolResults: [
+				buildToolResult(
+					{
+						shape: 'ranking',
+						columns: ['rank', 'subject', 'metric', 'value'],
+						rows: [
+							{
+								rank: 1,
+								subject: 'Cleveland Cavaliers',
+								metric: 'streak',
+								value: 'W 3'
+							}
+						]
+					},
+					{
+						operation: 'standings',
+						entity: 'team',
+						subject: {},
+						metrics: ['streak'],
+						filters: {
+							season: null,
+							seasonType: null,
+							window: null,
+							dateFrom: null,
+							dateTo: null,
+							conference: null,
+							division: null,
+							gameStatus: null
+						},
+						orderBy: {
+							metric: 'streak',
+							direction: 'desc'
+						},
+						limit: 1,
+						outputMode: 'table'
+					}
+				)
+			]
+		});
+
+		assert.match(rendered.answer, /longest current streak/i);
+		assert.match(rendered.answer, /3-game winning streak/i);
+		assert.doesNotMatch(rendered.answer, /W 3/i);
+	});
+
+	test('does not rewrite bounded date ranges into next-game narration', async () => {
+		const renderer = createDeterministicAnswerRendererService();
+		const rendered = await renderer.renderAnswer({
+			question: 'Show the Celtics games from April 3, 2026 to April 5, 2026',
+			toolResults: [
+				buildToolResult(
+					{
+						shape: 'table',
+						columns: ['teamId', 'teamName', 'gameId', 'season', 'seasonType', 'game_date', 'game_status', 'opponent_team'],
+						rows: [
+							{
+								teamId: '1610612738',
+								teamName: 'Boston Celtics',
+								gameId: 'g-1',
+								season: '2025-26',
+								seasonType: 'Regular Season',
+								game_date: '2026-04-05',
+								game_status: 'upcoming',
+								opponent_team: 'Toronto Raptors'
+							}
+						]
+					},
+					{
+						operation: 'game',
+						entity: 'team',
+						subject: {
+							names: ['Boston Celtics']
+						},
+						metrics: ['game_date', 'game_status', 'opponent_team'],
+						filters: {
+							season: null,
+							seasonType: null,
+							window: null,
+							dateFrom: '2026-04-03',
+							dateTo: '2026-04-05',
+							conference: null,
+							division: null,
+							gameStatus: 'any'
+						},
+						orderBy: null,
+						limit: 1,
+						outputMode: 'table'
+					}
+				)
+			]
+		});
+
+		assert.match(rendered.answer, /requested range/i);
+		assert.doesNotMatch(rendered.answer, /\bnext\b/i);
+	});
+
+	test('prefers grounded synthesis when an adapter is available', async () => {
+		const renderer = createDefaultAnswerRendererService({
+			synthesisAdapter: {
+				async synthesizeAnswer(input) {
+					assert.equal(input.question, 'How was Boston in 2023-24?');
+					assert.equal(input.toolResults.length, 1);
+					return {
+						answer: 'Boston finished 64-18 and earned the No. 1 seed in the East.'
+					};
+				}
 			}
-		]);
+		});
+		const rendered = await renderer.renderAnswer({
+			question: 'How was Boston in 2023-24?',
+			toolResults: [
+				buildToolResult(
+					{
+						shape: 'table',
+						columns: ['teamName', 'wins', 'losses'],
+						rows: [{ teamName: 'Boston Celtics', wins: 64, losses: 18 }]
+					},
+					{
+						operation: 'standings',
+						entity: 'team',
+						subject: { names: ['Boston Celtics'] },
+						metrics: ['wins', 'losses'],
+						filters: {
+							season: '2023-24',
+							seasonType: 'Regular Season',
+							window: null,
+							dateFrom: null,
+							dateTo: null,
+							conference: null,
+							division: null,
+							gameStatus: null
+						},
+						orderBy: null,
+						limit: 1,
+						outputMode: 'table'
+					}
+				)
+			],
+			warnings: []
+		});
+
+		assert.equal(rendered.answer, 'Boston finished 64-18 and earned the No. 1 seed in the East.');
+		assert.equal(rendered.artifacts.length, 1);
+	});
+
+	test('falls back to deterministic grounded phrasing when synthesis fails', async () => {
+		const renderer = createDefaultAnswerRendererService({
+			synthesisAdapter: {
+				async synthesizeAnswer() {
+					throw new Error('upstream unavailable');
+				}
+			}
+		});
+		const rendered = await renderer.renderAnswer({
+			question: 'Which team has the longest streak this season?',
+			toolResults: [
+				buildToolResult(
+					{
+						shape: 'ranking',
+						columns: ['rank', 'subject', 'metric', 'value'],
+						rows: [{ rank: 1, subject: 'Cleveland Cavaliers', metric: 'streak', value: 'W 3' }]
+					},
+					{
+						operation: 'standings',
+						entity: 'team',
+						subject: {},
+						metrics: ['streak'],
+						filters: {
+							season: null,
+							seasonType: null,
+							window: null,
+							dateFrom: null,
+							dateTo: null,
+							conference: null,
+							division: null,
+							gameStatus: null
+						},
+						orderBy: { metric: 'streak', direction: 'desc' },
+						limit: 1,
+						outputMode: 'table'
+					}
+				)
+			],
+			warnings: []
+		});
+
+		assert.match(rendered.answer, /3-game winning streak/i);
 	});
 });

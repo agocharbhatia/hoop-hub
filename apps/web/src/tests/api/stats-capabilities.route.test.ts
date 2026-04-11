@@ -16,6 +16,8 @@ describe('GET /api/stats/capabilities', () => {
 			seasons: { supported: string[]; default: string };
 			seasonTypes: { supported: string[]; default: string };
 			metrics: Array<{ id: string; entities: string[]; operations: string[] }>;
+			filters: Array<{ id: string; entities: string[]; operations: string[]; values: string[] }>;
+			resultCompleteness: { fields: string[]; coverageStatuses: string[] };
 			subjectRules: Array<{ operation: string; entity: string; kind: string }>;
 			queryShapes: Array<{
 				operation: string;
@@ -25,6 +27,7 @@ describe('GET /api/stats/capabilities', () => {
 				metrics: string[];
 				planning: {
 					orderBy: string;
+					metricSortDefaults: Record<string, string>;
 					defaultLimit: number | null;
 					supportsWindow: boolean;
 				};
@@ -32,7 +35,7 @@ describe('GET /api/stats/capabilities', () => {
 		};
 
 		assert.equal(response.status, 200);
-		assert.deepEqual(payload.operations, ['lookup', 'rank', 'trend', 'compare']);
+		assert.deepEqual(payload.operations, ['lookup', 'rank', 'trend', 'compare', 'standings', 'game']);
 		assert.deepEqual(payload.entities, ['player', 'team']);
 		assert.deepEqual(payload.outputModes, ['table', 'timeseries', 'comparison']);
 		assert.deepEqual(payload.seasons, {
@@ -45,7 +48,26 @@ describe('GET /api/stats/capabilities', () => {
 		});
 		assert.deepEqual(
 			payload.metrics.map((metric) => metric.id),
-			['ast', 'reb', 'pts', 'wins', 'losses', 'win_pct', 'ortg', 'drtg']
+			[
+				'ast',
+				'reb',
+				'pts',
+				'wins',
+				'losses',
+				'win_pct',
+				'ortg',
+				'drtg',
+				'conference_rank',
+				'seed',
+				'games_back',
+				'streak',
+				'game_date',
+				'game_status',
+				'opponent_team',
+				'team_score',
+				'opponent_score',
+				'result'
+			]
 		);
 		assert.deepEqual(
 			payload.subjectRules.map((rule) => `${rule.operation}/${rule.entity}:${rule.kind}`),
@@ -55,14 +77,31 @@ describe('GET /api/stats/capabilities', () => {
 				'rank/player:none',
 				'trend/player:exactly_one',
 				'compare/player:exactly_two',
-				'rank/team:zero_or_one'
+				'rank/team:zero_or_one',
+				'standings/team:zero_or_one',
+				'game/team:exactly_one'
 			]
 		);
+		assert.deepEqual(payload.filters, [
+			{ id: 'conference', entities: ['team'], operations: ['standings'], values: ['East', 'West'] },
+			{
+				id: 'division',
+				entities: ['team'],
+				operations: ['standings'],
+				values: ['Atlantic', 'Central', 'Southeast', 'Northwest', 'Pacific', 'Southwest']
+			},
+			{ id: 'gameStatus', entities: ['team'], operations: ['game'], values: ['upcoming', 'final', 'any'] }
+		]);
+		assert.deepEqual(payload.resultCompleteness, {
+			fields: ['coverageStatus', 'requestedCount', 'returnedCount'],
+			coverageStatuses: ['complete', 'season_exhausted', 'partial_materialized']
+		});
 		assert.deepEqual(
 			payload.queryShapes.map((shape) => ({
 				key: `${shape.operation}/${shape.entity}`,
 				metrics: shape.metrics,
 				orderBy: shape.planning.orderBy,
+				metricSortDefaults: shape.planning.metricSortDefaults,
 				defaultLimit: shape.planning.defaultLimit,
 				supportsWindow: shape.planning.supportsWindow
 			})),
@@ -71,6 +110,7 @@ describe('GET /api/stats/capabilities', () => {
 					key: 'lookup/player',
 					metrics: ['ast', 'reb', 'pts'],
 					orderBy: 'none',
+					metricSortDefaults: {},
 					defaultLimit: null,
 					supportsWindow: false
 				},
@@ -78,6 +118,7 @@ describe('GET /api/stats/capabilities', () => {
 					key: 'lookup/team',
 					metrics: ['reb', 'wins', 'losses', 'win_pct', 'ortg', 'drtg'],
 					orderBy: 'none',
+					metricSortDefaults: {},
 					defaultLimit: null,
 					supportsWindow: false
 				},
@@ -85,6 +126,11 @@ describe('GET /api/stats/capabilities', () => {
 					key: 'rank/player',
 					metrics: ['ast', 'reb', 'pts'],
 					orderBy: 'same_metric_desc',
+					metricSortDefaults: {
+						ast: 'desc',
+						reb: 'desc',
+						pts: 'desc'
+					},
 					defaultLimit: 10,
 					supportsWindow: false
 				},
@@ -92,6 +138,7 @@ describe('GET /api/stats/capabilities', () => {
 					key: 'trend/player',
 					metrics: ['ast', 'reb', 'pts'],
 					orderBy: 'none',
+					metricSortDefaults: {},
 					defaultLimit: null,
 					supportsWindow: true
 				},
@@ -99,6 +146,7 @@ describe('GET /api/stats/capabilities', () => {
 					key: 'compare/player',
 					metrics: ['ast', 'reb', 'pts'],
 					orderBy: 'none',
+					metricSortDefaults: {},
 					defaultLimit: null,
 					supportsWindow: false
 				},
@@ -106,7 +154,34 @@ describe('GET /api/stats/capabilities', () => {
 					key: 'rank/team',
 					metrics: ['drtg'],
 					orderBy: 'same_metric_asc',
+					metricSortDefaults: {
+						drtg: 'asc'
+					},
 					defaultLimit: 10,
+					supportsWindow: false
+				},
+				{
+					key: 'standings/team',
+					metrics: ['conference_rank', 'seed', 'wins', 'losses', 'win_pct', 'games_back', 'streak'],
+					orderBy: 'same_metric_desc',
+					metricSortDefaults: {
+						conference_rank: 'asc',
+						seed: 'asc',
+						wins: 'desc',
+						losses: 'asc',
+						win_pct: 'desc',
+						games_back: 'asc',
+						streak: 'desc'
+					},
+					defaultLimit: 10,
+					supportsWindow: false
+				},
+				{
+					key: 'game/team',
+					metrics: ['game_date', 'game_status', 'opponent_team', 'team_score', 'opponent_score', 'result'],
+					orderBy: 'none',
+					metricSortDefaults: {},
+					defaultLimit: 1,
 					supportsWindow: false
 				}
 			]

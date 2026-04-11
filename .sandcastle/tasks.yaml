@@ -259,3 +259,222 @@ tasks:
     notes: []
     github_issue: 41
     type: afk
+  - id: ship_typed_standings_and_game_contracts_with_honest_non_ok_behavior
+    title: Ship Typed Standings And Game Contracts With Honest Non-Ok Behavior
+    summary: >
+      Expand the shared structured contract, capability surface, validator, and
+      honest non-ok trace behavior so `standings/team` and `game/team` are real
+      discoverable shapes end-to-end before successful execution support lands.
+    status: done
+    blocked_by: []
+    module_scope:
+      - semantic contracts and capability registry
+      - structured validator
+      - semantic and orchestration trace boundaries
+    interface_contract:
+      - POST /api/stats/query accepts typed standings and game requests
+      - shared capabilities advertise standings/game field ids and new filters
+      - non-executing standings/game paths fail honestly with canonical traces
+    acceptance_criteria:
+      - the shared capability contract exposes `standings/team`, `game/team`,
+        `conference`, `division`, `gameStatus`, and result completeness fields
+      - structured validation accepts valid standings/game requests and rejects
+        invalid subject rules, filters, and field ids
+      - the new shapes fail honestly through route and trace boundaries before
+        execution support exists
+    test_plan:
+      - add capability registry and capabilities route tests for the new shapes
+      - add structured validator tests for standings/game requests and filters
+      - add route and trace tests for honest non-ok behavior on the new shapes
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 44
+    type: afk
+  - id: ship_team_specific_standings_queries_backed_by_nightly_standings_snapshots
+    title: Ship Team-Specific Standings Queries Backed By Nightly Standings Snapshots
+    summary: >
+      Make one-team `standings/team` requests succeed end-to-end on the
+      structured route for current season and `2023-24`, backed by nightly
+      standings snapshots and canonical team resolution.
+    status: done
+    blocked_by:
+      - ship_typed_standings_and_game_contracts_with_honest_non_ok_behavior
+    module_scope:
+      - standings executor module
+      - nightly standings materialization
+      - team resolution and semantic traces
+    interface_contract:
+      - one-team `standings/team` works on POST /api/stats/query
+      - default bootstrap materializes current and `2023-24` standings snapshots
+      - semantic traces expose canonical resolved team standings queries
+    acceptance_criteria:
+      - one-team standings queries return canonical identity and
+        standings-native fields for supported seasons
+      - empty DB returns nightly coverage gaps and bootstrap recovers to `ok`
+      - semantic traces and provenance stay nightly-backed and canonical
+    test_plan:
+      - add executor tests for team standings lookup and supported seasons
+      - add bootstrap tests for current plus `2023-24` standings snapshots
+      - add route and trace tests for canonical team standings behavior
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 45
+    type: afk
+  - id: ship_league_scoped_standings_ranking_with_conference_and_division_filters
+    title: Ship League-Scoped Standings Ranking With Conference And Division Filters
+    summary: >
+      Extend `standings/team` to support zero-subject league-scoped ranking over
+      standings-native field ids with typed conference and division filters and
+      shared per-field sort behavior.
+    status: done
+    blocked_by:
+      - ship_team_specific_standings_queries_backed_by_nightly_standings_snapshots
+    module_scope:
+      - standings ranking execution
+      - standings field planning metadata
+      - conference and division filter handling
+    interface_contract:
+      - zero-subject `standings/team` ranks teams over supported standings fields
+      - "`conference` and `division` filter support is real end-to-end"
+      - per-field sort defaults come from shared capability metadata
+    acceptance_criteria:
+      - league-scoped standings ranking succeeds for supported fields and filters
+      - field-specific sort direction is exercised through real execution
+      - traces and route tests lock conference-leader and longest-streak asks
+    test_plan:
+      - add executor tests for zero-subject standings ranking and filters
+      - add capability tests for per-field sort metadata
+      - add route and trace tests for league-scoped standings asks
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 46
+    type: afk
+  - id: ship_single_event_team_game_queries_for_next_and_recent_results
+    title: Ship Single-Event Team Game Queries For Next And Recent Results
+    summary: >
+      Make single-event `game/team` requests succeed through the canonical
+      current-window scoreboard source for next-game, recent-result, and
+      calendar-relative day asks with strict temporal semantics.
+    status: done
+    blocked_by:
+      - ship_typed_standings_and_game_contracts_with_honest_non_ok_behavior
+    module_scope:
+      - game executor module
+      - temporal grounding and game status handling
+      - scoreboard horizon materialization
+    interface_contract:
+      - single-event `game/team` works for one team through POST /api/stats/query
+      - calendar-relative and game-relative semantics remain distinct
+      - default bootstrap materializes the current scoreboard horizon
+    acceptance_criteria:
+      - next/recent single-event team game questions return grounded game rows
+      - strict date questions can return honest no-game-day answers
+      - traces and provenance stay canonical and nightly-backed
+    test_plan:
+      - add executor tests for next game, last night, tomorrow, and no-game-day
+        cases
+      - add bootstrap tests for scoreboard horizon materialization
+      - add route and trace tests for canonical team game behavior
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 47
+    type: afk
+  - id: ship_bounded_team_game_ranges_with_completeness_metadata
+    title: Ship Bounded Team Game Ranges With Completeness Metadata
+    summary: >
+      Extend `game/team` into bounded multi-row schedule and results ranges with
+      explicit completeness metadata so the runtime can distinguish complete
+      answers, season exhaustion, and partial materialization honestly.
+    status: done
+    blocked_by:
+      - ship_single_event_team_game_queries_for_next_and_recent_results
+    module_scope:
+      - multi-row game execution
+      - structured result completeness metadata
+      - route behavior for incomplete but useful game answers
+    interface_contract:
+      - "`game/team` supports bounded ranges and `next N games`"
+      - structured results expose `coverageStatus`, `requestedCount`, and
+        `returnedCount`
+      - incomplete but grounded game answers remain explicit and machine-readable
+    acceptance_criteria:
+      - bounded ranges and `next N games` work through the existing structured
+        route
+      - completeness metadata distinguishes `complete`, `season_exhausted`, and
+        `partial_materialized`
+      - route behavior stays honest when stored coverage is incomplete or the
+        season ends
+    test_plan:
+      - add executor tests for bounded ranges and `next N games`
+      - add result-contract tests for completeness metadata states
+      - add route tests for explicit incomplete-but-grounded game responses
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 48
+    type: afk
+  - id: expand_planner_and_answer_route_for_standings_plus_game_questions
+    title: Expand Planner And Answer Route For Standings Plus Game Questions
+    summary: >
+      Teach `/api/query` to discover the new standings and game shapes from the
+      shared capability contract, decompose mixed asks into minimal requests,
+      and render grounded mixed answers with explicit dropped-clause warnings.
+    status: done
+    blocked_by:
+      - ship_league_scoped_standings_ranking_with_conference_and_division_filters
+      - ship_bounded_team_game_ranges_with_completeness_metadata
+    module_scope:
+      - planner capability-driven expansion
+      - answer-route mixed batch orchestration
+      - dropped-clause warnings and orchestration traces
+    interface_contract:
+      - /api/query can answer standings-only, game-only, and mixed
+        standings/game asks
+      - mixed unsupported non-essential clauses can be dropped with explicit
+        warnings
+      - orchestration traces remain honest with no fake single resolved query
+    acceptance_criteria:
+      - mixed standings/game questions plan and execute through minimal grounded
+        requests
+      - dropped unsupported clauses surface explicit warnings in response and
+        trace data
+      - answer-route rendering and trace tests lock the mixed-domain contract
+    test_plan:
+      - add planner tests deriving the new shapes from shared capabilities
+      - add /api/query integration tests for standings-only, game-only, and
+        mixed asks
+      - add /api/query-trace tests for dropped-clause warnings and honest
+        orchestration traces
+    quality_gates:
+      - bun run check
+      - bun run test
+      - bun run build
+    retry_limit: 2
+    attempts: 0
+    notes: []
+    github_issue: 49
+    type: afk

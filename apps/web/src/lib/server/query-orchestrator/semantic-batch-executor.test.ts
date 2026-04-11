@@ -16,7 +16,10 @@ function buildToolRequest(
 		seasonType: null,
 		window: null,
 		dateFrom: null,
-		dateTo: null
+		dateTo: null,
+		conference: null,
+		division: null,
+		gameStatus: null
 	};
 
 	return {
@@ -253,7 +256,10 @@ describe('createSemanticBatchExecutor', () => {
 							seasonType: '',
 							window: null,
 							dateFrom: '',
-							dateTo: null
+							dateTo: null,
+							conference: null,
+							division: null,
+							gameStatus: null
 						},
 						orderBy: null,
 						limit: null,
@@ -281,7 +287,10 @@ describe('createSemanticBatchExecutor', () => {
 					seasonType: null,
 					window: null,
 					dateFrom: null,
-					dateTo: null
+					dateTo: null,
+					conference: null,
+					division: null,
+					gameStatus: null
 				},
 				orderBy: null,
 				limit: null,
