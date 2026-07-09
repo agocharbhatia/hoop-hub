@@ -62,7 +62,11 @@ export type QueryAnswerToolResult = QueryAnswerPlannedToolRequest & {
 	response: StatsQueryResponse;
 };
 
-export type QueryAnswerAgentToolName = 'resolve_players' | 'resolve_teams' | 'call_nba_stats_endpoint';
+export type QueryAnswerAgentToolName =
+	| 'resolve_players'
+	| 'resolve_teams'
+	| 'call_nba_stats_endpoint'
+	| 'aggregate_endpoint_rows';
 
 export type QueryAnswerAgentToolResult = {
 	toolName: QueryAnswerAgentToolName;

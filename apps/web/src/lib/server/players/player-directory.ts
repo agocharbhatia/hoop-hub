@@ -150,10 +150,15 @@ export function refreshPlayerDirectorySnapshot(): PlayerDirectoryAvailabilityRes
 }
 
 export function ensurePlayerDirectoryAvailable(): PlayerDirectoryAvailabilityResult {
-	if (getDataStore().countPlayerDirectoryEntries() > 0) {
+	const store = getDataStore();
+	if (
+		store.countPlayerDirectoryEntries() > 0 &&
+		store.getPlayerDirectorySnapshotVersion() === PLAYER_DIRECTORY_SNAPSHOT_VERSION
+	) {
 		return { ok: true, source: 'stored' };
 	}
 
+	// A stale stored snapshot (different version) is replaced so directory updates reach existing DBs.
 	return refreshPlayerDirectorySnapshot();
 }
 

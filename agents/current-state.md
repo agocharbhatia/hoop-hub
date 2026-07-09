@@ -41,9 +41,10 @@ This file is the short source of truth for future agents. Use it before relying 
 - nightly-first materialization and stored-data-first reads
 - broader dynamic-agent endpoint coverage, evaluation, and model prompt hardening
 - broader structured planning beyond the current supported query families
-- derived/computed metric execution
 - persisted session grounding
-- richer answer/artifact composition on top of structured rows
+- play-by-play clip retrieval and playlist compilation (Phase 3)
+
+Derived/computed metrics now run through the agent's `aggregate_endpoint_rows` tool (server-side filter/group/aggregate over full result sets), and line/bar/shot-chart artifacts render as real chart components (`src/lib/components/charts/`, QA page at `/dev/charts`). The player directory re-seeds stored DBs whenever the checked-in snapshot version changes.
 
 ## Verification Surface
 

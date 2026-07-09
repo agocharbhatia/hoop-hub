@@ -4,6 +4,9 @@
 	import { Input } from '$lib/components/ui/input';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { IconSend2, IconBallBasketball } from '@tabler/icons-svelte';
+	import BarChart from '$lib/components/charts/BarChart.svelte';
+	import LineChart from '$lib/components/charts/LineChart.svelte';
+	import ShotChart from '$lib/components/charts/ShotChart.svelte';
 	import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
 	import type { ErrorResponse } from '$lib/contracts/chat';
 	import {
@@ -232,13 +235,16 @@
 							{/if}
 
 							{#if getMessageChartPlaceholders(message).length > 0}
-								<div class="mt-3 space-y-2">
+								<div class="mt-3 space-y-3">
 									{#each getMessageChartPlaceholders(message) as chart}
-										<div class="rounded-lg border border-current/10 bg-background/50 px-3 py-2">
-											<p class="text-xs font-medium">{chart.title}</p>
-											<p class="mt-1 text-[11px] leading-relaxed text-foreground/60">
-												Chart rendering coming soon - {chart.dataPointCount} data point{chart.dataPointCount === 1 ? '' : 's'}
-											</p>
+										<div class="rounded-lg border border-current/10 bg-card px-3 py-2.5">
+											{#if chart.artifact.type === 'line_chart'}
+												<LineChart artifact={chart.artifact} />
+											{:else if chart.artifact.type === 'bar_chart'}
+												<BarChart artifact={chart.artifact} />
+											{:else if chart.artifact.type === 'shot_chart'}
+												<ShotChart artifact={chart.artifact} />
+											{/if}
 										</div>
 									{/each}
 								</div>

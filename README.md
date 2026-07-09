@@ -34,9 +34,9 @@ Detailed implementation context for future agents lives in [agents/current-state
 - [ ] Consolidate legacy closed-planner compatibility once dynamic-agent coverage is broad enough
 - [ ] Broaden structured semantic planning and entity resolution beyond the current supported families
 - [ ] Implement nightly-first ingest/materialization and stored-data-first reads
-- [ ] Add grounded derived/computed metric execution
+- [x] Add grounded derived/computed metric execution (`aggregate_endpoint_rows` filters/groups/aggregates full result sets server-side)
+- [x] Add richer visualization artifacts (line, bar, and half-court shot chart components render agent artifacts in the UI)
 - [ ] Add persisted session grounding and stronger answer/artifact composition
-- [ ] Add richer visualization artifacts
 - [ ] Add the evaluation harness and performance gates
 - [ ] Phase 2: play-by-play clip retrieval and ordered playlist output
 
