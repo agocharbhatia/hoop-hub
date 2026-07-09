@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
-import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
+import type { QueryAnswerResponse, QueryAnswerToolResult } from '$lib/contracts/answer-response';
 import type { BatchPlannerDecision } from '$lib/contracts/planner';
 import { resetDataStoreForTests } from '$lib/server/data/store';
 import { executeSemanticQuery } from '$lib/server/semantic/query-service';
@@ -9,6 +9,8 @@ import { POST, _setQueryRouteDependenciesForTests } from '../../routes/api/query
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
 const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;
+
+type StructuredQueryAnswerResponse = Omit<QueryAnswerResponse, 'toolResults'> & { toolResults: QueryAnswerToolResult[] };
 
 /* Helper functions */
 
@@ -133,7 +135,7 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const payload = (await parseJson(response)) as StructuredQueryAnswerResponse;
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'ok');
@@ -210,7 +212,7 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const payload = (await parseJson(response)) as StructuredQueryAnswerResponse;
 		const toolResult = payload.toolResults[0];
 
 		assert.equal(response.status, 200);
@@ -258,7 +260,7 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const payload = (await parseJson(response)) as StructuredQueryAnswerResponse;
 		const toolResult = payload.toolResults[0];
 
 		assert.equal(response.status, 200);
@@ -309,7 +311,7 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const payload = (await parseJson(response)) as StructuredQueryAnswerResponse;
 		const toolResult = payload.toolResults[0];
 
 		assert.equal(response.status, 200);
@@ -364,7 +366,7 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const payload = (await parseJson(response)) as StructuredQueryAnswerResponse;
 		const toolResult = payload.toolResults[0];
 
 		assert.equal(response.status, 200);
@@ -414,7 +416,7 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const payload = (await parseJson(response)) as StructuredQueryAnswerResponse;
 		const toolResult = payload.toolResults[0];
 
 		assert.equal(response.status, 200);
@@ -463,7 +465,7 @@ describe('POST /api/query integration', () => {
 		const response = await POST(
 			createPostEvent(JSON.stringify({ question: 'What seed and wins did Boston finish with in the East in 2023-24?' }))
 		);
-		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const payload = (await parseJson(response)) as StructuredQueryAnswerResponse;
 		const toolResult = payload.toolResults[0];
 
 		assert.equal(response.status, 200);
@@ -509,7 +511,7 @@ describe('POST /api/query integration', () => {
 		const response = await POST(
 			createPostEvent(JSON.stringify({ question: 'When do the Celtics play next?' }))
 		);
-		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const payload = (await parseJson(response)) as StructuredQueryAnswerResponse;
 		const toolResult = payload.toolResults[0];
 
 		assert.equal(response.status, 200);
@@ -608,7 +610,7 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const payload = (await parseJson(response)) as StructuredQueryAnswerResponse;
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'ok');
@@ -655,7 +657,7 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const payload = (await parseJson(response)) as StructuredQueryAnswerResponse;
 		const toolResult = payload.toolResults[0];
 
 		assert.equal(response.status, 200);
@@ -705,7 +707,7 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const payload = (await parseJson(response)) as StructuredQueryAnswerResponse;
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'clarification_needed');
@@ -744,7 +746,7 @@ describe('POST /api/query integration', () => {
 				})
 			)
 		);
-		const payload = (await parseJson(response)) as QueryAnswerResponse;
+		const payload = (await parseJson(response)) as StructuredQueryAnswerResponse;
 
 		assert.equal(response.status, 200);
 		assert.equal(payload.status, 'coverage_gap');

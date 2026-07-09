@@ -1,1 +1,8 @@
-export { fetchStatsEndpointWithCache, type EndpointFetchRequest, type EndpointFetchResult } from './stats-endpoint-client';
+export {
+	createStatsEndpointFetcher,
+	fetchStatsEndpointWithCache,
+	normalizeEndpointParams,
+	type EndpointFetchRequest,
+	type EndpointFetchResult,
+	type StatsEndpointFetcher
+} from './stats-endpoint-client';

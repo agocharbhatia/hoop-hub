@@ -4,10 +4,14 @@
 	import { Input } from '$lib/components/ui/input';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { IconSend2, IconBallBasketball } from '@tabler/icons-svelte';
+	import BarChart from '$lib/components/charts/BarChart.svelte';
+	import LineChart from '$lib/components/charts/LineChart.svelte';
+	import ShotChart from '$lib/components/charts/ShotChart.svelte';
 	import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
 	import type { ErrorResponse } from '$lib/contracts/chat';
 	import {
 		getAssistantMessageContent,
+		getChartPlaceholderArtifacts,
 		getPrimaryTableArtifact,
 		getSupportingTableArtifacts,
 		getTextBlockArtifacts,
@@ -122,6 +126,10 @@
 	function getMessageWarnings(message: Message) {
 		return message.data ? getVisibleWarningMessages(message.data) : [];
 	}
+
+	function getMessageChartPlaceholders(message: Message) {
+		return message.data ? getChartPlaceholderArtifacts(message.data) : [];
+	}
 </script>
 
 <svelte:head>
@@ -221,6 +229,22 @@
 													{/each}
 												</tbody>
 											</table>
+										</div>
+									{/each}
+								</div>
+							{/if}
+
+							{#if getMessageChartPlaceholders(message).length > 0}
+								<div class="mt-3 space-y-3">
+									{#each getMessageChartPlaceholders(message) as chart}
+										<div class="rounded-lg border border-current/10 bg-card px-3 py-2.5">
+											{#if chart.artifact.type === 'line_chart'}
+												<LineChart artifact={chart.artifact} />
+											{:else if chart.artifact.type === 'bar_chart'}
+												<BarChart artifact={chart.artifact} />
+											{:else if chart.artifact.type === 'shot_chart'}
+												<ShotChart artifact={chart.artifact} />
+											{/if}
 										</div>
 									{/each}
 								</div>

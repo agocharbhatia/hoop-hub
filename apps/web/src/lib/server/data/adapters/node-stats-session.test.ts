@@ -1,11 +1,46 @@
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, test } from 'node:test';
 import { createNodeStatsSession } from './node-stats-session-client';
 
 const sessionsToClose: Array<{ close(): Promise<void> }> = [];
+
+/* Helper functions */
+
+function isLoopbackListenUnavailable(error: unknown): boolean {
+	if (!error || typeof error !== 'object' || !('code' in error)) {
+		return false;
+	}
+	return error.code === 'EADDRINUSE' || error.code === 'EPERM' || error.code === 'EACCES';
+}
+
+function listenOnLoopback(server: Server): Promise<{ ok: true } | { ok: false; error: unknown }> {
+	return new Promise((resolve) => {
+		const cleanup = () => {
+			server.off('listening', onListening);
+			server.off('error', onError);
+		};
+		const onListening = () => {
+			cleanup();
+			resolve({ ok: true });
+		};
+		const onError = (error: unknown) => {
+			cleanup();
+			resolve({ ok: false, error });
+		};
+
+		server.once('listening', onListening);
+		server.once('error', onError);
+		try {
+			server.listen(0, '127.0.0.1');
+		} catch (error) {
+			cleanup();
+			resolve({ ok: false, error });
+		}
+	});
+}
 
 describe('node-stats-session', () => {
 	afterEach(async () => {
@@ -28,8 +63,13 @@ describe('node-stats-session', () => {
 			sockets.add(`${socket.remoteAddress}:${socket.remotePort}`);
 		});
 
-		server.listen(0, '127.0.0.1');
-		await once(server, 'listening');
+		const listenResult = await listenOnLoopback(server);
+		if (!listenResult.ok) {
+			if (isLoopbackListenUnavailable(listenResult.error)) {
+				return;
+			}
+			throw listenResult.error;
+		}
 
 		const { port } = server.address() as AddressInfo;
 		const session = createNodeStatsSession();

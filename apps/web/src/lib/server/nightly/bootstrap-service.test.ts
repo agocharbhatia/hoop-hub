@@ -4,6 +4,7 @@ import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import {
 	buildRawEndpointCacheKey,
 	getEndpointCatalogEntry,
+	normalizeEndpointParams,
 	stableStringify,
 	type EndpointFetchRequest,
 	type EndpointFetchResult
@@ -222,7 +223,7 @@ function putAuthoritativeCache(request: EndpointFetchRequest, payload: unknown, 
 		throw new Error(`Missing endpoint catalog entry for '${request.endpointId}'.`);
 	}
 
-	const normalizedParams = JSON.parse(stableStringify(request.params)) as Record<string, string>;
+	const normalizedParams = normalizeEndpointParams(request.endpointId, request.params);
 
 	getDataStore().putRawEndpointCache({
 		cacheKey: buildRawEndpointCacheKey({
@@ -381,7 +382,7 @@ describe('bootstrapCurrentSeasonNightly', () => {
 		const cachedRows = [
 			getDataStore().getLatestRawEndpointCache({
 				endpointId: 'leaguedashplayerstats',
-				paramsJson: JSON.stringify({
+				paramsJson: JSON.stringify(normalizeEndpointParams('leaguedashplayerstats', {
 					DateFrom: '',
 					DateTo: '',
 					GameScope: '',
@@ -412,13 +413,13 @@ describe('bootstrapCurrentSeasonNightly', () => {
 					ShotClockRange: '',
 					TeamID: '',
 					TwoWay: ''
-				}),
+				})),
 				parserVersion: 'v1',
 				snapshotDate: '2026-04-02'
 			}),
 			getDataStore().getLatestRawEndpointCache({
 				endpointId: 'leaguedashteamstats',
-				paramsJson: JSON.stringify({
+				paramsJson: JSON.stringify(normalizeEndpointParams('leaguedashteamstats', {
 					DateFrom: '',
 					DateTo: '',
 					GameSegment: '',
@@ -449,7 +450,7 @@ describe('bootstrapCurrentSeasonNightly', () => {
 					StarterBench: '',
 					TeamID: '',
 					TwoWay: ''
-				}),
+				})),
 				parserVersion: 'v1',
 				snapshotDate: '2026-04-02'
 			})

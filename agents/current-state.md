@@ -4,21 +4,22 @@ This file is the short source of truth for future agents. Use it before relying 
 
 ## Shipped Engine State
 
-- The production query runtime is `POST /api/query` in front of the semantic executor in `apps/web/src/lib/server/semantic/query-service.ts`.
+- The production natural-language runtime is `POST /api/query` in front of the dynamic tool-loop agent in `apps/web/src/lib/server/agent/`.
 - `POST /api/stats/query` is the primary structured tool contract.
-- `POST /api/query` is the primary natural-language planner route.
-- `GET /api/query-trace/:traceId` returns semantic trace payloads with canonical `resolvedQuery`, cache/freshness data, warnings, and source calls.
+- `POST /api/query` is the primary natural-language route and is no longer closed to the legacy planner's supported shapes.
+- `GET /api/query-trace/:traceId` returns semantic trace payloads for structured runs and `runtime: "dynamic_agent"` trace payloads for agent runs, including tool calls, cache/freshness data, warnings, and source calls.
 - Supported semantic query families today:
   - player rankings
   - player trends
   - player comparisons
   - team defensive rankings
 - Structured responses should be treated as the core artifact. Summaries are secondary to canonical rows.
-- The planner is intentionally closed to the same four supported stats shapes as the executor.
+- The legacy planner remains in the tree for compatibility tests and direct orchestrator usage, but it is no longer the default `/api/query` runtime.
 
 ## Data and Resolution State
 
 - Semantic query execution now reads stored endpoint payloads only; it no longer exposes request-level live fallback.
+- Dynamic agent endpoint calls use the cataloged NBA Stats endpoint client live-first with SQLite caching. `HOOP_HUB_NBA_PROXY_URL` is needed on networks where direct `stats.nba.com` requests are blocked.
 - Finalized nightly ingestion/materialization is still not implemented yet, so missing stored endpoint data currently returns typed `coverage_gap` responses.
 - Player resolution now goes through the shared seeded player-directory snapshot in `apps/web/src/lib/server/players/player-directory.ts`.
 - Curated aliases sit on top of canonical player identity; do not reintroduce ad hoc player name maps in new execution code.
@@ -38,10 +39,12 @@ This file is the short source of truth for future agents. Use it before relying 
 ## Near-Term Gaps
 
 - nightly-first materialization and stored-data-first reads
-- broader NL planning beyond the current supported query families
-- derived/computed metric execution
+- broader dynamic-agent endpoint coverage, evaluation, and model prompt hardening
+- broader structured planning beyond the current supported query families
 - persisted session grounding
-- richer answer/artifact composition on top of structured rows
+- play-by-play clip retrieval and playlist compilation (Phase 3)
+
+Derived/computed metrics now run through the agent's `aggregate_endpoint_rows` tool (server-side filter/group/aggregate over full result sets), and line/bar/shot-chart artifacts render as real chart components (`src/lib/components/charts/`, QA page at `/dev/charts`). The player directory re-seeds stored DBs whenever the checked-in snapshot version changes.
 
 ## Verification Surface
 

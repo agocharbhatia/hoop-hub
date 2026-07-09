@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
-import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
+import type { QueryAnswerResponse, QueryAnswerToolResult } from '$lib/contracts/answer-response';
 import type { BatchPlannerDecision } from '$lib/contracts/planner';
 import type { StatsQueryResponse } from '$lib/contracts/semantic-query';
 import { resetDataStoreForTests } from '$lib/server/data/store';
@@ -13,6 +13,8 @@ import { POST as statsPost } from '../../routes/api/stats/query/+server';
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
 const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;
+
+type StructuredQueryAnswerResponse = Omit<QueryAnswerResponse, 'toolResults'> & { toolResults: QueryAnswerToolResult[] };
 const BOOTSTRAP_SLATE_DATE = '2026-04-01';
 const BOOTSTRAP_NOW = new Date('2026-04-02T05:00:00.000Z');
 const NEXT_DAY_QUERY_NOW = new Date('2026-04-03T12:00:00.000Z');
@@ -51,7 +53,7 @@ async function parseJson(response: Response): Promise<unknown> {
 	return response.json();
 }
 
-function getPrimaryToolResponse(payload: QueryAnswerResponse): StatsQueryResponse {
+function getPrimaryToolResponse(payload: StructuredQueryAnswerResponse): StatsQueryResponse {
 	const response = payload.toolResults[0]?.response;
 	if (!response) {
 		throw new Error('Expected at least one grounded tool result.');
@@ -168,7 +170,7 @@ describe('nightly bootstrap end-to-end coverage', () => {
 				})
 			)
 		);
-		const beforeQueryPayload = (await parseJson(beforeQueryResponse)) as QueryAnswerResponse;
+		const beforeQueryPayload = (await parseJson(beforeQueryResponse)) as StructuredQueryAnswerResponse;
 		const beforeQueryToolResponse = getPrimaryToolResponse(beforeQueryPayload);
 		assert.equal(beforeQueryResponse.status, 200);
 		assert.equal(beforeQueryPayload.status, 'coverage_gap');
@@ -231,7 +233,7 @@ describe('nightly bootstrap end-to-end coverage', () => {
 				})
 			)
 		);
-		const afterQueryPayload = (await parseJson(afterQueryResponse)) as QueryAnswerResponse;
+		const afterQueryPayload = (await parseJson(afterQueryResponse)) as StructuredQueryAnswerResponse;
 		const afterQueryToolResponse = getPrimaryToolResponse(afterQueryPayload);
 		assert.equal(afterQueryResponse.status, 200);
 		assert.equal(afterQueryPayload.status, 'ok');
@@ -306,7 +308,7 @@ describe('nightly bootstrap end-to-end coverage', () => {
 				})
 			)
 		);
-		const queryPayload = (await parseJson(queryResponse)) as QueryAnswerResponse;
+		const queryPayload = (await parseJson(queryResponse)) as StructuredQueryAnswerResponse;
 		const queryToolResponse = getPrimaryToolResponse(queryPayload);
 		assert.equal(queryResponse.status, 200);
 		assert.equal(queryPayload.status, 'ok');
@@ -342,7 +344,7 @@ describe('nightly bootstrap end-to-end coverage', () => {
 				})
 			)
 		);
-		const beforePlannerLookupPayload = (await parseJson(beforePlannerLookupResponse)) as QueryAnswerResponse;
+		const beforePlannerLookupPayload = (await parseJson(beforePlannerLookupResponse)) as StructuredQueryAnswerResponse;
 		const beforePlannerLookupToolResponse = getPrimaryToolResponse(beforePlannerLookupPayload);
 		assert.equal(beforePlannerLookupResponse.status, 200);
 		assert.equal(beforePlannerLookupPayload.status, 'coverage_gap');
@@ -395,7 +397,7 @@ describe('nightly bootstrap end-to-end coverage', () => {
 				})
 			)
 		);
-		const afterPlannerLookupPayload = (await parseJson(afterPlannerLookupResponse)) as QueryAnswerResponse;
+		const afterPlannerLookupPayload = (await parseJson(afterPlannerLookupResponse)) as StructuredQueryAnswerResponse;
 		const afterPlannerLookupToolResponse = getPrimaryToolResponse(afterPlannerLookupPayload);
 		assert.equal(afterPlannerLookupResponse.status, 200);
 		assert.equal(afterPlannerLookupPayload.status, 'ok');
@@ -462,7 +464,7 @@ describe('nightly bootstrap end-to-end coverage', () => {
 				})
 			)
 		);
-		const beforePlannerLookupPayload = (await parseJson(beforePlannerLookupResponse)) as QueryAnswerResponse;
+		const beforePlannerLookupPayload = (await parseJson(beforePlannerLookupResponse)) as StructuredQueryAnswerResponse;
 		const beforePlannerOrchestrationTraceResponse = await queryTraceGet(createTraceGetEvent(beforePlannerLookupPayload.traceId));
 		const beforePlannerOrchestrationTracePayload = (await parseJson(beforePlannerOrchestrationTraceResponse)) as {
 			status: string;
@@ -560,7 +562,7 @@ describe('nightly bootstrap end-to-end coverage', () => {
 				})
 			)
 		);
-		const afterPlannerLookupPayload = (await parseJson(afterPlannerLookupResponse)) as QueryAnswerResponse;
+		const afterPlannerLookupPayload = (await parseJson(afterPlannerLookupResponse)) as StructuredQueryAnswerResponse;
 		const afterPlannerOrchestrationTraceResponse = await queryTraceGet(createTraceGetEvent(afterPlannerLookupPayload.traceId));
 		const afterPlannerOrchestrationTracePayload = (await parseJson(afterPlannerOrchestrationTraceResponse)) as {
 			status: string;

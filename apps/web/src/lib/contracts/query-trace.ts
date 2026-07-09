@@ -1,5 +1,5 @@
 import type { Citation, DataFreshnessMode, TraceSourceCall } from './chat';
-import type { QueryAnswerPlannedToolRequest } from './answer-response';
+import type { QueryAnswerAgentToolName, QueryAnswerArtifact, QueryAnswerPlannedToolRequest } from './answer-response';
 import type { SemanticQuery, StatsQueryStatus, StatsQueryWarning } from './semantic-query';
 
 type QueryTraceShared = {
@@ -37,4 +37,22 @@ export type OrchestrationQueryTraceResponse = QueryTraceShared & {
 	executedStructuredTraceIds: string[];
 };
 
-export type QueryTraceResponse = SemanticQueryTraceResponse | OrchestrationQueryTraceResponse;
+export type DynamicAgentTraceToolCall = {
+	toolCallId: string;
+	toolName: QueryAnswerAgentToolName;
+	request: Record<string, unknown>;
+	ok: boolean;
+	latencyMs: number;
+	error?: string;
+};
+
+export type DynamicAgentQueryTraceResponse = QueryTraceShared & {
+	runtime: 'dynamic_agent';
+	toolCalls: DynamicAgentTraceToolCall[];
+	artifacts: QueryAnswerArtifact[];
+};
+
+export type QueryTraceResponse =
+	| SemanticQueryTraceResponse
+	| OrchestrationQueryTraceResponse
+	| DynamicAgentQueryTraceResponse;

@@ -4,8 +4,8 @@ import {
 	buildRawEndpointCacheKey,
 	getEndpointCatalogEntry,
 	getDataStore,
+	normalizeEndpointParams,
 	resetDataStoreForTests,
-	stableStringify,
 	type EndpointFetchRequest
 } from '$lib/server/data';
 import { createNightlyBootstrapFixtureFetcher } from './bootstrap-fixtures';
@@ -45,7 +45,7 @@ function loadSeededPayload(request: EndpointFetchRequest, snapshotDate: string):
 		throw new Error(`Missing endpoint catalog entry for '${request.endpointId}'.`);
 	}
 
-	const normalizedParams = JSON.parse(stableStringify(request.params)) as Record<string, string>;
+	const normalizedParams = normalizeEndpointParams(request.endpointId, request.params);
 	const row = getDataStore().getRawEndpointCache(
 		buildRawEndpointCacheKey({
 			endpointId: request.endpointId,
