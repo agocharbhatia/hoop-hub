@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import { buildRawEndpointCacheKey, getDataStore, resetDataStoreForTests } from '$lib/server/data/store';
+import { getEndpointCatalogEntry } from '$lib/server/data/catalog';
 import { createNightlyBootstrapFixtureFetcher } from '$lib/server/nightly/bootstrap-fixtures';
 import { listDeterministicLookupFixtureSurface } from '$lib/server/nightly/deterministic-fixtures';
 import { bootstrapCurrentSeasonNightly } from '$lib/server/nightly/bootstrap-service';
@@ -58,6 +59,65 @@ describe('stats-endpoint-client', () => {
 		assert.equal(result.cacheStatus, 'miss');
 		assert.equal(result.sourceStatus, 'error');
 		assert.equal(result.payload, null);
+	});
+
+	test('merges catalog defaults before required-param validation and cache lookup', async () => {
+		const now = new Date('2026-02-25T08:00:00.000Z');
+		const entry = getEndpointCatalogEntry('leagueleaders');
+		assert.notEqual(entry, undefined);
+		const params = {
+			...entry!.defaults,
+			StatCategory: 'AST'
+		};
+		const cacheKey = buildRawEndpointCacheKey({
+			endpointId: 'leagueleaders',
+			params: JSON.parse(JSON.stringify(params)),
+			parserVersion: 'v1',
+			snapshotDate: '2026-02-25'
+		});
+
+		getDataStore().putRawEndpointCache({
+			cacheKey,
+			endpointId: 'leagueleaders',
+			paramsJson: JSON.stringify(params),
+			payloadJson: JSON.stringify({
+				resultSet: {
+					headers: ['PLAYER', 'AST'],
+					rowSet: [['Tyrese Haliburton', 10.9]]
+				}
+			}),
+			fetchedAt: '2026-02-25T07:45:00.000Z',
+			expiresAt: '2026-02-25T09:45:00.000Z',
+			snapshotDate: '2026-02-25',
+			parserVersion: 'v1',
+			isProvisional: false
+		});
+
+		const result = await fetchStatsEndpointWithCache({
+			endpointId: 'leagueleaders',
+			now,
+			params: {
+				StatCategory: 'AST'
+			}
+		});
+
+		assert.equal(result.cacheStatus, 'hit');
+		assert.equal(result.sourceStatus, 'ok');
+		assert.notEqual(result.payload, null);
+	});
+
+	test('rejects params that are not declared in the endpoint catalog', async () => {
+		await assert.rejects(
+			() =>
+				fetchStatsEndpointWithCache({
+					endpointId: 'leagueleaders',
+					params: {
+						StatCategory: 'AST',
+						NotARealParam: '1'
+					}
+				}),
+			/does not support parameter 'NotARealParam'/
+		);
 	});
 
 	test('returns cache hit when unexpired row exists', async () => {

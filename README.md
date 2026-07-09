@@ -2,13 +2,14 @@
 
 AI-powered NBA natural-language search engine.
 
-Hoop Hub is currently a single Bun + SvelteKit app that answers grounded NBA stats questions through an OpenAI planner plus semantic executor runtime, backed by official NBA endpoint retrieval, SQLite caching, and semantic traces.
+Hoop Hub is currently a single Bun + SvelteKit app that answers grounded NBA stats questions through a dynamic tool-loop agent for natural-language asks plus a structured semantic stats route, backed by official NBA endpoint retrieval, SQLite caching, and semantic traces.
 
 ## Current Scope
 
 - Primary structured route: `POST /api/stats/query`
-- Primary natural-language route: `POST /api/query`
+- Primary natural-language route: `POST /api/query`, now backed by a dynamic OpenAI tool-loop agent.
 - Trace route: `GET /api/query-trace/:traceId`
+- `/api/query` can iteratively resolve players/teams, call cataloged NBA Stats endpoints live-first, reuse SQLite raw endpoint cache rows, and return grounded prose plus artifact specs.
 - Supported semantic query families:
   - player rankings
   - player trends
@@ -16,8 +17,9 @@ Hoop Hub is currently a single Bun + SvelteKit app that answers grounded NBA sta
   - team defensive rankings
 - Player resolution uses the shared seeded player-directory snapshot and curated aliases.
 - Semantic query execution reads stored endpoint payloads only. An empty DB returns typed `nightly_data_unavailable` coverage gaps until nightly bootstrap materializes the supported runtime cache.
+- Dynamic agent endpoint calls are live-first with SQLite caching. Set `HOOP_HUB_NBA_PROXY_URL` on networks where direct `stats.nba.com` access is blocked.
 - Nightly reads reuse the latest stored snapshot at or before the query date, so prior-day materializations remain readable on later days.
-- The planner currently stays closed to the same four supported stats shapes as the semantic executor.
+- The legacy closed planner and semantic executor modules remain in the tree for compatibility and direct tests, but they are no longer the default `/api/query` runtime.
 
 Detailed implementation context for future agents lives in [agents/current-state.md](agents/current-state.md), [agents/project-log.md](agents/project-log.md), and [`.docs/PLAN.md`](.docs/PLAN.md).
 
@@ -28,8 +30,9 @@ Detailed implementation context for future agents lives in [agents/current-state
 - [x] Official NBA endpoint adapters + SQLite cache
 - [x] Structured semantic execution for the initial query families
 - [x] Seeded player-directory resolution + canonical semantic traces
-- [ ] Consolidate around one production semantic runtime and stop extending the legacy mock-engine path
-- [ ] Broaden semantic planning and entity resolution beyond the current supported families
+- [x] Dynamic `/api/query` agent with cataloged NBA Stats tool calls and dynamic trace payloads
+- [ ] Consolidate legacy closed-planner compatibility once dynamic-agent coverage is broad enough
+- [ ] Broaden structured semantic planning and entity resolution beyond the current supported families
 - [ ] Implement nightly-first ingest/materialization and stored-data-first reads
 - [ ] Add grounded derived/computed metric execution
 - [ ] Add persisted session grounding and stronger answer/artifact composition

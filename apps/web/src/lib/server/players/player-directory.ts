@@ -26,8 +26,8 @@ type PlayerDirectoryMentionMatch = {
 	length: number;
 };
 
-const PLAYER_DIRECTORY_SNAPSHOT_VERSION = 'bttmly-nba-master-players-json';
-const PLAYER_DIRECTORY_IMPORTED_AT = '2026-03-25T00:00:00.000Z';
+const PLAYER_DIRECTORY_SNAPSHOT_VERSION = 'bttmly-nba-master-players-json+nba-api-active-2025-11';
+const PLAYER_DIRECTORY_IMPORTED_AT = '2026-07-09T00:00:00.000Z';
 let playerDirectoryRefreshLoader: (() => ReplacePlayerDirectoryEntryInput[]) | null = null;
 
 const CURATED_PLAYER_ALIASES: CuratedPlayerAliasDefinition[] = [

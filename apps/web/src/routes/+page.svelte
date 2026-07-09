@@ -8,6 +8,7 @@
 	import type { ErrorResponse } from '$lib/contracts/chat';
 	import {
 		getAssistantMessageContent,
+		getChartPlaceholderArtifacts,
 		getPrimaryTableArtifact,
 		getSupportingTableArtifacts,
 		getTextBlockArtifacts,
@@ -122,6 +123,10 @@
 	function getMessageWarnings(message: Message) {
 		return message.data ? getVisibleWarningMessages(message.data) : [];
 	}
+
+	function getMessageChartPlaceholders(message: Message) {
+		return message.data ? getChartPlaceholderArtifacts(message.data) : [];
+	}
 </script>
 
 <svelte:head>
@@ -221,6 +226,19 @@
 													{/each}
 												</tbody>
 											</table>
+										</div>
+									{/each}
+								</div>
+							{/if}
+
+							{#if getMessageChartPlaceholders(message).length > 0}
+								<div class="mt-3 space-y-2">
+									{#each getMessageChartPlaceholders(message) as chart}
+										<div class="rounded-lg border border-current/10 bg-background/50 px-3 py-2">
+											<p class="text-xs font-medium">{chart.title}</p>
+											<p class="mt-1 text-[11px] leading-relaxed text-foreground/60">
+												Chart rendering coming soon - {chart.dataPointCount} data point{chart.dataPointCount === 1 ? '' : 's'}
+											</p>
 										</div>
 									{/each}
 								</div>

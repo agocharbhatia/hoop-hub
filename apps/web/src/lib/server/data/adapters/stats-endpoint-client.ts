@@ -234,12 +234,24 @@ function normalizeParams(
 	endpointId: string,
 	providedParams: Record<string, string>,
 	requiredParams: string[],
-	optionalParams: string[]
+	optionalParams: string[],
+	defaults: Record<string, string>
 ): Record<string, string> {
 	const normalized: Record<string, string> = {};
+	const allowedParams = new Set([...requiredParams, ...optionalParams]);
+	const mergedParams = {
+		...defaults,
+		...providedParams
+	};
+
+	for (const key of Object.keys(providedParams)) {
+		if (!allowedParams.has(key)) {
+			throw new Error(`Endpoint '${endpointId}' does not support parameter '${key}'.`);
+		}
+	}
 
 	for (const key of requiredParams) {
-		const value = providedParams[key];
+		const value = mergedParams[key];
 		if (value === undefined) {
 			throw new Error(`Endpoint '${endpointId}' requires parameter '${key}'.`);
 		}
@@ -247,18 +259,21 @@ function normalizeParams(
 	}
 
 	for (const key of optionalParams) {
-		if (Object.prototype.hasOwnProperty.call(providedParams, key)) {
-			normalized[key] = providedParams[key];
-		}
-	}
-
-	for (const [key, value] of Object.entries(providedParams)) {
-		if (!Object.prototype.hasOwnProperty.call(normalized, key)) {
-			normalized[key] = value;
+		if (Object.prototype.hasOwnProperty.call(mergedParams, key)) {
+			normalized[key] = mergedParams[key];
 		}
 	}
 
 	return normalized;
+}
+
+export function normalizeEndpointParams(endpointId: string, providedParams: Record<string, string>): Record<string, string> {
+	const entry = getEndpointCatalogEntry(endpointId);
+	if (!entry) {
+		throw new Error(`Unknown endpoint id '${endpointId}'.`);
+	}
+
+	return normalizeParams(endpointId, providedParams, entry.requiredParams, entry.optionalParams, entry.defaults);
 }
 
 function parseCachedPayload(payloadJson: string): unknown | null {
@@ -375,7 +390,13 @@ export function createStatsEndpointFetcher(options?: { liveTransport?: LiveStats
 		}
 
 		const now = request.now ?? new Date();
-		const normalizedParams = normalizeParams(request.endpointId, request.params, entry.requiredParams, entry.optionalParams);
+		const normalizedParams = normalizeParams(
+			request.endpointId,
+			request.params,
+			entry.requiredParams,
+			entry.optionalParams,
+			entry.defaults
+		);
 		const paramsJson = JSON.stringify(JSON.parse(stableStringify(normalizedParams)));
 		const snapshotDate = toSnapshotDateIso(now);
 		const cacheKey = buildRawEndpointCacheKey({

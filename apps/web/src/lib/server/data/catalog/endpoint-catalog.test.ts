@@ -19,6 +19,8 @@ describe('endpoint-catalog', () => {
 		assert.equal(entry?.supportedIntents.includes('league_leaders'), true);
 		assert.deepEqual(entry?.requiredParams, ['LeagueID', 'PerMode', 'Scope', 'Season', 'SeasonType', 'StatCategory']);
 		assert.deepEqual(entry?.optionalParams, ['ActiveFlag']);
+		assert.equal(entry?.defaults.LeagueID, '00');
+		assert.equal(entry?.defaults.PerMode, 'PerGame');
 	});
 
 	test('returns undefined for unknown endpoints', () => {
@@ -57,5 +59,26 @@ describe('endpoint-catalog', () => {
 				);
 			}
 		}
+	});
+
+	test('declares defaults objects for every endpoint entry', () => {
+		for (const entry of listEndpointCatalog()) {
+			assert.equal(typeof entry.defaults, 'object');
+			assert.equal(Array.isArray(entry.defaults), false);
+		}
+	});
+
+	test('includes dynamic endpoints used by the open-ended agent', () => {
+		const dynamicEndpointIds = new Set(
+			listEndpointCatalog()
+				.filter((entry) => entry.supportedIntents.includes('dynamic'))
+				.map((entry) => entry.endpointId)
+		);
+
+		assert.equal(dynamicEndpointIds.has('commonplayerinfo'), true);
+		assert.equal(dynamicEndpointIds.has('playerdashptshots'), true);
+		assert.equal(dynamicEndpointIds.has('shotchartdetail'), true);
+		assert.equal(dynamicEndpointIds.has('leaguegamefinder'), true);
+		assert.equal(dynamicEndpointIds.has('playergamelogs'), true);
 	});
 });

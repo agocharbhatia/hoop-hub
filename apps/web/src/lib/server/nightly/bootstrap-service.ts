@@ -1,4 +1,11 @@
-import { fetchStatsEndpointWithCache, getDataStore, getEndpointCatalogEntry, stableStringify, buildRawEndpointCacheKey } from '$lib/server/data';
+import {
+	buildRawEndpointCacheKey,
+	fetchStatsEndpointWithCache,
+	getDataStore,
+	getEndpointCatalogEntry,
+	normalizeEndpointParams,
+	stableStringify
+} from '$lib/server/data';
 import type {
 	EndpointFetchRequest,
 	EndpointFetchResult,
@@ -87,7 +94,7 @@ function buildRequestKey(request: EndpointFetchRequest, slateDate: string): stri
 		throw new Error(`Unknown endpoint id '${request.endpointId}'.`);
 	}
 
-	const normalizedParams = JSON.parse(stableStringify(request.params)) as Record<string, string>;
+	const normalizedParams = normalizeEndpointParams(request.endpointId, request.params);
 	return buildRawEndpointCacheKey({
 		endpointId: request.endpointId,
 		params: normalizedParams,
@@ -216,7 +223,7 @@ function loadStoredNightlyPayload(
 		throw new Error(`Unknown endpoint id '${request.endpointId}'.`);
 	}
 
-	const normalizedParams = JSON.parse(stableStringify(request.params)) as Record<string, string>;
+	const normalizedParams = normalizeEndpointParams(request.endpointId, request.params);
 	const row = options?.exactSnapshotDate
 		? getDataStore().getRawEndpointCache(
 				buildRawEndpointCacheKey({
@@ -258,7 +265,7 @@ function persistAuthoritativeNightlyCache(
 		throw new Error(`Unknown endpoint id '${request.endpointId}'.`);
 	}
 
-	const normalizedParams = JSON.parse(stableStringify(request.params)) as Record<string, string>;
+	const normalizedParams = normalizeEndpointParams(request.endpointId, request.params);
 	const paramsJson = buildParamsJson(normalizedParams);
 
 	getDataStore().putRawEndpointCache({
@@ -312,7 +319,7 @@ async function materializePlannedRequests(
 		requests: requests.map((request) => ({
 			requestKey: request.requestKey,
 			endpointId: request.request.endpointId,
-			paramsJson: buildParamsJson(JSON.parse(stableStringify(request.request.params)) as Record<string, string>),
+			paramsJson: buildParamsJson(normalizeEndpointParams(request.request.endpointId, request.request.params)),
 			phase: request.phase
 		}))
 	});
