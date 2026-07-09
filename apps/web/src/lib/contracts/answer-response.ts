@@ -51,6 +51,17 @@ export type QueryAnswerArtifact =
 				value?: 2 | 3;
 				label?: string;
 			}>;
+	  }
+	| {
+			type: 'video_playlist';
+			title: string;
+			clips: Array<{
+				url: string;
+				description: string;
+				thumbnailUrl: string | null;
+				gameDate: string | null;
+				gameId: string | null;
+			}>;
 	  };
 
 export type QueryAnswerPlannedToolRequest = {
@@ -66,6 +77,7 @@ export type QueryAnswerAgentToolName =
 	| 'resolve_players'
 	| 'resolve_teams'
 	| 'call_nba_stats_endpoint'
+	| 'find_video_clips'
 	| 'aggregate_endpoint_rows';
 
 export type QueryAnswerAgentToolResult = {

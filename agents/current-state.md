@@ -42,7 +42,9 @@ This file is the short source of truth for future agents. Use it before relying 
 - broader dynamic-agent endpoint coverage, evaluation, and model prompt hardening
 - broader structured planning beyond the current supported query families
 - persisted session grounding
-- play-by-play clip retrieval and playlist compilation (Phase 3)
+- single-file clip compilation/export (ffmpeg); the shipped playlist player auto-advances through clips instead
+
+Clip retrieval shipped: the agent's `find_video_clips` tool wraps `videodetailsasset` (dedicated parser in `src/lib/server/agent/video-clips.ts`, clips capped at 40), emits `video_playlist` artifacts, and `src/lib/components/video/VideoPlaylist.svelte` plays them sequentially with auto-advance. Clip filters are team-level (no per-defender filter exists); the system prompt tells the model to disclose that.
 
 Derived/computed metrics now run through the agent's `aggregate_endpoint_rows` tool (server-side filter/group/aggregate over full result sets), and line/bar/shot-chart artifacts render as real chart components (`src/lib/components/charts/`, QA page at `/dev/charts`). The player directory re-seeds stored DBs whenever the checked-in snapshot version changes.
 

@@ -6,7 +6,7 @@ import type {
 } from '$lib/contracts/answer-response';
 import type { TraceSourceCall } from '$lib/contracts/chat';
 import type { StatsQueryRow, StatsQueryRowValue, StatsQueryStatus, StatsQueryWarning } from '$lib/contracts/semantic-query';
-import type { EndpointFetchResult } from '$lib/server/data/adapters/stats-endpoint-client';
+import { normalizeEndpointParams, type EndpointFetchResult } from '$lib/server/data/adapters/stats-endpoint-client';
 import { listEndpointCatalog } from '$lib/server/data/catalog';
 import {
 	ensurePlayerDirectoryAvailable,
@@ -14,6 +14,7 @@ import {
 } from '$lib/server/players/player-directory';
 import { saveDynamicAgentTrace } from '$lib/server/semantic/trace-store';
 import { findTeamDirectoryEntriesByNameOrAlias } from '$lib/server/teams/team-directory';
+import { parseVideoDetailsAssetClips } from './video-clips';
 import type {
 	DynamicAgentChatMessage,
 	DynamicAgentFinalOutput,
@@ -35,8 +36,10 @@ const TOOL_NAMES: QueryAnswerAgentToolName[] = [
 	'resolve_players',
 	'resolve_teams',
 	'call_nba_stats_endpoint',
-	'aggregate_endpoint_rows'
+	'aggregate_endpoint_rows',
+	'find_video_clips'
 ];
+const VIDEO_CLIPS_ENDPOINT_ID = 'videodetailsasset';
 const FILTER_OPERATORS = ['eq', 'neq', 'in', 'not_in', 'gt', 'gte', 'lt', 'lte', 'contains'] as const;
 const AGGREGATION_OPERATORS = ['count', 'sum', 'avg', 'min', 'max'] as const;
 
@@ -167,6 +170,11 @@ type ParsedToolRequest =
 			ok: true;
 			toolName: 'aggregate_endpoint_rows';
 			request: AggregateEndpointRowsRequest;
+	  }
+	| {
+			ok: true;
+			toolName: 'find_video_clips';
+			request: { params: Record<string, string> };
 	  }
 	| { ok: false; toolName: QueryAnswerAgentToolName; request: Record<string, unknown>; error: string };
 
@@ -336,6 +344,11 @@ function buildSystemMessages(): DynamicAgentChatMessage[] {
 		{
 			role: 'system',
 			content:
+				"Use find_video_clips when the user asks to see or watch plays/clips. Its params follow the videodetailsasset endpoint: ContextMeasure picks the event type (FGM scoring, FG3M threes, AST, BLK, STL, REB, TOV), SeasonType 'Playoffs' for playoff asks, OpponentTeamID filters by the opposing TEAM only — there is no per-defender filter, so for asks like 'against Bam Adebayo' resolve the defender's team, filter by that team, and say plainly that the filter is team-level. When clips are found, emit a video_playlist artifact with the clips and a descriptive title, and keep the prose answer short (count + scope)."
+		},
+		{
+			role: 'system',
+			content:
 				"Use resolve_players for player names and resolve_teams for team names before calling id-based endpoints. Use call_nba_stats_endpoint for live/cache-backed NBA data. The tool returns resultSets with headers and row arrays capped at 150 rows; truncated=true means more rows existed. Use aggregate_endpoint_rows when a precise stat requires filtering or aggregating beyond that cap, such as pull-up mid-range FG% from shotchartdetail with filters SHOT_ZONE_BASIC eq 'Mid-Range' and ACTION_TYPE contains 'pull', plus count and sum:SHOT_MADE_FLAG. Final artifacts must be grounded in the rows or aggregates you fetched. In table artifacts, each entry of rows is an array of cell values aligned with the columns order."
 		}
 	];
@@ -475,6 +488,25 @@ function buildToolDefinitions(): DynamicAgentToolDefinition[] {
 					required: ['endpointId', 'params', 'aggregations']
 				}
 			}
+		},
+		{
+			type: 'function',
+			function: {
+				name: 'find_video_clips',
+				description:
+					'Fetch playable NBA video clips from the videodetailsasset endpoint for a player/event filter. Returns clip URLs, descriptions, thumbnails, and game dates.',
+				parameters: {
+					type: 'object',
+					additionalProperties: false,
+					properties: {
+						params: {
+							type: 'object',
+							additionalProperties: { type: 'string' }
+						}
+					},
+					required: ['params']
+				}
+			}
 		}
 	];
 }
@@ -496,7 +528,8 @@ function buildFinalAnswerSchema() {
 							buildTextBlockArtifactSchema(),
 							buildLineChartArtifactSchema(),
 							buildBarChartArtifactSchema(),
-							buildShotChartArtifactSchema()
+							buildShotChartArtifactSchema(),
+							buildVideoPlaylistArtifactSchema()
 						]
 					}
 				},
@@ -634,6 +667,33 @@ function buildShotChartArtifactSchema() {
 	};
 }
 
+function buildVideoPlaylistArtifactSchema() {
+	return {
+		type: 'object',
+		additionalProperties: false,
+		properties: {
+			type: { type: 'string', enum: ['video_playlist'] },
+			title: { type: 'string' },
+			clips: {
+				type: 'array',
+				items: {
+					type: 'object',
+					additionalProperties: false,
+					properties: {
+						url: { type: 'string' },
+						description: { type: 'string' },
+						thumbnailUrl: { type: ['string', 'null'] },
+						gameDate: { type: ['string', 'null'] },
+						gameId: { type: ['string', 'null'] }
+					},
+					required: ['url', 'description', 'thumbnailUrl', 'gameDate', 'gameId']
+				}
+			}
+		},
+		required: ['type', 'title', 'clips']
+	};
+}
+
 function buildAssistantMessage(response: DynamicAgentModelResponse): DynamicAgentChatMessage {
 	return {
 		role: 'assistant',
@@ -676,6 +736,11 @@ async function executeToolCall(
 				data = aggregateData.data;
 				ok = aggregateData.ok;
 				error = aggregateData.ok ? undefined : aggregateData.error;
+			} else if (parsed.toolName === 'find_video_clips') {
+				const clipsData = await findVideoClips(parsed.request, dependencies, context);
+				data = clipsData.data;
+				ok = clipsData.ok;
+				error = clipsData.ok ? undefined : clipsData.error;
 			}
 		} catch (caughtError) {
 			error = caughtError instanceof Error ? caughtError.message : String(caughtError);
@@ -785,6 +850,37 @@ function parseToolRequest(toolCall: DynamicAgentToolCall): ParsedToolRequest {
 		};
 	}
 
+	if (toolName === 'find_video_clips') {
+		const unsupportedKey = findUnsupportedKey(rawArguments, ['params']);
+		if (unsupportedKey) {
+			return {
+				ok: false,
+				toolName,
+				request: rawArguments,
+				error: `find_video_clips received unsupported argument '${unsupportedKey}'. Allowed: params.`
+			};
+		}
+
+		const endpointRequest = parseEndpointRequest(
+			{ endpointId: VIDEO_CLIPS_ENDPOINT_ID, params: rawArguments.params },
+			toolName
+		);
+		if (!endpointRequest.ok) {
+			return {
+				ok: false,
+				toolName,
+				request: rawArguments,
+				error: endpointRequest.error
+			};
+		}
+
+		return {
+			ok: true,
+			toolName,
+			request: { params: endpointRequest.request.params }
+		};
+	}
+
 	const aggregateRequest = parseAggregateEndpointRowsRequest(rawArguments);
 	if (!aggregateRequest.ok) {
 		return {
@@ -804,7 +900,7 @@ function parseToolRequest(toolCall: DynamicAgentToolCall): ParsedToolRequest {
 
 function parseEndpointRequest(
 	rawArguments: Record<string, unknown>,
-	toolName: 'call_nba_stats_endpoint' | 'aggregate_endpoint_rows'
+	toolName: 'call_nba_stats_endpoint' | 'aggregate_endpoint_rows' | 'find_video_clips'
 ): { ok: true; request: { endpointId: string; params: Record<string, string> } } | { ok: false; error: string } {
 	const endpointId = rawArguments.endpointId;
 	const params = rawArguments.params;
@@ -1111,6 +1207,59 @@ async function aggregateEndpointRows(
 	return {
 		ok: true,
 		data: aggregateResult.data
+	};
+}
+
+async function findVideoClips(
+	request: { params: Record<string, string> },
+	dependencies: DynamicQueryAgentDependencies,
+	context: ToolExecutionContext
+): Promise<{ ok: true; data: unknown } | { ok: false; data?: unknown; error: string }> {
+	try {
+		normalizeEndpointParams(VIDEO_CLIPS_ENDPOINT_ID, request.params);
+	} catch (error) {
+		return {
+			ok: false,
+			error: error instanceof Error ? error.message : String(error)
+		};
+	}
+
+	const result = await fetchAndRecordEndpointResult(
+		{ endpointId: VIDEO_CLIPS_ENDPOINT_ID, params: request.params },
+		dependencies,
+		context
+	);
+
+	if (!result.payload) {
+		context.failedEndpointCalls += 1;
+		return {
+			ok: false,
+			data: buildEndpointToolData(result),
+			error: result.errorDetail ?? `NBA Stats endpoint '${VIDEO_CLIPS_ENDPOINT_ID}' did not return data.`
+		};
+	}
+
+	const parsed = parseVideoDetailsAssetClips(result.payload);
+	if (!parsed.ok) {
+		context.failedEndpointCalls += 1;
+		return {
+			ok: false,
+			error: parsed.error
+		};
+	}
+
+	context.successfulEndpointCalls += 1;
+	return {
+		ok: true,
+		data: {
+			clips: parsed.data.clips,
+			totalAvailable: parsed.data.totalAvailable,
+			truncated: parsed.data.truncated,
+			cacheStatus: result.cacheStatus,
+			sourceStatus: result.sourceStatus,
+			stale: result.stale,
+			isProvisional: result.isProvisional
+		}
 	};
 }
 
@@ -1632,6 +1781,26 @@ function validateArtifact(
 		};
 	}
 
+	if (artifact.type === 'video_playlist') {
+		if (typeof artifact.title !== 'string' || !Array.isArray(artifact.clips) || !artifact.clips.every(isVideoPlaylistClipInput)) {
+			return { ok: false, error: 'Dynamic agent emitted an invalid video_playlist artifact.' };
+		}
+		return {
+			ok: true,
+			value: {
+				type: 'video_playlist',
+				title: artifact.title,
+				clips: artifact.clips.map((clip) => ({
+					url: clip.url,
+					description: clip.description,
+					thumbnailUrl: typeof clip.thumbnailUrl === 'string' ? clip.thumbnailUrl : null,
+					gameDate: typeof clip.gameDate === 'string' ? clip.gameDate : null,
+					gameId: typeof clip.gameId === 'string' ? clip.gameId : null
+				}))
+			}
+		};
+	}
+
 	if (artifact.type === 'shot_chart') {
 		if (typeof artifact.title !== 'string' || !Array.isArray(artifact.shots) || !artifact.shots.every(isShotChartShotInput)) {
 			return { ok: false, error: 'Dynamic agent emitted an invalid shot_chart artifact.' };
@@ -1720,7 +1889,7 @@ function isEndpointFetchFailure(toolName: QueryAnswerAgentToolName, data: unknow
 	}
 
 	return (
-		toolName === 'aggregate_endpoint_rows' &&
+		(toolName === 'aggregate_endpoint_rows' || toolName === 'find_video_clips') &&
 		isPlainObject(data) &&
 		typeof data.parserVersion === 'string' &&
 		Array.isArray(data.resultSets)
@@ -1810,6 +1979,24 @@ function isLineChartSeries(value: unknown): value is Extract<QueryAnswerArtifact
 
 function isBarChartBar(value: unknown): value is Extract<QueryAnswerArtifact, { type: 'bar_chart' }>['bars'][number] {
 	return isPlainObject(value) && typeof value.label === 'string' && typeof value.value === 'number';
+}
+
+function isVideoPlaylistClipInput(value: unknown): value is {
+	url: string;
+	description: string;
+	thumbnailUrl?: string | null;
+	gameDate?: string | null;
+	gameId?: string | null;
+} {
+	return (
+		isPlainObject(value) &&
+		typeof value.url === 'string' &&
+		value.url.trim().length > 0 &&
+		typeof value.description === 'string' &&
+		(value.thumbnailUrl === undefined || value.thumbnailUrl === null || typeof value.thumbnailUrl === 'string') &&
+		(value.gameDate === undefined || value.gameDate === null || typeof value.gameDate === 'string') &&
+		(value.gameId === undefined || value.gameId === null || typeof value.gameId === 'string')
+	);
 }
 
 function isShotChartShotInput(

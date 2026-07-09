@@ -7,6 +7,7 @@
 	import BarChart from '$lib/components/charts/BarChart.svelte';
 	import LineChart from '$lib/components/charts/LineChart.svelte';
 	import ShotChart from '$lib/components/charts/ShotChart.svelte';
+	import VideoPlaylist from '$lib/components/video/VideoPlaylist.svelte';
 	import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
 	import type { ErrorResponse } from '$lib/contracts/chat';
 	import {
@@ -15,6 +16,7 @@
 		getPrimaryTableArtifact,
 		getSupportingTableArtifacts,
 		getTextBlockArtifacts,
+		getVideoPlaylistArtifacts,
 		getVisibleWarningMessages
 	} from '$lib/presentation/query-response';
 
@@ -129,6 +131,10 @@
 
 	function getMessageChartPlaceholders(message: Message) {
 		return message.data ? getChartPlaceholderArtifacts(message.data) : [];
+	}
+
+	function getMessageVideoPlaylists(message: Message) {
+		return message.data ? getVideoPlaylistArtifacts(message.data) : [];
 	}
 </script>
 
@@ -245,6 +251,16 @@
 											{:else if chart.artifact.type === 'shot_chart'}
 												<ShotChart artifact={chart.artifact} />
 											{/if}
+										</div>
+									{/each}
+								</div>
+							{/if}
+
+							{#if getMessageVideoPlaylists(message).length > 0}
+								<div class="mt-3 space-y-3">
+									{#each getMessageVideoPlaylists(message) as playlist}
+										<div class="rounded-lg border border-current/10 bg-card px-3 py-2.5">
+											<VideoPlaylist artifact={playlist} />
 										</div>
 									{/each}
 								</div>

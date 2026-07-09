@@ -131,6 +131,44 @@ export function getChartPlaceholderArtifacts(payload: QueryAnswerResponse): Char
 	}));
 }
 
+export type VideoPlaylistClip = {
+	url: string;
+	description: string;
+	thumbnailUrl: string | null;
+	gameDate: string | null;
+	gameId: string | null;
+};
+
+export type VideoPlaylistArtifactView = {
+	type: 'video_playlist';
+	title: string;
+	clips: VideoPlaylistClip[];
+};
+
+function isVideoPlaylistClip(value: unknown): value is VideoPlaylistClip {
+	return (
+		isArtifactRecord(value) &&
+		typeof value.url === 'string' &&
+		value.url.length > 0 &&
+		typeof value.description === 'string'
+	);
+}
+
+function isVideoPlaylistArtifact(artifact: unknown): artifact is VideoPlaylistArtifactView {
+	return (
+		isArtifactRecord(artifact) &&
+		artifact.type === 'video_playlist' &&
+		typeof artifact.title === 'string' &&
+		Array.isArray(artifact.clips) &&
+		artifact.clips.every(isVideoPlaylistClip)
+	);
+}
+
+export function getVideoPlaylistArtifacts(payload: QueryAnswerResponse): VideoPlaylistArtifactView[] {
+	const artifacts: unknown[] = payload.artifacts;
+	return artifacts.filter(isVideoPlaylistArtifact).filter((artifact) => artifact.clips.length > 0);
+}
+
 export function getVisibleWarningMessages(payload: QueryAnswerResponse): string[] {
 	return payload.warnings
 		.map((warning) => warning.message.trim())

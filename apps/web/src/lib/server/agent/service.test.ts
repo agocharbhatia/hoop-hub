@@ -259,6 +259,129 @@ describe('createDynamicQueryAgent', () => {
 		assert.equal(model.inputs[3]?.responseFormat?.name, 'dynamic_query_answer');
 	});
 
+	test('fetches video clips and returns a video_playlist artifact', async () => {
+		const model = createScriptedModel([
+			toolCall('players-1', 'resolve_players', { names: ['Scottie Barnes'] }),
+			toolCall('clips-1', 'find_video_clips', {
+				params: {
+					PlayerID: '1630173',
+					ContextMeasure: 'FGM',
+					SeasonType: 'Playoffs'
+				}
+			}),
+			emptyAssistantTurn(),
+			finalResponse({
+				answer: 'Found 2 made field goals for Scottie Barnes in the 2025-26 playoffs.',
+				artifacts: [
+					{
+						type: 'video_playlist',
+						title: 'Scottie Barnes playoff field goals',
+						clips: [
+							{
+								url: 'https://videos.nba.com/clip-1.mp4',
+								description: 'Barnes driving layup',
+								thumbnailUrl: 'https://videos.nba.com/clip-1.jpg',
+								gameDate: '2026-05-03',
+								gameId: '0042500101'
+							},
+							{
+								url: 'https://videos.nba.com/clip-2.mp4',
+								description: 'Barnes pullup jumper',
+								thumbnailUrl: null,
+								gameDate: null,
+								gameId: null
+							}
+						]
+					}
+				],
+				warnings: []
+			})
+		]);
+		let endpointRequest: Parameters<StatsEndpointFetcher>[0] | null = null;
+		const endpointFetcher: StatsEndpointFetcher = async (request) => {
+			endpointRequest = request;
+			return buildEndpointResult({
+				endpointId: 'videodetailsasset',
+				payload: {
+					resultSets: {
+						Meta: {
+							videoUrls: [
+								{ murl: 'https://videos.nba.com/clip-1.mp4', mth: 'https://videos.nba.com/clip-1.jpg' },
+								{ murl: 'https://videos.nba.com/clip-2.mp4', mth: null }
+							]
+						},
+						playlist: [
+							{ gi: '0042500101', ei: '7', y: 2026, m: 5, d: 3, dsc: 'Barnes driving layup' },
+							{ gi: '0042500102', ei: '9', y: 2026, m: 5, d: 5, dsc: 'Barnes pullup jumper' }
+						]
+					}
+				}
+			});
+		};
+
+		const agent = createDynamicQueryAgent({
+			model,
+			endpointFetcher,
+			playerDirectory: createFakePlayerDirectory(),
+			teamDirectory: createFakeTeamDirectory()
+		});
+		const response = await agent.answerQuestion('show me every scottie barnes made basket in the playoffs');
+
+		assert.equal(response.status, 'ok');
+		const recordedRequest = endpointRequest as Parameters<StatsEndpointFetcher>[0] | null;
+		assert.equal(recordedRequest?.endpointId, 'videodetailsasset');
+		assert.equal(recordedRequest?.params.ContextMeasure, 'FGM');
+
+		const playlist = response.artifacts.find((artifact) => artifact.type === 'video_playlist');
+		assert.notEqual(playlist, undefined);
+		if (playlist?.type !== 'video_playlist') {
+			assert.fail('Expected a video_playlist artifact.');
+		}
+		assert.equal(playlist.clips.length, 2);
+		assert.equal(playlist.clips[0]?.url, 'https://videos.nba.com/clip-1.mp4');
+		assert.equal(playlist.clips[1]?.thumbnailUrl, null);
+
+		const clipsToolResult = response.toolResults.find((toolResult) => toolResult.toolName === 'find_video_clips');
+		assert.notEqual(clipsToolResult, undefined);
+		assert.equal((clipsToolResult?.response as { ok: boolean }).ok, true);
+
+		const trace = getQueryTraceById(response.traceId);
+		if (!trace || !('runtime' in trace) || trace.runtime !== 'dynamic_agent') {
+			assert.fail('Expected a dynamic_agent trace for the clips run.');
+		}
+		assert.equal(trace.toolCalls.some((call) => call.toolName === 'find_video_clips' && call.ok), true);
+	});
+
+	test('rejects find_video_clips requests with uncataloged params', async () => {
+		const model = createScriptedModel([
+			toolCall('clips-1', 'find_video_clips', {
+				params: {
+					PlayerID: '1630173',
+					DefenderID: '1628389'
+				}
+			}),
+			emptyAssistantTurn(),
+			finalResponse({
+				answer: 'I could not fetch clips with that filter.',
+				artifacts: [],
+				warnings: []
+			})
+		]);
+		const agent = createDynamicQueryAgent({
+			model,
+			endpointFetcher: async () => buildEndpointResult(),
+			playerDirectory: createFakePlayerDirectory(),
+			teamDirectory: createFakeTeamDirectory()
+		});
+		const response = await agent.answerQuestion('show me clips of barnes scoring on mitchell');
+
+		const clipsToolResult = response.toolResults.find((toolResult) => toolResult.toolName === 'find_video_clips');
+		assert.notEqual(clipsToolResult, undefined);
+		const toolResponse = clipsToolResult?.response as { ok: boolean; error?: string };
+		assert.equal(toolResponse.ok, false);
+		assert.match(toolResponse.error ?? '', /DefenderID/);
+	});
+
 	test('forces a final answer when the tool iteration cap is reached', async () => {
 		const model = createScriptedModel([
 			toolCall('teams-1', 'resolve_teams', { names: ['Raptors'] }),

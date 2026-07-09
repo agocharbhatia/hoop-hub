@@ -38,7 +38,7 @@ Detailed implementation context for future agents lives in [agents/current-state
 - [x] Add richer visualization artifacts (line, bar, and half-court shot chart components render agent artifacts in the UI)
 - [ ] Add persisted session grounding and stronger answer/artifact composition
 - [ ] Add the evaluation harness and performance gates
-- [ ] Phase 2: play-by-play clip retrieval and ordered playlist output
+- [x] Clip retrieval and playlist output (`find_video_clips` over `videodetailsasset` + sequential playlist player in the UI)
 
 ## Local Setup
 
