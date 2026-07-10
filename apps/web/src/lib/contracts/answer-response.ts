@@ -55,6 +55,7 @@ export type QueryAnswerArtifact =
 				thumbnailUrl: string | null;
 				gameDate: string | null;
 				gameId: string | null;
+				eventId?: string | null;
 			}>;
 	  };
 

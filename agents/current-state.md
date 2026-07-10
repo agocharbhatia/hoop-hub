@@ -44,7 +44,11 @@ This file is the short source of truth for future agents. Use it before relying 
 - persisted session grounding
 - single-file clip compilation/export (ffmpeg); the shipped playlist player auto-advances through clips instead
 
-Clip retrieval shipped: the agent's `find_video_clips` tool wraps `videodetailsasset` (dedicated parser in `src/lib/server/agent/video-clips.ts`, clips capped at 40), emits `video_playlist` artifacts, and `src/lib/components/video/VideoPlaylist.svelte` plays them sequentially with auto-advance. Clip filters are team-level (no per-defender filter exists); the system prompt tells the model to disclose that.
+Clip retrieval now has direct-event and exact custom-shot paths. Standard event intents still map straight to `videodetailsasset` context measures (`made_three` -> `FG3M`, `made_field_goal` -> `FGM`, plus direct assist/block/steal/rebound/turnover measures). `custom_shot` fetches the full `shotchartdetail` log, applies canonical result/value/zone/zone-area/action-family/period/distance filters, then makes at most one broad video request and joins only on `(GAME_ID, GAME_EVENT_ID)`. The 40-clip cap is applied after joining, and tool data exposes matching/joined/missing counts, invalid keys, cap state, returned event ids, and applied filters. `src/lib/server/agent/custom-shot-clips.ts` owns the deterministic filter/join logic; `video-clips.ts` can parse an uncapped feed for this path.
+
+Custom video artifacts are reconciled from successful tool output rather than trusted model-authored clip lists. Complete joins do not warn; partial joins produce one deterministic product warning. Missing/malformed ids and unplayable or absent videos remain missing instead of admitting unrelated feed events. The explicit-cue guard also rejects pre-fetch tool calls that omit or contradict clear mid-range, corner, action, result, shot-value, or quarter language, so the model can retry with the complete canonical intent. The observed action vocabulary includes variants such as `Pullup Jump shot`, `Running Pull-Up Jump Shot`, `Step Back Jump shot`, driving/cutting/running layups and dunks, hooks, floaters, fadeaways, turnarounds, putbacks, tips, alley-oops, banks, and finger rolls. Novel action terminology outside the semantic families is currently unsupported and must not be silently broadened.
+
+Opponent filtering is team-level. Named-defender filtering remains unavailable, and the existing guard rejects a resolved defender-to-team substitution unless the user first approves that broader scope. Browser autoplay policies may require the native play control after `Play all`; this is distinct from missing video. `bun run eval` runs the deterministic custom-video contract suite; live model/data/playback checks are still non-gating.
 
 Derived/computed metrics now run through the agent's `aggregate_endpoint_rows` tool (server-side filter/group/aggregate over full result sets), and line/bar/shot-chart artifacts render as real chart components (`src/lib/components/charts/`, QA page at `/dev/charts`). The player directory re-seeds stored DBs whenever the checked-in snapshot version changes.
 
@@ -54,6 +58,7 @@ Derived/computed metrics now run through the agent's `aggregate_endpoint_rows` t
   - `cd apps/web && bun run check`
   - `cd apps/web && bun run test`
   - `cd apps/web && bun run build`
+  - `cd apps/web && bun run eval`
 - Fixture-backed semantic tests are the main guardrail for default CI.
 - Live integration smoke coverage should stay isolated from default PR gating.
 - Dynamic-agent model evaluation now has two explicit modes:

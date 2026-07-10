@@ -20,7 +20,7 @@ export type ParsedVideoDetailsAssetClips = {
  */
 export function parseVideoDetailsAssetClips(
 	payload: unknown,
-	maxClips = MAX_VIDEO_DETAILS_ASSET_CLIPS
+	maxClips: number | null = MAX_VIDEO_DETAILS_ASSET_CLIPS
 ): { ok: true; data: ParsedVideoDetailsAssetClips } | { ok: false; error: string } {
 	const payloadShape = readVideoDetailsAssetShape(payload);
 	if (!payloadShape.ok) {
@@ -53,12 +53,13 @@ export function parseVideoDetailsAssetClips(
 	}
 
 	const totalAvailable = pairedClips.length;
+	const normalizedMaxClips = maxClips === null ? null : Math.max(0, Math.floor(maxClips));
 	return {
 		ok: true,
 		data: {
-			clips: pairedClips.slice(0, Math.max(0, maxClips)),
+			clips: normalizedMaxClips === null ? pairedClips : pairedClips.slice(0, normalizedMaxClips),
 			totalAvailable,
-			truncated: totalAvailable > maxClips
+			truncated: normalizedMaxClips !== null && totalAvailable > normalizedMaxClips
 		}
 	};
 }
@@ -96,7 +97,7 @@ function firstNonEmptyString(...values: unknown[]): string | null {
 function stringValue(value: unknown): string | null {
 	if (typeof value === 'string') {
 		const trimmed = value.trim();
-		return trimmed.length > 0 ? value : null;
+		return trimmed.length > 0 ? trimmed : null;
 	}
 	if (typeof value === 'number' && Number.isFinite(value)) {
 		return String(value);

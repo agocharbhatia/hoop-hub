@@ -471,6 +471,214 @@ describe('createDynamicQueryAgent', () => {
 		assert.equal(data.discardedMismatchedClips, 1);
 	});
 
+	test('filters a full custom shot log, joins one video feed exactly, and grounds the artifact', async () => {
+		const customRequest = {
+			playerId: '1630173',
+			eventType: 'custom_shot',
+			season: '2025-26',
+			seasonType: 'Regular Season',
+			customShot: {
+				result: 'made',
+				shotValue: 2,
+				zone: 'mid_range',
+				actionFamily: 'pull_up'
+			}
+		};
+		const model = createScriptedModel([
+			toolCall('clips-1', 'find_video_clips', customRequest),
+			emptyAssistantTurn(),
+			finalResponse({
+				answer: 'One of two matching shots has video.',
+				artifacts: [
+					{
+						type: 'video_playlist',
+						title: 'Scottie Barnes pull-up mid-range makes',
+						clips: [
+							{
+								url: 'https://videos.nba.com/unrelated.mp4',
+								description: 'Model-authored unrelated clip',
+								thumbnailUrl: null,
+								gameDate: null,
+								gameId: null
+							}
+						]
+					}
+				],
+				warnings: [{ kind: 'partial_data', message: 'The model guessed that coverage might be partial.' }]
+			})
+		]);
+		const endpointRequests: Parameters<StatsEndpointFetcher>[0][] = [];
+		const agent = createDynamicQueryAgent({
+			model,
+			endpointFetcher: async (request) => {
+				endpointRequests.push(request);
+				if (request.endpointId === 'shotchartdetail') {
+					return buildEndpointResult({
+						endpointId: 'shotchartdetail',
+						payload: {
+							resultSets: [
+								{
+									name: 'Shot_Chart_Detail',
+									headers: [
+										'GAME_ID',
+										'GAME_EVENT_ID',
+										'ACTION_TYPE',
+										'SHOT_TYPE',
+										'SHOT_ZONE_BASIC',
+										'SHOT_MADE_FLAG',
+										'GAME_DATE'
+									],
+									rowSet: [
+										['0022500001', '10', 'Pullup Jump shot', '2PT Field Goal', 'Mid-Range', 1, '20251022'],
+										['0022500002', '20', 'Running Pull-Up Jump Shot', '2PT Field Goal', 'Mid-Range', 1, '20251024'],
+										['0022500001', '11', 'Driving Layup Shot', '2PT Field Goal', 'Restricted Area', 1, '20251022'],
+										['0022500001', '12', 'Pullup Jump shot', '3PT Field Goal', 'Above the Break 3', 1, '20251022']
+									]
+								}
+							]
+						}
+					});
+				}
+				return buildEndpointResult({
+					endpointId: 'videodetailsasset',
+					payload: {
+						resultSets: {
+							Meta: {
+								videoUrls: [
+									{ murl: 'https://videos.nba.com/unrelated.mp4', mth: null },
+									{ murl: 'https://videos.nba.com/joined.mp4', mth: 'https://videos.nba.com/joined.jpg' }
+								]
+							},
+							playlist: [
+								{ gi: '0022500001', ei: '11', y: 2025, m: 10, d: 22, dsc: 'Unrelated layup' },
+								{ gi: '0022500001', ei: '10', y: 2025, m: 10, d: 22, dsc: 'Joined pull-up' }
+							]
+						}
+					}
+				});
+			},
+			playerDirectory: createFakePlayerDirectory(),
+			teamDirectory: createFakeTeamDirectory()
+		});
+
+		const response = await agent.answerQuestion("Show Scottie Barnes' pull-up mid-range makes.");
+
+		assert.deepEqual(
+			endpointRequests.map((request) => request.endpointId),
+			['shotchartdetail', 'videodetailsasset']
+		);
+		assert.equal(endpointRequests[0]?.params.ContextMeasure, 'FGA');
+		assert.equal(endpointRequests[1]?.params.ContextMeasure, 'FGM');
+		const toolResult = response.toolResults.find((result) => result.toolName === 'find_video_clips');
+		if (!toolResult || toolResult.toolName !== 'find_video_clips' || !toolResult.response.ok) {
+			assert.fail('Expected a successful custom clip result.');
+		}
+		const data = toolResult.response.data as {
+			clips: Array<Record<string, unknown>>;
+			matchingShotEventCount: number;
+			joinedClipCount: number;
+			missingVideoCount: number;
+			playlistCapped: boolean;
+		};
+		assert.equal(data.matchingShotEventCount, 2);
+		assert.equal(data.joinedClipCount, 1);
+		assert.equal(data.missingVideoCount, 1);
+		assert.equal(data.playlistCapped, false);
+		const playlist = response.artifacts.find((artifact) => artifact.type === 'video_playlist');
+		if (playlist?.type !== 'video_playlist') {
+			assert.fail('Expected a grounded playlist.');
+		}
+		assert.deepEqual(playlist.clips, data.clips);
+		assert.deepEqual(playlist.clips.map((clip) => [clip.gameId, clip.eventId]), [['0022500001', '10']]);
+		assert.deepEqual(response.warnings, [
+			{
+				code: 'video_coverage_partial',
+				message: 'Video is unavailable for 1 of 2 matching shot events; 1 joined clip is available.'
+			}
+		]);
+	});
+
+	test('rejects an omitted explicit custom filter before fetching and accepts a corrected retry', async () => {
+		const baseRequest = {
+			playerId: '1630567',
+			eventType: 'custom_shot',
+			season: '2025-26',
+			seasonType: 'Regular Season'
+		};
+		const model = createScriptedModel([
+			toolCall('clips-broad', 'find_video_clips', {
+				...baseRequest,
+				customShot: { result: 'made', shotValue: 2, actionFamily: 'pull_up' }
+			}),
+			toolCall('clips-exact', 'find_video_clips', {
+				...baseRequest,
+				customShot: { result: 'made', shotValue: 2, zone: 'mid_range', actionFamily: 'pull_up' }
+			}),
+			emptyAssistantTurn(),
+			finalResponse({ answer: 'Found one exact clip.', artifacts: [], warnings: [] })
+		]);
+		const endpointIds: string[] = [];
+		const agent = createDynamicQueryAgent({
+			model,
+			endpointFetcher: async (request) => {
+				endpointIds.push(request.endpointId);
+				return request.endpointId === 'shotchartdetail'
+					? buildEndpointResult({
+							endpointId: request.endpointId,
+							payload: {
+								resultSets: [
+									{
+										name: 'Shot_Chart_Detail',
+										headers: [
+											'GAME_ID',
+											'GAME_EVENT_ID',
+											'ACTION_TYPE',
+											'SHOT_TYPE',
+											'SHOT_ZONE_BASIC',
+											'SHOT_MADE_FLAG',
+											'GAME_DATE'
+										],
+										rowSet: [
+											['0022500001', '10', 'Pullup Jump shot', '2PT Field Goal', 'Mid-Range', 1, '20251022']
+										]
+									}
+								]
+							}
+						})
+					: buildEndpointResult({
+							endpointId: request.endpointId,
+							payload: {
+								resultSets: {
+									Meta: { videoUrls: [{ murl: 'https://videos.nba.com/exact.mp4', mth: null }] },
+									playlist: [
+										{ gi: '0022500001', ei: '10', y: 2025, m: 10, d: 22, dsc: 'Exact pull-up mid-range make' }
+									]
+								}
+							}
+						});
+			},
+			playerDirectory: createFakePlayerDirectory(),
+			teamDirectory: createFakeTeamDirectory()
+		});
+
+		const response = await agent.answerQuestion("Show Scottie Barnes' pull-up mid-range makes.");
+
+		assert.deepEqual(endpointIds, ['shotchartdetail', 'videodetailsasset']);
+		const clipResults = response.toolResults.filter((result) => result.toolName === 'find_video_clips');
+		assert.equal(clipResults.length, 2);
+		const broadResult = clipResults[0];
+		const exactResult = clipResults[1];
+		if (broadResult?.toolName !== 'find_video_clips' || exactResult?.toolName !== 'find_video_clips') {
+			assert.fail('Expected two custom clip tool results.');
+		}
+		assert.equal(broadResult.response.ok, false);
+		assert.match(broadResult.response.error ?? '', /customShot\.zone=mid_range/);
+		assert.equal(exactResult.response.ok, true);
+		assert.deepEqual(response.warnings, []);
+		const playlist = response.artifacts.find((artifact) => artifact.type === 'video_playlist');
+		assert.equal(playlist?.type === 'video_playlist' ? playlist.clips.length : 0, 1);
+	});
+
 	test('blocks silent named-defender to opponent-team clip substitution', async () => {
 		const model = createScriptedModel([
 			toolCall('players-1', 'resolve_players', { names: ['Scottie Barnes', 'Bam Adebayo'] }),

@@ -39,6 +39,7 @@ Detailed implementation context for future agents lives in [agents/current-state
 - [ ] Add persisted session grounding and stronger answer/artifact composition
 - [x] Add the dynamic-agent evaluation harness and performance gates
 - [x] Clip retrieval and playlist output (`find_video_clips` over `videodetailsasset` + sequential playlist player in the UI)
+- [x] Exact custom-shot playlists (`shotchartdetail` event filters joined to playable clips by game/event id)
 
 ## Local Setup
 
@@ -93,6 +94,7 @@ cd apps/web
 bun run check
 bun run test
 bun run build
+bun run eval
 ```
 
 ## Dynamic-Agent Evaluation
@@ -122,6 +124,19 @@ bun run eval:live -- --case scottie-made-threes-vs-boston --repetitions 20
 Each invocation exits nonzero when a required gate fails and writes redacted `results.jsonl` plus `summary.md` under `apps/web/eval-results/<timestamp>-<mode>/` by default. Use `--output <directory>` to choose another report location, and `--help` for all filters.
 
 Local evals certify the deterministic tool/parser/reconciliation path; only live evals exercise natural-language model decisions. Playlist contents are checked structurally here, while actual video playback and auto-advance still require browser QA.
+
+## Custom Shot Video Search
+
+`find_video_clips` has two execution paths:
+
+- Standard events (`made_three`, `made_field_goal`, assists, blocks, steals, rebounds, and turnovers) use their direct NBA video context measure. For example, `made_three` remains `FG3M` and `made_field_goal` remains `FGM`.
+- `custom_shot` requests use a semantic filter contract for make/miss result, 2- or 3-point value, zone, zone area, action family, period, distance, opponent, season, game, and date constraints. The server fetches the uncapped shot log, filters it exactly, then joins playable videos on `(GAME_ID, GAME_EVENT_ID)`.
+
+Custom playlists are ordered chronologically by game date, game id, and event id. The 40-clip product cap is applied only after the exact join. Tool grounding reports matching shot events, joined clips, missing videos, invalid join keys, whether the playlist was capped, joined event ids, and canonical applied filters. A partial join produces one concise video-availability warning; a complete join produces none. An explicit-cue guard rejects a tool call before retrieval when it drops or contradicts an unambiguous requested filter (for example, mid-range, left/right corner, pull-up, step-back, driving layup, make/miss, 2/3-point value, or quarter), allowing the model to retry instead of silently broadening the playlist.
+
+The action families cover the values observed in live shot logs, including pull-ups, step-backs, layups, dunks, hooks, floaters, fadeaways, turnarounds, putbacks, tips, alley-oops, cutting/running actions, bank shots, and finger rolls. Zone mappings cover the restricted area, non-restricted paint, mid-range, both corners, above-the-break threes, and backcourt. Unsupported terminology is rejected rather than broadened. Named-defender filtering remains unavailable: the agent must ask before substituting the defender's team. Browser autoplay policies can still require the user to press the native video play control; the playlist surfaces that fallback without treating it as missing NBA video.
+
+`bun run eval:custom-shots` runs deterministic custom-video contract cases, including paraphrases, empty combinations, and partial joins. Live model, NBA data, and playback checks remain non-gating because they require credentials and network/video availability.
 
 ## CI
 
