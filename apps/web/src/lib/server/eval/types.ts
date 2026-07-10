@@ -4,6 +4,7 @@ import type {
 	QueryAnswerResponse
 } from '$lib/contracts/answer-response';
 import type { DynamicAgentFinalOutput } from '$lib/server/agent/types';
+import type { StatsQueryResponse } from '$lib/contracts/semantic-query';
 
 export type EvalMode = 'local' | 'live';
 
@@ -11,6 +12,10 @@ export type EvalFixtureId =
 	| 'scottie_pullup_midrange'
 	| 'jokic_rebound_trend'
 	| 'top_five_assists'
+	| 'sga_scoring_record'
+	| 'wemby_blocks_split'
+	| 'endpoint_failure'
+	| 'semantic_only'
 	| 'scottie_made_threes_boston'
 	| 'named_defender';
 
@@ -41,7 +46,8 @@ export type EvalWarningExpectations = {
 export type EvalValueSource =
 	| { type: 'tool_request'; toolName: QueryAnswerAgentToolName; occurrence?: 'first' | 'last' }
 	| { type: 'tool_result'; toolName: QueryAnswerAgentToolName; occurrence?: 'first' | 'last' }
-	| { type: 'endpoint_request'; endpointId: string; occurrence?: 'first' | 'last' };
+	| { type: 'endpoint_request'; endpointId: string; occurrence?: 'first' | 'last' }
+	| { type: 'artifact'; artifactType: QueryAnswerArtifact['type']; occurrence?: 'first' | 'last' };
 
 export type EvalAssertion =
 	| {
@@ -86,6 +92,7 @@ export type EvalCase = {
 		fixtureId: EvalFixtureId;
 		turns: EvalLocalTurn[];
 		finalOutput: DynamicAgentFinalOutput;
+		semanticResponses?: StatsQueryResponse[];
 	};
 };
 
@@ -136,6 +143,13 @@ export type EvalRunRecord = {
 	warnings: Array<{ code: string; message: string }>;
 	artifacts: EvalArtifactSummary[];
 	totalLatencyMs: number;
+	modelUsage: {
+		calls: number;
+		inputTokens: number;
+		outputTokens: number;
+		totalTokens: number;
+		estimatedCostUsd: number | null;
+	};
 };
 
 export type EvalSuiteResult = {

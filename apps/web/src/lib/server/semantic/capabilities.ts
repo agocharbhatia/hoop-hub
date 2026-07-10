@@ -22,7 +22,7 @@ export type PublicSemanticMetricCapability = {
 };
 
 export type PublicSemanticFilterCapability = {
-	id: 'conference' | 'division' | 'gameStatus';
+	id: 'conference' | 'division' | 'gameStatus' | 'splitBy';
 	operations: SemanticQueryOperation[];
 	entities: SemanticQueryEntity[];
 	values: string[];
@@ -81,6 +81,7 @@ type SupportedShapeKey =
 	| 'lookup/team'
 	| 'rank/player'
 	| 'trend/player'
+	| 'split/player'
 	| 'compare/player'
 	| 'rank/team'
 	| 'standings/team'
@@ -146,6 +147,18 @@ const SUPPORTED_SHAPES: SupportedShape[] = [
 		}
 	},
 	{
+		operation: 'split',
+		entity: 'player',
+		outputModes: ['table'],
+		subjectRule: 'exactly_one',
+		planning: {
+			orderBy: 'none',
+			metricSortDefaults: {},
+			defaultLimit: null,
+			supportsWindow: false
+		}
+	},
+	{
 		operation: 'compare',
 		entity: 'player',
 		outputModes: ['comparison'],
@@ -204,6 +217,7 @@ const INTENT_BY_SHAPE = new Map<IntentBackedShapeKey, QueryIntent>(
 		['lookup/team', 'team_lookup'],
 		['rank/player', 'league_leaders'],
 		['trend/player', 'player_trend'],
+		['split/player', 'player_trend'],
 		['compare/player', 'player_compare'],
 		['rank/team', 'team_ranking']
 	] as const
@@ -275,6 +289,12 @@ const SUPPORTED_FILTERS: PublicSemanticFilterCapability[] = [
 		operations: ['game'],
 		entities: ['team'],
 		values: ['upcoming', 'final', 'any']
+	},
+	{
+		id: 'splitBy',
+		operations: ['split'],
+		entities: ['player'],
+		values: ['win_loss', 'home_away']
 	}
 ];
 
@@ -284,6 +304,7 @@ function getShapeKey(operation: SemanticQueryOperation, entity: SemanticQueryEnt
 		key === 'lookup/team' ||
 		key === 'rank/player' ||
 		key === 'trend/player' ||
+		key === 'split/player' ||
 		key === 'compare/player' ||
 		key === 'rank/team' ||
 		key === 'standings/team' ||
@@ -633,6 +654,29 @@ export function validateSemanticCapabilityQueryShape(
 				error: "query.filters.gameStatus must be one of 'upcoming', 'final', 'any'."
 			};
 		}
+	}
+
+	if (query.filters.splitBy !== undefined && query.filters.splitBy !== null) {
+		if (query.operation !== 'split' || query.entity !== 'player') {
+			return {
+				ok: false,
+				error: 'query.filters.splitBy is only supported for split/player.'
+			};
+		}
+
+		if (query.filters.splitBy !== 'win_loss' && query.filters.splitBy !== 'home_away') {
+			return {
+				ok: false,
+				error: "query.filters.splitBy must be 'win_loss' or 'home_away'."
+			};
+		}
+	}
+
+	if (query.operation === 'split' && query.entity === 'player' && !query.filters.splitBy) {
+		return {
+			ok: false,
+			error: 'query.filters.splitBy is required for split/player.'
+		};
 	}
 
 	return { ok: true, value: query };

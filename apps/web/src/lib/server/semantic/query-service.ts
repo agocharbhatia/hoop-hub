@@ -39,6 +39,7 @@ import {
 	extractPlayerLookupRow,
 	extractPlayerComparisonRows,
 	extractPlayerRankingRows,
+	extractPlayerSplitRows,
 	extractPlayerTrendRows,
 	extractTeamLookupRow,
 	extractTeamRankingRows,
@@ -103,6 +104,13 @@ type TrendPlan = {
 	sampleLimit: number | null;
 };
 
+type PlayerSplitPlan = {
+	type: 'player_split';
+	query: SemanticQuery;
+	subject: ResolvedPlayerSubject;
+	season: string;
+};
+
 type ComparisonPlan = {
 	type: 'player_comparison';
 	query: SemanticQuery;
@@ -126,7 +134,7 @@ type TeamStandingsPlan = {
 	subject: ResolvedTeamSubject | null;
 };
 
-type ExecutionPlan = LookupPlan | TeamLookupPlan | RankingPlan | TrendPlan | ComparisonPlan | TeamRankingPlan | TeamStandingsPlan | TeamGamePlan;
+type ExecutionPlan = LookupPlan | TeamLookupPlan | RankingPlan | TrendPlan | PlayerSplitPlan | ComparisonPlan | TeamRankingPlan | TeamStandingsPlan | TeamGamePlan;
 
 type RetrievalOutcome = {
 	sourceCalls: TraceSourceCall[];
@@ -252,6 +260,10 @@ function normalizeFilters(input: unknown): ValidationResult<SemanticQueryFilters
 		return { ok: false, error: 'query.filters.gameStatus must be a string when provided.' };
 	}
 
+	if (!isNullableString(input.splitBy)) {
+		return { ok: false, error: 'query.filters.splitBy must be a string when provided.' };
+	}
+
 	let window: SemanticQueryFilters['window'] = null;
 	if (input.window !== undefined && input.window !== null) {
 		if (!isPlainObject(input.window)) {
@@ -273,7 +285,8 @@ function normalizeFilters(input: unknown): ValidationResult<SemanticQueryFilters
 		};
 	}
 
-	const season = typeof input.season === 'string' && input.season.trim().length > 0 ? input.season.trim() : null;
+	const rawSeason = typeof input.season === 'string' && input.season.trim().length > 0 ? input.season.trim() : null;
+	const season = rawSeason === 'current' ? null : rawSeason;
 	if (season && !/^\d{4}-\d{2}$/.test(season)) {
 		return { ok: false, error: "query.filters.season must match format 'YYYY-YY'." };
 	}
@@ -297,6 +310,10 @@ function normalizeFilters(input: unknown): ValidationResult<SemanticQueryFilters
 			gameStatus:
 				typeof input.gameStatus === 'string' && input.gameStatus.trim().length > 0
 					? (input.gameStatus.trim() as SemanticQueryFilters['gameStatus'])
+					: null,
+			splitBy:
+				typeof input.splitBy === 'string' && input.splitBy.trim().length > 0
+					? (input.splitBy.trim() as SemanticQueryFilters['splitBy'])
 					: null
 		}
 	};
@@ -451,6 +468,10 @@ function buildTraceQuestion(query: SemanticQuery): string {
 
 	if (query.operation === 'trend') {
 		return `Show ${names[0] ?? 'the player'} ${metricId} trend`;
+	}
+
+	if (query.operation === 'split') {
+		return `Split ${names[0] ?? 'the player'} ${query.metrics.join(', ') || metricId} by ${query.filters.splitBy ?? 'requested dimension'}`;
 	}
 
 	if (query.operation === 'rank' && query.entity === 'team') {
@@ -924,6 +945,25 @@ function determineSupportedPlan(
 		};
 	}
 
+	if (query.operation === 'split' && query.entity === 'player') {
+		const subject = resolvePlayerEntity(query.subject, 1);
+		if (!Array.isArray(subject)) {
+			return subject.resolvedQuery === null ? subject : { ...subject, resolvedQuery: query };
+		}
+
+		const metricWarning = validateMetricSet('player_trend', query.metrics);
+		if (metricWarning) {
+			return { ...metricWarning, resolvedQuery: query };
+		}
+
+		return {
+			type: 'player_split',
+			query: buildCanonicalResolvedQuery(query, now, subject),
+			subject: subject[0],
+			season: query.filters.season ?? resolveCurrentSeason(now)
+		};
+	}
+
 	if (query.operation === 'compare' && query.entity === 'player') {
 		const subjects = resolvePlayerEntity(query.subject, 2);
 		if (!Array.isArray(subjects)) {
@@ -1099,7 +1139,7 @@ function buildTeamLookupRequests(plan: TeamLookupPlan): EndpointFetchRequest[] {
 	return requests;
 }
 
-function buildPlayerTrendRequest(plan: TrendPlan): EndpointFetchRequest {
+function buildPlayerTrendRequest(plan: TrendPlan | PlayerSplitPlan): EndpointFetchRequest {
 	return {
 		endpointId: 'playergamelog',
 		params: {
@@ -1146,6 +1186,10 @@ function buildEndpointRequests(plan: ExecutionPlan): EndpointFetchRequest[] {
 	}
 
 	if (plan.type === 'player_trend') {
+		return [buildPlayerTrendRequest(plan)];
+	}
+
+	if (plan.type === 'player_split') {
 		return [buildPlayerTrendRequest(plan)];
 	}
 
@@ -1440,6 +1484,16 @@ function parseExecutionResult(plan: ExecutionPlan, retrieval: RetrievalOutcome):
 			plan.query.metrics,
 			plan.query.filters.window ?? null,
 			plan.sampleLimit,
+			plan.subject.name
+		);
+	}
+
+	if (plan.type === 'player_split') {
+		const payload = retrieval.responses[0]?.result.payload;
+		return extractPlayerSplitRows(
+			payload,
+			plan.query.metrics,
+			plan.query.filters.splitBy as 'win_loss' | 'home_away',
 			plan.subject.name
 		);
 	}

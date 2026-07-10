@@ -22,6 +22,13 @@ bun run build
 - Answer values, artifact populations, warnings, and trace tool calls agree.
 - No raw transport, retry, proxy, row-cap, or parser diagnostics leak into successful product answers.
 
+For materialization changes, bootstrap a fixture slate and audit it explicitly:
+
+```bash
+HOOP_HUB_DB_PATH=/tmp/hoop-hub-release.sqlite bun run nightly:bootstrap -- --fixture-data --slate-date 2026-04-01
+HOOP_HUB_DB_PATH=/tmp/hoop-hub-release.sqlite bun run nightly:audit -- --slate-date 2026-04-01 --as-of 2026-04-01T12:00:00.000Z
+```
+
 ## Required live gates for query-facing releases
 
 ```bash
@@ -32,6 +39,7 @@ bun run eval:live -- --repetitions 1
 - Live failures are classified as product regressions, model instability, upstream availability, or environment configuration.
 - A focused case is repeated when the change addresses stochastic behavior.
 - Live eval reports are retained as CI artifacts and contain no secrets.
+- Set both eval pricing environment variables when cost is a release gate; otherwise reports intentionally show cost as unavailable.
 
 Live checks remain separate from deterministic PR CI because OpenAI and NBA availability are external dependencies.
 

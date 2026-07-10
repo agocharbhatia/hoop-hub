@@ -285,6 +285,12 @@ describe('POST /api/query', () => {
 		assert.equal(tracePayload.traceId, queryPayload.traceId);
 		assert.equal(tracePayload.toolCalls.length, 1);
 		assert.equal(tracePayload.toolCalls[0]?.toolName, 'call_nba_stats_endpoint');
+		assert.deepEqual(tracePayload.modelUsage, {
+			calls: 3,
+			inputTokens: 0,
+			outputTokens: 0,
+			totalTokens: 0
+		});
 		assert.equal(tracePayload.sourceCalls[0]?.endpointId, 'playerdashptshots');
 		assert.equal(tracePayload.cache.misses, 1);
 	});

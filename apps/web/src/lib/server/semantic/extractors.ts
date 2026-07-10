@@ -310,6 +310,74 @@ export function extractPlayerTrendRows(
 	};
 }
 
+export function extractPlayerSplitRows(
+	payload: unknown,
+	metrics: string[],
+	splitBy: 'win_loss' | 'home_away',
+	subject = 'Selected player'
+): StatsQueryResult {
+	const resultSet = extractResultSet(payload, ['PlayerGameLog']);
+	const splitColumn = splitBy === 'win_loss' ? 'WL' : 'MATCHUP';
+	const splitIndex = getColumnIndex(resultSet.headers, splitColumn);
+	const groups = new Map<string, { games: number; totals: Record<string, number> }>();
+
+	for (const row of resultSet.rowSet) {
+		const rawSplit = String(row[splitIndex] ?? '');
+		const split =
+			splitBy === 'win_loss'
+				? rawSplit === 'W'
+					? 'Wins'
+					: rawSplit === 'L'
+						? 'Losses'
+						: null
+				: rawSplit.includes('@')
+					? 'Away'
+					: rawSplit.includes('vs.')
+						? 'Home'
+						: null;
+
+		if (!split) {
+			continue;
+		}
+
+		const group = groups.get(split) ?? { games: 0, totals: {} };
+		group.games += 1;
+		for (const metric of metrics) {
+			const columnName = PLAYER_METRIC_COLUMNS[metric];
+			if (!columnName) {
+				throw new SemanticExtractionError(`Unsupported player split metric '${metric}'.`);
+			}
+			const metricIndex = getColumnIndex(resultSet.headers, columnName);
+			group.totals[metric] = (group.totals[metric] ?? 0) + normalizeNumber(row[metricIndex] ?? 0);
+		}
+		groups.set(split, group);
+	}
+
+	const preferredOrder = splitBy === 'win_loss' ? ['Wins', 'Losses'] : ['Home', 'Away'];
+	const rows = preferredOrder.flatMap((split) => {
+		const group = groups.get(split);
+		if (!group) {
+			return [];
+		}
+		const row: StatsQueryRow = { split, games: group.games };
+		for (const metric of metrics) {
+			row[metric] = Number(((group.totals[metric] ?? 0) / group.games).toFixed(3));
+		}
+		return [row];
+	});
+
+	if (rows.length === 0) {
+		throw new SemanticExtractionError(`No ${splitBy} split rows could be extracted.`);
+	}
+
+	return {
+		shape: 'table',
+		columns: ['split', 'games', ...metrics],
+		rows,
+		summary: `Returned ${subject} per-game ${metrics.map(formatMetricLabel).join(', ')} split by ${splitBy === 'win_loss' ? 'wins and losses' : 'home and away'}.`
+	};
+}
+
 export function extractPlayerComparisonRows(
 	subjectPayloads: ComparisonPayload[],
 	metrics: string[],

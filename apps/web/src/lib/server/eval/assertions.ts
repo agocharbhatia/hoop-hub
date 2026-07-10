@@ -352,6 +352,11 @@ function resolveSourceValue(
 	execution: EvalExecution
 ): { found: true; value: unknown } | { found: false } {
 	const occurrence = source.occurrence ?? 'last';
+	if (source.type === 'artifact') {
+		const artifacts = execution.response.artifacts.filter((artifact) => artifact.type === source.artifactType);
+		const artifact = occurrence === 'first' ? artifacts[0] : artifacts.at(-1);
+		return artifact ? { found: true, value: artifact } : { found: false };
+	}
 	if (source.type === 'tool_request') {
 		const calls = execution.trace.toolCalls.filter((call) => call.toolName === source.toolName);
 		const call = occurrence === 'first' ? calls[0] : calls.at(-1);

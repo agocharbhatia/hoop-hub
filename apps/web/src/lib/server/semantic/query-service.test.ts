@@ -114,6 +114,22 @@ describe('validateSemanticQueryRequest', () => {
 		assert.equal(result.ok, true);
 	});
 
+	test('normalizes the advertised current-season sentinel to canonical current-season execution', () => {
+		const result = validateSemanticQueryRequest({
+			query: {
+				operation: 'split',
+				entity: 'player',
+				subject: { names: ['Nikola Jokic'] },
+				metrics: ['pts'],
+				filters: { season: 'current', splitBy: 'win_loss' },
+				outputMode: 'table'
+			}
+		});
+
+		assert.equal(result.ok, true);
+		if (result.ok) assert.equal(result.value.query.filters.season, null);
+	});
+
 	test('rejects unsupported entity shapes outside the shared runtime capability contract', () => {
 		const result = validateSemanticQueryRequest({
 			query: {
@@ -656,6 +672,30 @@ describe('executeSemanticQuery', () => {
 		assert.equal(response.result?.shape, 'timeseries');
 		assert.equal(response.result?.rows.length, 4);
 		assert.equal(response.result?.rows[0]?.metric, 'pts');
+	});
+
+	test('returns deterministic player win/loss splits from stored game logs', async () => {
+		const response = await executeSemanticQuery({
+			query: {
+				operation: 'split',
+				entity: 'player',
+				subject: { names: ['Nikola Jokic'] },
+				metrics: ['pts', 'reb'],
+				filters: {
+					season: '2023-24',
+					splitBy: 'win_loss'
+				},
+				outputMode: 'table'
+			}
+		});
+
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.result?.columns, ['split', 'games', 'pts', 'reb']);
+		assert.deepEqual(response.result?.rows, [
+			{ split: 'Wins', games: 4, pts: 27.75, reb: 13 },
+			{ split: 'Losses', games: 1, pts: 25, reb: 13 }
+		]);
+		assert.equal(response.provenance.resolvedQuery?.filters.splitBy, 'win_loss');
 	});
 
 	test('returns canonical resolvedQuery subjects and defaulted filters for id-only trend requests', async () => {

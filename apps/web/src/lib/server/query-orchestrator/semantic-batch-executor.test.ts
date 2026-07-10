@@ -290,7 +290,8 @@ describe('createSemanticBatchExecutor', () => {
 					dateTo: null,
 					conference: null,
 					division: null,
-					gameStatus: null
+					gameStatus: null,
+					splitBy: null
 				},
 				orderBy: null,
 				limit: null,

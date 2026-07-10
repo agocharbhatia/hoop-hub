@@ -11,7 +11,7 @@ describe('semantic capability registry', () => {
 	test('exposes only the active public stats tool contract', () => {
 		const capabilities = getPublicSemanticCapabilities();
 
-		assert.deepEqual(capabilities.operations, ['lookup', 'rank', 'trend', 'compare', 'standings', 'game']);
+		assert.deepEqual(capabilities.operations, ['lookup', 'rank', 'trend', 'split', 'compare', 'standings', 'game']);
 		assert.deepEqual(capabilities.entities, ['player', 'team']);
 		assert.deepEqual(capabilities.outputModes, ['table', 'timeseries', 'comparison']);
 		assert.deepEqual(capabilities.seasons.supported, ['current', '2023-24']);
@@ -27,6 +27,7 @@ describe('semantic capability registry', () => {
 				{ operation: 'lookup', entity: 'team', kind: 'exactly_one' },
 				{ operation: 'rank', entity: 'player', kind: 'none' },
 				{ operation: 'trend', entity: 'player', kind: 'exactly_one' },
+				{ operation: 'split', entity: 'player', kind: 'exactly_one' },
 				{ operation: 'compare', entity: 'player', kind: 'exactly_two' },
 				{ operation: 'rank', entity: 'team', kind: 'zero_or_one' },
 				{ operation: 'standings', entity: 'team', kind: 'zero_or_one' },
@@ -43,7 +44,8 @@ describe('semantic capability registry', () => {
 					operations: ['standings'],
 					values: ['Atlantic', 'Central', 'Southeast', 'Northwest', 'Pacific', 'Southwest']
 				},
-				{ id: 'gameStatus', entities: ['team'], operations: ['game'], values: ['upcoming', 'final', 'any'] }
+				{ id: 'gameStatus', entities: ['team'], operations: ['game'], values: ['upcoming', 'final', 'any'] },
+				{ id: 'splitBy', entities: ['player'], operations: ['split'], values: ['win_loss', 'home_away'] }
 			]
 		);
 		assert.deepEqual(capabilities.resultCompleteness.fields, ['coverageStatus', 'requestedCount', 'returnedCount']);
@@ -111,6 +113,16 @@ describe('semantic capability registry', () => {
 					supportsWindow: true
 				},
 				{
+					key: 'split/player',
+					subjectRule: 'exactly_one',
+					outputModes: ['table'],
+					metrics: ['ast', 'reb', 'pts'],
+					orderBy: 'none',
+					metricSortDefaults: {},
+					defaultLimit: null,
+					supportsWindow: false
+				},
+				{
 					key: 'compare/player',
 					subjectRule: 'exactly_two',
 					outputModes: ['comparison'],
@@ -176,6 +188,7 @@ describe('semantic capability registry', () => {
 		assert.equal(isSupportedSemanticMetric('lookup', 'player', 'ast'), true);
 		assert.equal(isSupportedSemanticMetric('lookup', 'team', 'wins'), true);
 		assert.equal(isSupportedSemanticMetric('rank', 'player', 'ast'), true);
+		assert.equal(isSupportedSemanticMetric('split', 'player', 'pts'), true);
 		assert.equal(isSupportedSemanticMetric('rank', 'player', 'drtg'), false);
 		assert.equal(isSupportedSemanticMetric('rank', 'team', 'drtg'), true);
 		assert.equal(isSupportedSemanticMetric('standings', 'team', 'seed'), true);
@@ -211,9 +224,18 @@ describe('semantic capability registry', () => {
 			filters: {},
 			outputMode: 'table'
 		});
+		const split = validateSemanticCapabilityQueryShape({
+			operation: 'split',
+			entity: 'player',
+			subject: { names: ['Nikola Jokic'] },
+			metrics: ['pts'],
+			filters: { splitBy: 'win_loss' },
+			outputMode: 'table'
+		});
 
 		assert.equal(supported.ok, true);
 		assert.equal(unsupported.ok, true);
+		assert.equal(split.ok, true);
 	});
 
 	test('accepts supported standings and game query shapes with typed filters', () => {

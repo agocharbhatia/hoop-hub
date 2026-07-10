@@ -356,4 +356,12 @@ This is chronological implementation history, not a current roadmap. For shipped
 - For query-facing AFK slices, mocked planner/service tests and planner-stubbed `/api/query` tests are not enough. The loop now needs a small real-planner NL query smoke against fixture-backed data so the exact user phrasings being shipped are validated before Sandcastle can finish.
 - Query-facing acceptance needs to assert answer quality too, not just status codes and resolved queries. Add regressions for natural phrasing, contextual non-ok responses, and mixed supported/unsupported questions so the loop cannot pass while the UI still sounds robotic or drops answerable sub-parts.
 - The long-term answer architecture is: semantic/query layers decide what is true, while the answer renderer decides how to say it. Default `/api/query` answers should come from grounded LLM synthesis with deterministic fallback, and smoke coverage should exercise the real planner plus real answer renderer together instead of treating response wording as an afterthought.
+
+## 2026-07-10 — Phase 1-3 foundation pass
+
+- Expanded local evaluation so every prompt variant runs, added conditional-record, split, endpoint-failure, and typed-semantic cases, and added model call/token telemetry with operator-configured cost estimates to traces and reports.
+- Added scheduled nightly materialization plus a health audit covering run/request/cache agreement, JSON/checksum integrity, expiry, and finalized/provisional/stale/unavailable freshness.
+- Exposed the semantic executor to the dynamic agent through a capability-derived typed tool and reconciled model-authored tables with canonical executor rows.
+- Added first-class `split/player` execution for win/loss and home/away per-game averages over stored player game logs. New split dimensions must add real source support and capability coverage instead of prompt-only branching.
+- Real-browser acceptance confirmed the Scottie Barnes 29/73 pull-up mid-range result and matching 73-shot chart, exact one-clip made-three filtering against Boston, loaded playable media, and explicit autoplay-policy fallback.
 - Slice specs should now carry explicit query examples and answer-quality expectations. If the task says a query is supported, the loop should prove both that it resolves correctly and that the returned answer sounds natural, answers supported sub-parts, and handles limitations honestly.

@@ -1,5 +1,5 @@
 import type { QueryAnswerAgentToolName, QueryAnswerArtifact, QueryAnswerResponse } from '$lib/contracts/answer-response';
-import type { StatsQueryWarning } from '$lib/contracts/semantic-query';
+import type { SemanticQueryRequest, StatsQueryResponse, StatsQueryWarning } from '$lib/contracts/semantic-query';
 import type { StatsEndpointFetcher } from '$lib/server/data/adapters/stats-endpoint-client';
 import type { PlayerDirectoryEntryRecord } from '$lib/server/data/store';
 import type { TeamDirectoryEntryRecord } from '$lib/server/teams/team-directory';
@@ -51,6 +51,11 @@ export type DynamicAgentCompletionInput = {
 export type DynamicAgentModelResponse = {
 	content: string | null;
 	toolCalls: DynamicAgentToolCall[];
+	usage?: {
+		inputTokens: number;
+		outputTokens: number;
+		totalTokens: number;
+	};
 };
 
 export type DynamicAgentAdapter = {
@@ -75,6 +80,7 @@ export type DynamicQueryAgentDependencies = {
 	endpointFetcher: StatsEndpointFetcher;
 	playerDirectory: DynamicAgentPlayerDirectory;
 	teamDirectory: DynamicAgentTeamDirectory;
+	semanticExecutor?: (request: SemanticQueryRequest) => Promise<StatsQueryResponse>;
 	maxToolIterations?: number;
 	wallClockMs?: number;
 	clock?: DynamicAgentClock;

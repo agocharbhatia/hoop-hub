@@ -35,7 +35,7 @@ describe('GET /api/stats/capabilities', () => {
 		};
 
 		assert.equal(response.status, 200);
-		assert.deepEqual(payload.operations, ['lookup', 'rank', 'trend', 'compare', 'standings', 'game']);
+		assert.deepEqual(payload.operations, ['lookup', 'rank', 'trend', 'split', 'compare', 'standings', 'game']);
 		assert.deepEqual(payload.entities, ['player', 'team']);
 		assert.deepEqual(payload.outputModes, ['table', 'timeseries', 'comparison']);
 		assert.deepEqual(payload.seasons, {
@@ -76,6 +76,7 @@ describe('GET /api/stats/capabilities', () => {
 				'lookup/team:exactly_one',
 				'rank/player:none',
 				'trend/player:exactly_one',
+				'split/player:exactly_one',
 				'compare/player:exactly_two',
 				'rank/team:zero_or_one',
 				'standings/team:zero_or_one',
@@ -90,7 +91,8 @@ describe('GET /api/stats/capabilities', () => {
 				operations: ['standings'],
 				values: ['Atlantic', 'Central', 'Southeast', 'Northwest', 'Pacific', 'Southwest']
 			},
-			{ id: 'gameStatus', entities: ['team'], operations: ['game'], values: ['upcoming', 'final', 'any'] }
+			{ id: 'gameStatus', entities: ['team'], operations: ['game'], values: ['upcoming', 'final', 'any'] },
+			{ id: 'splitBy', entities: ['player'], operations: ['split'], values: ['win_loss', 'home_away'] }
 		]);
 		assert.deepEqual(payload.resultCompleteness, {
 			fields: ['coverageStatus', 'requestedCount', 'returnedCount'],
@@ -141,6 +143,14 @@ describe('GET /api/stats/capabilities', () => {
 					metricSortDefaults: {},
 					defaultLimit: null,
 					supportsWindow: true
+				},
+				{
+					key: 'split/player',
+					metrics: ['ast', 'reb', 'pts'],
+					orderBy: 'none',
+					metricSortDefaults: {},
+					defaultLimit: null,
+					supportsWindow: false
 				},
 				{
 					key: 'compare/player',

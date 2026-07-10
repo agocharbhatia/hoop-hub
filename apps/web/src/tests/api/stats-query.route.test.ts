@@ -174,6 +174,37 @@ describe('POST /api/stats/query', () => {
 		assert.equal(payload.traceId.length > 0, true);
 	});
 
+	test('returns grounded player win/loss splits through the public structured route', async () => {
+		const response = await POST(
+			createPostEvent(
+				JSON.stringify({
+					query: {
+						operation: 'split',
+						entity: 'player',
+						subject: { names: ['Nikola Jokic'] },
+						metrics: ['pts', 'reb'],
+						filters: { season: '2023-24', splitBy: 'win_loss' },
+						outputMode: 'table'
+					}
+				})
+			)
+		);
+		const payload = (await parseJson(response)) as {
+			status: string;
+			result: { columns: string[]; rows: Array<Record<string, string | number>> };
+			provenance: { resolvedQuery: { filters: { splitBy: string } } };
+		};
+
+		assert.equal(response.status, 200);
+		assert.equal(payload.status, 'ok');
+		assert.deepEqual(payload.result.columns, ['split', 'games', 'pts', 'reb']);
+		assert.deepEqual(payload.result.rows, [
+			{ split: 'Wins', games: 4, pts: 27.75, reb: 13 },
+			{ split: 'Losses', games: 1, pts: 25, reb: 13 }
+		]);
+		assert.equal(payload.provenance.resolvedQuery.filters.splitBy, 'win_loss');
+	});
+
 	test('returns 200 ok for supported structured player lookup queries', async () => {
 		const response = await POST(
 			createPostEvent(

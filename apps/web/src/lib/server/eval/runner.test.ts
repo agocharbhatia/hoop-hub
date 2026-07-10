@@ -30,5 +30,7 @@ describe('eval runner', () => {
 			suite.records.every((record) => record.toolCalls.some((call) => call.toolName === 'find_video_clips')),
 			true
 		);
+		assert.equal(suite.records.every((record) => record.modelUsage.calls === 5), true);
+		assert.equal(suite.records.every((record) => record.modelUsage.totalTokens === 0), true);
 	});
 });

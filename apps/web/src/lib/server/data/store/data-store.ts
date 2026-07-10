@@ -638,6 +638,19 @@ export class DataStore {
 		return mapRawEndpointCacheRow(row);
 	}
 
+	listRawEndpointCacheForSnapshot(snapshotDate: string): RawEndpointCacheRecord[] {
+		if (!this.sqlite) {
+			return Array.from(this.rawCacheMemory.values())
+				.filter((record) => record.snapshotDate === snapshotDate)
+				.sort((left, right) => left.endpointId.localeCompare(right.endpointId) || left.cacheKey.localeCompare(right.cacheKey));
+		}
+
+		const statement = this.sqlite.query<RawEndpointCacheRow, string>(
+			'SELECT * FROM raw_endpoint_cache WHERE snapshot_date = ? ORDER BY endpoint_id, cache_key'
+		);
+		return statement.all(snapshotDate).map(mapRawEndpointCacheRow);
+	}
+
 	startNightlyRun(input: StartNightlyRunInput): NightlyRunRecord {
 		const record: NightlyRunRecord = {
 			runId: input.runId,

@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import type { EvalRunRecord, EvalSuiteResult } from './types';
 
 const REDACTED = '[REDACTED]';
-const SENSITIVE_KEY_PATTERN = /(api[_-]?key|authorization|credential|password|proxy(?:_url)?|secret|token)/i;
+const SENSITIVE_KEY_PATTERN =
+	/(api[_-]?key|authorization|credential|password|proxy(?:_url)?|secret|(^|[_-])(?:access[_-]?token|auth[_-]?token|refresh[_-]?token|token)($|[_-]))/i;
 
 export type EvalReportPaths = {
 	jsonlPath: string;
@@ -48,13 +49,13 @@ export function renderEvalMarkdown(suite: EvalSuiteResult): string {
 		`- Finished: ${suite.finishedAt}`,
 		`- Result: ${suite.passed ? 'PASS' : 'FAIL'} (${suite.passedRuns} passed, ${suite.failedRuns} failed)`,
 		'',
-		'| Case | Rep | Result | Status | Tools | Latency | Trace |',
-		'| --- | ---: | --- | --- | --- | ---: | --- |'
+		'| Case | Rep | Result | Status | Tools | Model calls | Tokens | Cost | Latency | Trace |',
+		'| --- | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | --- |'
 	];
 
 	for (const record of suite.records) {
 		lines.push(
-			`| ${escapeCell(record.caseId)} | ${record.repetition} | ${record.passed ? 'PASS' : 'FAIL'} | ${escapeCell(record.status)} | ${escapeCell(record.toolCalls.map((call) => call.toolName).join(', ') || '—')} | ${record.totalLatencyMs} ms | ${escapeCell(record.traceId ?? '—')} |`
+			`| ${escapeCell(record.caseId)} | ${record.repetition} | ${record.passed ? 'PASS' : 'FAIL'} | ${escapeCell(record.status)} | ${escapeCell(record.toolCalls.map((call) => call.toolName).join(', ') || '—')} | ${record.modelUsage.calls} | ${record.modelUsage.totalTokens} | ${formatCost(record.modelUsage.estimatedCostUsd)} | ${record.totalLatencyMs} ms | ${escapeCell(record.traceId ?? '—')} |`
 		);
 	}
 
@@ -130,4 +131,8 @@ function summarizeArtifacts(record: EvalRunRecord): string {
 
 function escapeCell(value: string): string {
 	return value.replaceAll('|', '\\|').replaceAll('\n', ' ');
+}
+
+function formatCost(value: number | null): string {
+	return value === null ? 'not configured' : `$${value.toFixed(6)}`;
 }

@@ -71,6 +71,7 @@ export type QueryAnswerToolResult = QueryAnswerPlannedToolRequest & {
 export type QueryAnswerAgentToolName =
 	| 'resolve_players'
 	| 'resolve_teams'
+	| 'execute_semantic_query'
 	| 'call_nba_stats_endpoint'
 	| 'find_video_clips'
 	| 'aggregate_endpoint_rows'

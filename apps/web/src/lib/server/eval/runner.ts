@@ -40,7 +40,11 @@ export async function runEvalSuite(options: RunEvalSuiteOptions): Promise<EvalSu
 	const records: EvalRunRecord[] = [];
 
 	for (const evalCase of options.cases) {
-		const repetitions = options.repetitions ?? evalCase.repetitions[options.mode];
+		const repetitions =
+			options.repetitions ??
+			(options.mode === 'local'
+				? Math.max(evalCase.repetitions.local, evalCase.prompts.length)
+				: evalCase.repetitions.live);
 		for (let repetition = 1; repetition <= repetitions; repetition += 1) {
 			const prompt = evalCase.prompts[(repetition - 1) % evalCase.prompts.length] ?? evalCase.prompts[0];
 			records.push(await runEvalRepetition(evalCase, options.mode, prompt, repetition));
@@ -75,7 +79,10 @@ async function runEvalRepetition(
 		model,
 		endpointFetcher,
 		playerDirectory: createDefaultPlayerDirectoryAdapter(),
-		teamDirectory: createDefaultTeamDirectoryAdapter()
+		teamDirectory: createDefaultTeamDirectoryAdapter(),
+		...(mode === 'local' && evalCase.local.semanticResponses
+			? { semanticExecutor: createScriptedSemanticExecutor(evalCase.local.semanticResponses) }
+			: {})
 	});
 	const startedAt = performance.now();
 
@@ -100,7 +107,8 @@ async function runEvalRepetition(
 			answer: response.answer,
 			warnings: response.warnings.map((warning) => ({ ...warning })),
 			artifacts: response.artifacts.map(summarizeArtifact),
-			totalLatencyMs: trace.latencyMs.total
+			totalLatencyMs: trace.latencyMs.total,
+			modelUsage: summarizeModelUsage(trace.modelUsage)
 		};
 	} catch (error) {
 		return {
@@ -119,7 +127,8 @@ async function runEvalRepetition(
 			answer: '',
 			warnings: [],
 			artifacts: [],
-			totalLatencyMs: Math.round(performance.now() - startedAt)
+			totalLatencyMs: Math.round(performance.now() - startedAt),
+			modelUsage: { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUsd: null }
 		};
 	}
 }
@@ -176,5 +185,33 @@ function summarizeArtifact(artifact: EvalExecution['response']['artifacts'][numb
 		type: 'video_playlist',
 		clips: artifact.clips.length,
 		descriptions: artifact.clips.map((clip) => clip.description)
+	};
+}
+
+function summarizeModelUsage(usage: DynamicAgentQueryTraceResponse['modelUsage']): EvalRunRecord['modelUsage'] {
+	const inputRate = parseOptionalRate(process.env.HOOP_HUB_EVAL_INPUT_COST_PER_MILLION);
+	const outputRate = parseOptionalRate(process.env.HOOP_HUB_EVAL_OUTPUT_COST_PER_MILLION);
+	const estimatedCostUsd =
+		inputRate === null || outputRate === null
+			? null
+			: Number(((usage.inputTokens * inputRate + usage.outputTokens * outputRate) / 1_000_000).toFixed(6));
+
+	return { ...usage, estimatedCostUsd };
+}
+
+function parseOptionalRate(value: string | undefined): number | null {
+	if (value === undefined || value.trim() === '') return null;
+	const parsed = Number(value);
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function createScriptedSemanticExecutor(
+	responses: NonNullable<EvalCase['local']['semanticResponses']>
+): NonNullable<Parameters<typeof createDynamicQueryAgent>[0]['semanticExecutor']> {
+	const remaining = responses.map((response) => structuredClone(response));
+	return async () => {
+		const response = remaining.shift();
+		if (!response) throw new Error('Eval case exhausted its scripted semantic responses.');
+		return response;
 	};
 }

@@ -27,6 +27,7 @@
 		"eval:live": "bun ./scripts/run-evals.ts --mode live",
 		"eval:custom-shots": "HOOP_HUB_DB_PATH=:memory: HOOP_HUB_ENABLE_LIVE_NBA=0 bun test ./eval/custom-shot-video.eval.test.ts",
 		"nightly:bootstrap": "bun ./scripts/nightly-bootstrap.ts",
+		"nightly:audit": "bun ./scripts/nightly-audit.ts",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:endpoint-catalog-contracts": "bun ./scripts/check-endpoint-catalog-contracts.ts",

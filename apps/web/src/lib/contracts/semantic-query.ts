@@ -25,6 +25,7 @@ export type SemanticQueryFilters = {
 	conference?: 'East' | 'West' | null;
 	division?: 'Atlantic' | 'Central' | 'Southeast' | 'Northwest' | 'Pacific' | 'Southwest' | null;
 	gameStatus?: 'upcoming' | 'final' | 'any' | null;
+	splitBy?: 'win_loss' | 'home_away' | null;
 };
 
 export type SemanticQueryOrderBy = {

@@ -1,0 +1,74 @@
+name: Nightly Materialization
+
+on:
+  workflow_dispatch:
+    inputs:
+      slate_date:
+        description: Optional YYYY-MM-DD slate date; defaults to current UTC date
+        required: false
+        type: string
+  schedule:
+    - cron: '13 8 * * *'
+
+concurrency:
+  group: nightly-materialization
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    name: Bootstrap and audit canonical data
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      HOOP_HUB_DB_PATH: .data/nightly.sqlite
+      HOOP_HUB_ENABLE_LIVE_NBA: '1'
+      HOOP_HUB_NBA_TIMEOUT_MS: '15000'
+      HOOP_HUB_NBA_PROXY_URL: ${{ secrets.HOOP_HUB_NBA_PROXY_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun ci
+
+      - name: Resolve slate date
+        id: slate
+        env:
+          REQUESTED_SLATE_DATE: ${{ inputs.slate_date }}
+        run: |
+          slate_date="${REQUESTED_SLATE_DATE:-$(date -u +%F)}"
+          if [[ ! "$slate_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "Invalid slate date: $slate_date" >&2
+            exit 2
+          fi
+          echo "date=$slate_date" >> "$GITHUB_OUTPUT"
+
+      - name: Bootstrap materialized data
+        run: bun run nightly:bootstrap -- --slate-date "${{ steps.slate.outputs.date }}"
+
+      - name: Audit materialized data
+        run: bun run nightly:audit -- --slate-date "${{ steps.slate.outputs.date }}" > .data/health-report.json
+
+      - name: Upload database and health report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-materialization-${{ steps.slate.outputs.date }}-${{ github.run_id }}
+          path: |
+            apps/web/.data/nightly.sqlite
+            apps/web/.data/health-report.json
+          if-no-files-found: warn
+          retention-days: 14

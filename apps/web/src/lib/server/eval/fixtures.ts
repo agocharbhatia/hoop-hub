@@ -4,6 +4,7 @@ import type { EvalFixtureId } from './types';
 type FixtureDefinition = {
 	endpointId: string | null;
 	payload: unknown | null;
+	errorDetail?: string;
 };
 
 const JOKIC_REBOUNDS_NEWEST_FIRST = [8, 16, 14, 8, 17, 15, 15, 21, 17, 14];
@@ -44,6 +45,28 @@ const FIXTURES: Record<EvalFixtureId, FixtureDefinition> = {
 	top_five_assists: {
 		endpointId: 'leaguedashplayerstats',
 		payload: buildTopAssistsPayload()
+	},
+	sga_scoring_record: {
+		endpointId: 'playergamelogs',
+		payload: buildConditionalGameLogPayload('1628983', [
+			[35, 'W', 1], [31, 'W', 1], [42, 'W', 1], [30, 'W', 1], [38, 'W', 1], [33, 'W', 1],
+			[36, 'L', 1], [40, 'L', 1], [28, 'W', 1], [24, 'L', 1]
+		])
+	},
+	wemby_blocks_split: {
+		endpointId: 'playergamelogs',
+		payload: buildConditionalGameLogPayload('1641705', [
+			[20, 'W', 5], [18, 'W', 4], [24, 'W', 3], [22, 'W', 4], [19, 'L', 1], [27, 'L', 3]
+		])
+	},
+	endpoint_failure: {
+		endpointId: 'leaguedashplayerstats',
+		payload: null,
+		errorDetail: 'transport=direct; timeout_ms=15000; retry_count=2; proxy_count=0; Error: HTTP 500'
+	},
+	semantic_only: {
+		endpointId: null,
+		payload: null
 	},
 	scottie_made_threes_boston: {
 		endpointId: 'videodetailsasset',
@@ -88,12 +111,13 @@ export function createEvalFixtureFetcher(fixtureId: EvalFixtureId): StatsEndpoin
 		return {
 			endpointId: request.endpointId,
 			payload: structuredClone(fixture.payload),
-			cacheStatus: 'hit',
-			sourceStatus: 'ok',
+			cacheStatus: fixture.payload === null ? 'miss' : 'hit',
+			sourceStatus: fixture.payload === null ? 'error' : 'ok',
 			latencyMs: 0,
 			stale: false,
 			isProvisional: false,
-			parserVersion: 'eval-v1'
+			parserVersion: 'eval-v1',
+			...(fixture.errorDetail ? { errorDetail: fixture.errorDetail } : {})
 		};
 	};
 }
@@ -147,6 +171,28 @@ function buildTopAssistsPayload(): unknown {
 				name: 'LeagueDashPlayerStats',
 				headers: ['PLAYER_ID', 'PLAYER', 'AST'],
 				rowSet: [...leaders, ...remaining].map(([name, assists], index) => [String(1000 + index), name, assists])
+			}
+		]
+	};
+}
+
+function buildConditionalGameLogPayload(
+	playerId: string,
+	rows: Array<[points: number, result: 'W' | 'L', blocks: number]>
+): unknown {
+	return {
+		resultSets: [
+			{
+				name: 'PlayerGameLogs',
+				headers: ['PLAYER_ID', 'GAME_DATE', 'MATCHUP', 'PTS', 'WL', 'BLK'],
+				rowSet: rows.map(([points, result, blocks], index) => [
+					playerId,
+					`2026-03-${String(index + 1).padStart(2, '0')}`,
+					`Game ${index + 1}`,
+					points,
+					result,
+					blocks
+				])
 			}
 		]
 	};

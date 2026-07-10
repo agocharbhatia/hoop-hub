@@ -14,6 +14,7 @@ bun run eval:custom-shots
 bun run eval:live -- --repetitions 1
 bun run nightly:bootstrap -- --slate-date 2026-04-01
 bun run nightly:bootstrap -- --fixture-data --slate-date 2026-04-01
+bun run nightly:audit -- --slate-date 2026-04-01
 bun run build
 ```
 
@@ -27,6 +28,7 @@ Default tests and local evals are deterministic. Live eval requires configured O
 - `HOOP_HUB_NBA_TIMEOUT_MS` — optional NBA request timeout.
 - `HOOP_HUB_NBA_PROXY_URL` — optional preferred NBA proxy; standard `HTTPS_PROXY` and `HTTP_PROXY` are also supported.
 - `HOOP_HUB_DB_PATH` — optional SQLite path override. The default is a per-worktree file under `~/.hoop-hub/data/<hash>/hoop-hub.sqlite`.
+- `HOOP_HUB_EVAL_INPUT_COST_PER_MILLION` and `HOOP_HUB_EVAL_OUTPUT_COST_PER_MILLION` — optional pricing inputs used to estimate live eval cost without hardcoding model prices.
 
 ## Public routes
 
@@ -39,14 +41,15 @@ Default tests and local evals are deterministic. Live eval requires configured O
 ## Runtime map
 
 - `src/lib/server/agent/` owns the dynamic tool loop, exact custom-shot joins, endpoint aggregation, time-series analysis, and video retrieval.
-- `src/lib/server/semantic/` owns the structured stored-data runtime and capabilities.
+- `src/lib/server/semantic/` owns the structured stored-data runtime and capabilities, including player win/loss and home/away splits.
 - `src/lib/server/data/` owns cataloged NBA retrieval, caching, storage, and source-call metadata.
 - `src/lib/server/nightly/` owns resumable bootstrap/materialization.
+- `nightly:audit` validates run completion, request/cache agreement, JSON/checksum integrity, and finalized/provisional/stale/unavailable freshness.
 - `src/lib/server/players/` and `src/lib/server/teams/` own canonical identity resolution.
 - `src/lib/server/eval/` owns deterministic/live agent cases, assertions, reports, and runner logic.
 - `src/lib/components/charts/` and `src/lib/components/video/` render grounded artifacts.
 - Planner, query-orchestrator, answer-renderer, and mock modules are compatibility surfaces; new product behavior should not be added there.
 
-Structured semantic execution reads stored materialized payloads. Dynamic-agent endpoint calls use the cataloged NBA client live-first with cache reuse. Custom-shot video searches filter the shot log and join exact game/event IDs before applying the playlist cap.
+Structured semantic execution reads stored materialized payloads. The dynamic agent uses the typed semantic tool for supported shapes and reconciles returned tables from canonical executor rows. Other dynamic-agent endpoint calls use the cataloged NBA client live-first with cache reuse. Custom-shot video searches filter the shot log and join exact game/event IDs before applying the playlist cap.
 
 See [../../agents/current-state.md](../../agents/current-state.md) for current architecture, [../../.docs/PLAN.md](../../.docs/PLAN.md) for priorities, and [../../.docs/RELEASE_CHECKLIST.md](../../.docs/RELEASE_CHECKLIST.md) for release gates.

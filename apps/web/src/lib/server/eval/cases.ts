@@ -245,6 +245,320 @@ export const DYNAMIC_AGENT_EVAL_CASES: EvalCase[] = [
 		}
 	},
 	{
+		id: 'semantic-player-season-lookup',
+		tags: ['semantic', 'lookup', 'table', 'grounding', 'stored-data'],
+		prompts: [
+			'What is Scottie Barnes averaging this season? Show the grounded row.',
+			'Scottie Barnes points per game for 2025-26 in a table.'
+		],
+		repetitions: { local: 1, live: 2 },
+		expectedStatus: 'ok',
+		requiredTools: ['execute_semantic_query'],
+		forbiddenTools: ['call_nba_stats_endpoint', 'aggregate_endpoint_rows', 'find_video_clips'],
+		artifactExpectations: [{ type: 'table', count: 1, minItems: 1, maxItems: 1 }],
+		warningExpectations: { maxCount: 0 },
+		assertions: [
+			{ kind: 'no_endpoint_calls' },
+			{
+				kind: 'value', label: 'typed semantic operation',
+				source: { type: 'tool_request', toolName: 'execute_semantic_query' },
+				path: 'query.operation', operator: 'equals', expected: 'lookup'
+			},
+			{
+				kind: 'value', label: 'grounded semantic result',
+				source: { type: 'tool_result', toolName: 'execute_semantic_query' },
+				path: 'data.result.rows.0.pts', operator: 'equals', expected: 20.1
+			},
+			{
+				kind: 'value', label: 'server-reconciled table value',
+				source: { type: 'artifact', artifactType: 'table' },
+				path: 'rows.0.pts', operator: 'equals', expected: 20.1
+			},
+			{ kind: 'answer_includes', values: ['20.1'] }
+		],
+		limits: { maxToolCalls: 3, maxLatencyMs: 90_000 },
+		local: {
+			fixtureId: 'semantic_only',
+			turns: [
+				{
+					kind: 'tools',
+					calls: [{
+						name: 'execute_semantic_query',
+						arguments: {
+							question: 'What is Scottie Barnes averaging this season?',
+							query: {
+								operation: 'lookup', entity: 'player',
+								subject: { names: ['Scottie Barnes'] }, metrics: ['pts'],
+								filters: { season: null, seasonType: 'Regular Season' }, outputMode: 'table'
+							}
+						}
+					}]
+				},
+				{ kind: 'stop' }
+			],
+			finalOutput: {
+				answer: 'Scottie Barnes averages 20.1 points per game in 2025-26.',
+				artifacts: [{ type: 'table', shape: 'table', columns: ['wrong'], rows: [{ wrong: 999 }] }],
+				warnings: []
+			},
+			semanticResponses: [
+				{
+					status: 'ok',
+					result: {
+						shape: 'table', columns: ['playerName', 'season', 'pts'],
+						rows: [{ playerName: 'Scottie Barnes', season: '2025-26', pts: 20.1 }]
+					},
+					citations: [{ source: 'stats.nba.com', detail: 'Stored player season row.' }],
+					provenance: {
+						executor: 'semantic_executor',
+						resolvedQuery: {
+							operation: 'lookup', entity: 'player', subject: { names: ['Scottie Barnes'], ids: ['1630567'] },
+							metrics: ['pts'], filters: { season: '2025-26', seasonType: 'Regular Season' }, outputMode: 'table'
+						},
+						dataFreshnessMode: 'nightly', sourceCalls: []
+					},
+					warnings: [], traceId: 'eval-semantic-lookup'
+				}
+			]
+		}
+	},
+	{
+		id: 'semantic-player-win-loss-split',
+		tags: ['semantic', 'split', 'win-loss', 'table', 'grounding', 'stored-data'],
+		prompts: [
+			'How many points and rebounds does Nikola Jokic average in wins versus losses this season? Show a table.',
+			'Split Jokic PTS and REB by wins and losses for 2025-26.'
+		],
+		repetitions: { local: 1, live: 2 },
+		expectedStatus: 'ok',
+		requiredTools: ['execute_semantic_query'],
+		forbiddenTools: ['call_nba_stats_endpoint', 'aggregate_endpoint_rows', 'find_video_clips'],
+		artifactExpectations: [{ type: 'table', count: 1, minItems: 2, maxItems: 2 }],
+		warningExpectations: { maxCount: 0 },
+		assertions: [
+			{ kind: 'no_endpoint_calls' },
+			{
+				kind: 'value', label: 'typed split operation',
+				source: { type: 'tool_request', toolName: 'execute_semantic_query' },
+				path: 'query.operation', operator: 'equals', expected: 'split'
+			},
+			{
+				kind: 'value', label: 'typed split dimension',
+				source: { type: 'tool_request', toolName: 'execute_semantic_query' },
+				path: 'query.filters.splitBy', operator: 'equals', expected: 'win_loss'
+			},
+			{
+				kind: 'value', label: 'server-reconciled wins average',
+				source: { type: 'artifact', artifactType: 'table' },
+				path: 'rows.0.pts', operator: 'equals', expected: 27.75
+			},
+			{ kind: 'answer_includes', values: ['27.75', '25'] }
+		],
+		limits: { maxToolCalls: 3, maxLatencyMs: 90_000 },
+		local: {
+			fixtureId: 'semantic_only',
+			turns: [
+				{
+					kind: 'tools',
+					calls: [{
+						name: 'execute_semantic_query',
+						arguments: {
+							question: 'How many points and rebounds does Nikola Jokic average in wins versus losses this season?',
+							query: {
+								operation: 'split', entity: 'player',
+								subject: { names: ['Nikola Jokic'] }, metrics: ['pts', 'reb'],
+								filters: { season: null, seasonType: 'Regular Season', splitBy: 'win_loss' }, outputMode: 'table'
+							}
+						}
+					}]
+				},
+				{ kind: 'stop' }
+			],
+			finalOutput: {
+				answer: 'Nikola Jokic averages 27.75 points in wins and 25 points in losses.',
+				artifacts: [{ type: 'table', shape: 'table', columns: ['wrong'], rows: [{ wrong: 999 }] }],
+				warnings: []
+			},
+			semanticResponses: [
+				{
+					status: 'ok',
+					result: {
+						shape: 'table', columns: ['split', 'games', 'pts', 'reb'],
+						rows: [
+							{ split: 'Wins', games: 4, pts: 27.75, reb: 13 },
+							{ split: 'Losses', games: 1, pts: 25, reb: 13 }
+						]
+					},
+					citations: [{ source: 'stats.nba.com', detail: 'Stored player game log.' }],
+					provenance: {
+						executor: 'semantic_executor',
+						resolvedQuery: {
+							operation: 'split', entity: 'player', subject: { names: ['Nikola Jokic'], ids: ['203999'] },
+							metrics: ['pts', 'reb'],
+							filters: { season: '2025-26', seasonType: 'Regular Season', splitBy: 'win_loss' }, outputMode: 'table'
+						},
+						dataFreshnessMode: 'nightly', sourceCalls: []
+					},
+					warnings: [], traceId: 'eval-semantic-split'
+				}
+			]
+		}
+	},
+	{
+		id: 'sga-30-point-record',
+		tags: ['aggregation', 'conditional', 'win-loss', 'grounding', 'hygiene'],
+		prompts: [
+			"What is Shai Gilgeous-Alexander's record when he scores at least 30 points this season?",
+			'SGA win-loss record in 30-point games in 2025-26.'
+		],
+		repetitions: { local: 1, live: 2 },
+		expectedStatus: 'ok',
+		requiredTools: ['resolve_players', 'aggregate_endpoint_rows'],
+		forbiddenTools: ['find_video_clips', 'analyze_time_series'],
+		artifactExpectations: [],
+		warningExpectations: { maxCount: 0 },
+		assertions: [
+			{
+				kind: 'value',
+				label: '30-point game population',
+				source: { type: 'tool_result', toolName: 'aggregate_endpoint_rows' },
+				path: 'data.matchedRows',
+				operator: 'equals',
+				expected: 8
+			},
+			{
+				kind: 'value',
+				label: 'wins in matching games',
+				source: { type: 'tool_result', toolName: 'aggregate_endpoint_rows' },
+				path: 'data.groups.0.rowCount',
+				operator: 'equals',
+				expected: 6
+			},
+			{
+				kind: 'value',
+				label: 'losses in matching games',
+				source: { type: 'tool_result', toolName: 'aggregate_endpoint_rows' },
+				path: 'data.groups.1.rowCount',
+				operator: 'equals',
+				expected: 2
+			},
+			{ kind: 'answer_matches', pattern: '6\\s*[-–]\\s*2' }
+		],
+		limits: { maxToolCalls: 5, maxLatencyMs: 90_000 },
+		local: {
+			fixtureId: 'sga_scoring_record',
+			turns: [
+				{ kind: 'tools', calls: [{ name: 'resolve_players', arguments: { names: ['Shai Gilgeous-Alexander'] } }] },
+				{
+					kind: 'tools',
+					calls: [
+						{
+							name: 'aggregate_endpoint_rows',
+							arguments: {
+								endpointId: 'playergamelogs',
+								params: { PlayerID: '1628983', Season: '2025-26', SeasonType: 'Regular Season' },
+								resultSetName: 'PlayerGameLogs',
+								filters: [{ column: 'PTS', op: 'gte', value: 30 }],
+								groupBy: ['WL'],
+								aggregations: [{ op: 'count' }]
+							}
+						}
+					]
+				},
+				{ kind: 'stop' }
+			],
+			finalOutput: { answer: 'Shai Gilgeous-Alexander is 6-2 when scoring at least 30 points.', artifacts: [], warnings: [] }
+		}
+	},
+	{
+		id: 'wemby-blocks-wins-vs-losses',
+		tags: ['aggregation', 'split', 'win-loss', 'grounding', 'hygiene'],
+		prompts: [
+			"Compare Victor Wembanyama's blocks per game in wins versus losses this season.",
+			'Wemby average blocks in wins vs losses for 2025-26.'
+		],
+		repetitions: { local: 1, live: 2 },
+		expectedStatus: 'ok',
+		requiredTools: ['resolve_players', 'aggregate_endpoint_rows'],
+		forbiddenTools: ['find_video_clips', 'analyze_time_series'],
+		artifactExpectations: [],
+		warningExpectations: { maxCount: 0 },
+		assertions: [
+			{
+				kind: 'value', label: 'win blocks average',
+				source: { type: 'tool_result', toolName: 'aggregate_endpoint_rows' },
+				path: 'data.groups.0.aggregates.avg:BLK', operator: 'equals', expected: 4
+			},
+			{
+				kind: 'value', label: 'loss blocks average',
+				source: { type: 'tool_result', toolName: 'aggregate_endpoint_rows' },
+				path: 'data.groups.1.aggregates.avg:BLK', operator: 'equals', expected: 2
+			},
+			{ kind: 'answer_includes', values: ['4', '2', 'wins', 'losses'] }
+		],
+		limits: { maxToolCalls: 5, maxLatencyMs: 90_000 },
+		local: {
+			fixtureId: 'wemby_blocks_split',
+			turns: [
+				{ kind: 'tools', calls: [{ name: 'resolve_players', arguments: { names: ['Victor Wembanyama'] } }] },
+				{
+					kind: 'tools',
+					calls: [
+						{
+							name: 'aggregate_endpoint_rows',
+							arguments: {
+								endpointId: 'playergamelogs',
+								params: { PlayerID: '1641705', Season: '2025-26', SeasonType: 'Regular Season' },
+								resultSetName: 'PlayerGameLogs',
+								groupBy: ['WL'], aggregations: [{ op: 'avg', column: 'BLK' }]
+							}
+						}
+					]
+				},
+				{ kind: 'stop' }
+			],
+			finalOutput: { answer: 'Wembanyama averaged 4 blocks in wins and 2 blocks in losses.', artifacts: [], warnings: [] }
+		}
+	},
+	{
+		id: 'endpoint-failure-product-hygiene',
+		tags: ['failure', 'partial-data', 'hygiene', 'upstream'],
+		prompts: [
+			'Who leads the NBA in points per game this season?',
+			'Show the current scoring leader.'
+		],
+		repetitions: { local: 1, live: 1 },
+		expectedStatus: 'coverage_gap',
+		requiredTools: ['call_nba_stats_endpoint'],
+		forbiddenTools: ['find_video_clips', 'analyze_time_series'],
+		artifactExpectations: [],
+		warningExpectations: {
+			requiredCodes: ['dynamic_agent_partial_data'],
+			forbiddenMessagePatterns: ['transport=', 'timeout_ms=', 'retry_count=', 'proxy_count=', 'HTTP 500'],
+			maxCount: 1
+		},
+		assertions: [{ kind: 'answer_matches', pattern: 'could not|unavailable|unable' }],
+		limits: { maxToolCalls: 3, maxLatencyMs: 90_000 },
+		local: {
+			fixtureId: 'endpoint_failure',
+			turns: [
+				{
+					kind: 'tools',
+					calls: [{
+						name: 'call_nba_stats_endpoint',
+						arguments: { endpointId: 'leaguedashplayerstats', params: { Season: '2025-26', SeasonType: 'Regular Season', PerMode: 'PerGame' } }
+					}]
+				},
+				{ kind: 'stop' }
+			],
+			finalOutput: {
+				answer: 'The current scoring-leader data is unavailable, so I could not answer reliably.',
+				artifacts: [],
+				warnings: [{ kind: 'partial_data', message: 'Scoring-leader data is temporarily unavailable.' }]
+			}
+		}
+	},
+	{
 		id: 'scottie-made-threes-vs-boston',
 		tags: ['clips', 'made-three', 'semantic-intent', 'nondeterministic', 'hygiene'],
 		prompts: [

@@ -5,6 +5,7 @@ import {
 	extractPlayerComparisonRows,
 	extractPlayerRankingRows,
 	extractPlayerTrendRows,
+	extractPlayerSplitRows,
 	extractTeamStandingsRankingRows,
 	extractTeamRankingRows
 } from './extractors';
@@ -31,6 +32,22 @@ describe('semantic extractors', () => {
 		assert.equal(result.rows.length, 6);
 		assert.deepEqual(result.columns, ['label', 'metric', 'value']);
 		assert.equal(result.rows[0]?.label, 'MAR 10, 2026');
+	});
+
+	test('aggregates player game logs into deterministic win/loss and home/away splits', () => {
+		const payload = loadFixture('playergamelog-jokic.json');
+		const winLoss = extractPlayerSplitRows(payload, ['pts', 'reb'], 'win_loss', 'Nikola Jokic');
+		const homeAway = extractPlayerSplitRows(payload, ['pts'], 'home_away', 'Nikola Jokic');
+
+		assert.deepEqual(winLoss.columns, ['split', 'games', 'pts', 'reb']);
+		assert.deepEqual(winLoss.rows, [
+			{ split: 'Wins', games: 4, pts: 27.75, reb: 13 },
+			{ split: 'Losses', games: 1, pts: 25, reb: 13 }
+		]);
+		assert.deepEqual(homeAway.rows, [
+			{ split: 'Home', games: 3, pts: 25.333 },
+			{ split: 'Away', games: 2, pts: 30 }
+		]);
 	});
 
 	test('extracts comparison rows from player career stats fixtures', () => {

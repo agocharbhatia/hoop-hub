@@ -248,6 +248,71 @@ function createFakeTeamDirectory(): DynamicAgentTeamDirectory {
 }
 
 describe('createDynamicQueryAgent', () => {
+	test('executes typed semantic queries and replaces model tables with grounded rows', async () => {
+		const semanticRequest = {
+			question: 'What is Scottie Barnes averaging?',
+			query: {
+				operation: 'lookup',
+				entity: 'player',
+				subject: { names: ['Scottie Barnes'] },
+				metrics: ['pts'],
+				filters: { season: null, seasonType: 'Regular Season' },
+				outputMode: 'table'
+			}
+		};
+		const model = createScriptedModel([
+			toolCall('semantic-1', 'execute_semantic_query', semanticRequest),
+			emptyAssistantTurn(),
+			finalResponse({
+				answer: 'Scottie Barnes averages 20.1 points.',
+				artifacts: [{ type: 'table', shape: 'table', columns: ['wrong'], rows: [[999]] }],
+				warnings: []
+			})
+		]);
+		let executedRequest: unknown = null;
+		const agent = createDynamicQueryAgent({
+			model,
+			endpointFetcher: async () => buildEndpointResult(),
+			playerDirectory: createFakePlayerDirectory(),
+			teamDirectory: createFakeTeamDirectory(),
+			semanticExecutor: async (request) => {
+				executedRequest = request;
+				return {
+					status: 'ok',
+					result: {
+						shape: 'table',
+						columns: ['playerName', 'pts'],
+						rows: [{ playerName: 'Scottie Barnes', pts: 20.1 }]
+					},
+					citations: [{ source: 'stats.nba.com', detail: 'Stored season row.' }],
+					provenance: {
+						executor: 'semantic_executor',
+						resolvedQuery: request.query,
+						dataFreshnessMode: 'nightly',
+						sourceCalls: []
+					},
+					warnings: [],
+					traceId: 'semantic-trace-1'
+				};
+			}
+		});
+
+		const response = await agent.answerQuestion('What is Scottie Barnes averaging?');
+
+		assert.equal((executedRequest as typeof semanticRequest | null)?.query.operation, 'lookup');
+		assert.deepEqual((executedRequest as typeof semanticRequest | null)?.query.subject.names, ['Scottie Barnes']);
+		assert.equal(response.status, 'ok');
+		assert.deepEqual(response.artifacts, [
+			{
+				type: 'table',
+				shape: 'table',
+				columns: ['playerName', 'pts'],
+				rows: [{ playerName: 'Scottie Barnes', pts: 20.1 }]
+			}
+		]);
+		assert.equal(response.toolResults[0]?.toolName, 'execute_semantic_query');
+	});
+
 	test('runs a multi-step tool sequence and returns a structured final answer', async () => {
 		const model = createScriptedModel([
 			toolCall('players-1', 'resolve_players', { names: ['Scottie Barnes'] }),

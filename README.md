@@ -11,10 +11,13 @@ Hoop Hub is currently a single Bun + SvelteKit app that answers grounded NBA sta
 - Trace route: `GET /api/query-trace/:traceId`
 - `/api/query` can iteratively resolve players/teams, call cataloged NBA Stats endpoints live-first, reuse SQLite raw endpoint cache rows, and return grounded prose plus artifact specs.
 - Supported semantic query families:
+  - player and team season lookups
   - player rankings
   - player trends
+  - player win/loss and home/away splits
   - player comparisons
   - team defensive rankings
+  - team standings, schedules, and recent results
 - Player resolution uses the shared seeded player-directory snapshot and curated aliases.
 - Semantic query execution reads stored endpoint payloads only. An empty DB returns typed `nightly_data_unavailable` coverage gaps until nightly bootstrap materializes the supported runtime cache.
 - Dynamic agent endpoint calls are live-first with SQLite caching. Set `HOOP_HUB_NBA_PROXY_URL` on networks where direct `stats.nba.com` access is blocked.
@@ -32,16 +35,17 @@ Detailed implementation context for future agents lives in [agents/current-state
 - [x] Seeded player-directory resolution + canonical semantic traces
 - [x] Dynamic `/api/query` agent with cataloged NBA Stats tool calls and dynamic trace payloads
 - [ ] Consolidate legacy closed-planner compatibility once dynamic-agent coverage is broad enough
-- [ ] Broaden structured semantic planning and entity resolution beyond the current supported families
+- [x] Bridge the dynamic agent to the typed semantic executor and add first-class win/loss plus home/away player splits
 - [x] Add resumable nightly bootstrap/materialization and stored-data-first structured reads
-- [ ] Productionize scheduled ingestion, freshness SLOs, historical coverage, and data-quality monitoring
+- [x] Schedule nightly bootstrap and add freshness/integrity auditing
+- [ ] Add historical backfill, anomaly policy, indexed shot/event data, alert routing, and server-grade production storage
 - [x] Add grounded derived/computed metric execution (`aggregate_endpoint_rows` filters/groups/aggregates full result sets server-side)
 - [x] Add richer visualization artifacts (line, bar, and half-court shot chart components render agent artifacts in the UI)
 - [ ] Add persisted session grounding and stronger answer/artifact composition
 - [x] Add the dynamic-agent evaluation harness and performance gates
 - [x] Clip retrieval and playlist output (`find_video_clips` over `videodetailsasset` + sequential playlist player in the UI)
 - [x] Exact custom-shot playlists (`shotchartdetail` event filters joined to playable clips by game/event id)
-- [ ] Expand the eval corpus and scheduled dynamic-agent live canary
+- [x] Expand the deterministic eval matrix, track model usage/cost inputs, and run a scheduled dynamic-agent live canary
 - [ ] Retire legacy planner/orchestrator compatibility code
 - [ ] Add production deployment, observability, authentication, quotas, and server-grade storage
 

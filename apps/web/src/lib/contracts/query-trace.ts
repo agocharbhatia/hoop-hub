@@ -48,6 +48,12 @@ export type DynamicAgentTraceToolCall = {
 
 export type DynamicAgentQueryTraceResponse = QueryTraceShared & {
 	runtime: 'dynamic_agent';
+	modelUsage: {
+		calls: number;
+		inputTokens: number;
+		outputTokens: number;
+		totalTokens: number;
+	};
 	toolCalls: DynamicAgentTraceToolCall[];
 	artifacts: QueryAnswerArtifact[];
 };

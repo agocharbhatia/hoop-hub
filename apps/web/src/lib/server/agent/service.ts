@@ -5,11 +5,20 @@ import type {
 	QueryAnswerResponse
 } from '$lib/contracts/answer-response';
 import type { TraceSourceCall } from '$lib/contracts/chat';
-import type { StatsQueryRow, StatsQueryRowValue, StatsQueryStatus, StatsQueryWarning } from '$lib/contracts/semantic-query';
+import type {
+	SemanticQueryRequest,
+	StatsQueryResponse,
+	StatsQueryRow,
+	StatsQueryRowValue,
+	StatsQueryStatus,
+	StatsQueryWarning
+} from '$lib/contracts/semantic-query';
 import { normalizeEndpointParams, type EndpointFetchResult } from '$lib/server/data/adapters/stats-endpoint-client';
 import { listEndpointCatalog } from '$lib/server/data/catalog';
 import { ensurePlayerDirectoryAvailable, findPlayerDirectoryEntriesByNameOrAlias } from '$lib/server/players/player-directory';
 import { saveDynamicAgentTrace } from '$lib/server/semantic/trace-store';
+import { getPublicSemanticCapabilities } from '$lib/server/semantic/capabilities';
+import { executeSemanticQuery, validateSemanticQueryRequest } from '$lib/server/semantic/query-service';
 import { findTeamDirectoryEntriesByNameOrAlias } from '$lib/server/teams/team-directory';
 import {
 	buildEmptyCustomShotJoinData,
@@ -50,6 +59,7 @@ const MAX_VIDEO_PLAYLIST_CLIPS = 40;
 const TOOL_NAMES: QueryAnswerAgentToolName[] = [
 	'resolve_players',
 	'resolve_teams',
+	'execute_semantic_query',
 	'call_nba_stats_endpoint',
 	'aggregate_endpoint_rows',
 	'analyze_time_series',
@@ -84,6 +94,7 @@ type ToolExecutionContext = {
 		canonicalName: string;
 		teamId: string | null;
 	}>;
+	semanticStatuses: StatsQueryStatus[];
 };
 
 type ResolvedNameMatch = {
@@ -246,6 +257,11 @@ type ParsedToolRequest =
 	| { ok: true; toolName: 'resolve_players' | 'resolve_teams'; request: { names: string[] } }
 	| {
 			ok: true;
+			toolName: 'execute_semantic_query';
+			request: SemanticQueryRequest;
+	  }
+	| {
+			ok: true;
 			toolName: 'call_nba_stats_endpoint';
 			request: {
 				endpointId: string;
@@ -276,6 +292,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 	const maxToolIterations = dependencies.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
 	const wallClockMs = dependencies.wallClockMs ?? DEFAULT_WALL_CLOCK_MS;
 	const clock = dependencies.clock ?? { nowMs: () => performance.now() };
+	const semanticExecutor = dependencies.semanticExecutor ?? executeSemanticQuery;
 
 	return {
 		async answerQuestion(question: string): Promise<QueryAnswerResponse> {
@@ -297,10 +314,12 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				successfulEndpointCalls: 0,
 				failedEndpointCalls: 0,
 				retrievalLatencyMs: 0,
-				resolvedPlayers: []
+				resolvedPlayers: [],
+				semanticStatuses: []
 			};
 			let planningLatencyMs = 0;
 			let hitToolIterationLimit = false;
+			const modelUsage = { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 
 			for (let iteration = 0; iteration < maxToolIterations; iteration += 1) {
 				if (clock.nowMs() - startedAt >= wallClockMs) {
@@ -320,6 +339,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 					messages,
 					tools: buildToolDefinitions()
 				});
+				recordModelUsage(modelUsage, modelResponse);
 				planningLatencyMs += Math.round(clock.nowMs() - modelStartedAt);
 				messages.push(buildAssistantMessage(modelResponse));
 
@@ -328,7 +348,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				}
 
 				for (const toolCall of modelResponse.toolCalls) {
-					const toolMessage = await executeToolCall(toolCall, dependencies, executionContext, clock.nowMs);
+					const toolMessage = await executeToolCall(toolCall, dependencies, executionContext, clock.nowMs, semanticExecutor);
 					messages.push(toolMessage);
 				}
 
@@ -353,11 +373,15 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				messages,
 				responseFormat: buildFinalAnswerSchema()
 			});
+			recordModelUsage(modelUsage, finalResponse);
 			const renderLatencyMs = Math.round(clock.nowMs() - finalStartedAt);
 			const finalOutput = parseFinalOutput(finalResponse);
 			const groundedArtifacts = reconcileVideoPlaylists(
 				reconcileTimeSeriesLineCharts(
-					reconcileFilteredShotCharts(finalOutput.artifacts, executionContext.toolResults),
+					reconcileFilteredShotCharts(
+						reconcileSemanticTables(finalOutput.artifacts, executionContext.toolResults),
+						executionContext.toolResults
+					),
 					executionContext.toolResults
 				),
 				executionContext.toolResults
@@ -382,6 +406,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			saveDynamicAgentTrace({
 				traceId,
 				runtime: 'dynamic_agent',
+				modelUsage,
 				normalizedQuestion: question,
 				status,
 				dataFreshnessMode,
@@ -429,6 +454,16 @@ export function createDefaultTeamDirectoryAdapter(): DynamicAgentTeamDirectory {
 
 /* Helper functions */
 
+function recordModelUsage(
+	total: { calls: number; inputTokens: number; outputTokens: number; totalTokens: number },
+	response: DynamicAgentModelResponse
+): void {
+	total.calls += 1;
+	total.inputTokens += response.usage?.inputTokens ?? 0;
+	total.outputTokens += response.usage?.outputTokens ?? 0;
+	total.totalTokens += response.usage?.totalTokens ?? 0;
+}
+
 function buildSystemMessages(): DynamicAgentChatMessage[] {
 	return [
 		{
@@ -439,6 +474,10 @@ function buildSystemMessages(): DynamicAgentChatMessage[] {
 		{
 			role: 'system',
 			content: `Available NBA Stats endpoint catalog: ${JSON.stringify(buildEndpointCatalogForPrompt())}. Use endpoint defaults for omitted NBA Stats parameters and only send cataloged parameters.`
+		},
+		{
+			role: 'system',
+			content: `Use execute_semantic_query for supported stored-data questions before assembling raw endpoints manually. It is the canonical typed query representation for player/team lookups, rankings, trends, player splits, comparisons, standings, and team games. Its capabilities are: ${JSON.stringify(getPublicSemanticCapabilities())}`
 		},
 		{
 			role: 'system',
@@ -480,6 +519,14 @@ function buildEndpointCatalogForPrompt() {
 
 function buildToolDefinitions(): DynamicAgentToolDefinition[] {
 	return [
+		{
+			type: 'function',
+			function: {
+				name: 'execute_semantic_query',
+				description: 'Execute one validated, stored-data-backed semantic NBA query with canonical identity, provenance, completeness, and warnings.',
+				parameters: buildSemanticQueryToolSchema()
+			}
+		},
 		{
 			type: 'function',
 			function: {
@@ -662,6 +709,83 @@ function buildToolDefinitions(): DynamicAgentToolDefinition[] {
 			}
 		}
 	];
+}
+
+function buildSemanticQueryToolSchema(): Record<string, unknown> {
+	const capabilities = getPublicSemanticCapabilities();
+	return {
+		type: 'object',
+		additionalProperties: false,
+		properties: {
+			question: { type: 'string' },
+			query: {
+				type: 'object',
+				additionalProperties: false,
+				properties: {
+					operation: { type: 'string', enum: capabilities.operations },
+					entity: { type: 'string', enum: capabilities.entities },
+					subject: {
+						type: 'object',
+						additionalProperties: false,
+						properties: {
+							names: { type: 'array', items: { type: 'string' } },
+							ids: { type: 'array', items: { type: 'string' } }
+						}
+					},
+					metrics: { type: 'array', minItems: 1, items: { type: 'string' } },
+					filters: {
+						type: 'object',
+						additionalProperties: false,
+						properties: {
+							season: { type: ['string', 'null'], enum: [...capabilities.seasons.supported, null] },
+							seasonType: { type: ['string', 'null'] },
+							window: {
+								anyOf: [
+									{ type: 'null' },
+									{
+										type: 'object',
+										additionalProperties: false,
+										properties: {
+											type: { type: 'string', enum: ['last_n_games'] },
+											n: { type: 'integer', minimum: 1, maximum: 100 }
+										},
+										required: ['type', 'n']
+									}
+								]
+							},
+							dateFrom: { type: ['string', 'null'] },
+							dateTo: { type: ['string', 'null'] },
+							conference: { type: ['string', 'null'], enum: ['East', 'West', null] },
+							division: {
+								type: ['string', 'null'],
+								enum: ['Atlantic', 'Central', 'Southeast', 'Northwest', 'Pacific', 'Southwest', null]
+							},
+							gameStatus: { type: ['string', 'null'], enum: ['upcoming', 'final', 'any', null] },
+							splitBy: { type: ['string', 'null'], enum: ['win_loss', 'home_away', null] }
+						}
+					},
+					orderBy: {
+						anyOf: [
+							{ type: 'null' },
+							{
+								type: 'object',
+								additionalProperties: false,
+								properties: {
+									metric: { type: 'string' },
+									direction: { type: 'string', enum: ['asc', 'desc'] }
+								},
+								required: ['metric', 'direction']
+							}
+						]
+					},
+					limit: { type: ['integer', 'null'], minimum: 1, maximum: 100 },
+					outputMode: { type: ['string', 'null'], enum: [...capabilities.outputModes, null] }
+				},
+				required: ['operation', 'entity', 'subject', 'metrics', 'filters']
+			}
+		},
+		required: ['query']
+	};
 }
 
 function buildFinalAnswerSchema() {
@@ -870,7 +994,8 @@ async function executeToolCall(
 	toolCall: DynamicAgentToolCall,
 	dependencies: DynamicQueryAgentDependencies,
 	context: ToolExecutionContext,
-	nowMs: () => number
+	nowMs: () => number,
+	semanticExecutor: (request: SemanticQueryRequest) => Promise<StatsQueryResponse>
 ): Promise<DynamicAgentChatMessage> {
 	const startedAt = nowMs();
 	const parsed = parseToolRequest(toolCall);
@@ -884,7 +1009,11 @@ async function executeToolCall(
 	} else {
 		request = parsed.request;
 		try {
-			if (parsed.toolName === 'resolve_players') {
+			if (parsed.toolName === 'execute_semantic_query') {
+				const semanticData = await executeSemanticQueryTool(parsed.request, semanticExecutor, context);
+				data = semanticData.data;
+				ok = true;
+			} else if (parsed.toolName === 'resolve_players') {
 				const resolvedPlayerData = resolvePlayers(parsed.request.names, dependencies.playerDirectory);
 				data = resolvedPlayerData;
 				recordResolvedPlayers(context, resolvedPlayerData);
@@ -981,6 +1110,14 @@ function parseToolRequest(toolCall: DynamicAgentToolCall): ParsedToolRequest {
 			request: {},
 			error: `${toolName} arguments must be a JSON object.`
 		};
+	}
+
+	if (toolName === 'execute_semantic_query') {
+		const validation = validateSemanticQueryRequest(rawArguments);
+		if (!validation.ok) {
+			return { ok: false, toolName, request: rawArguments, error: validation.error };
+		}
+		return { ok: true, toolName, request: validation.value };
 	}
 
 	if (toolName === 'resolve_players' || toolName === 'resolve_teams') {
@@ -1541,6 +1678,24 @@ function resolveTeams(names: string[], directory: DynamicAgentTeamDirectory): { 
 			}))
 		}))
 	};
+}
+
+async function executeSemanticQueryTool(
+	request: SemanticQueryRequest,
+	executor: (request: SemanticQueryRequest) => Promise<StatsQueryResponse>,
+	context: ToolExecutionContext
+): Promise<{ ok: true; data: StatsQueryResponse }> {
+	const response = await executor(request);
+	context.semanticStatuses.push(response.status);
+	context.sourceCalls.push(...response.provenance.sourceCalls.map((sourceCall) => ({ ...sourceCall })));
+	context.retrievalLatencyMs += response.provenance.sourceCalls.reduce((sum, sourceCall) => sum + sourceCall.latencyMs, 0);
+	context.warnings.push(...response.warnings.map((warning) => ({ ...warning })));
+	if (response.status === 'ok') {
+		context.successfulEndpointCalls += 1;
+	} else if (response.status === 'coverage_gap') {
+		context.failedEndpointCalls += 1;
+	}
+	return { ok: true, data: response };
 }
 
 async function callNbaStatsEndpoint(
@@ -2740,6 +2895,30 @@ function reconcileFilteredShotCharts(artifacts: QueryAnswerArtifact[], toolResul
 	);
 }
 
+function reconcileSemanticTables(
+	artifacts: QueryAnswerArtifact[],
+	toolResults: QueryAnswerAgentToolResult[]
+): QueryAnswerArtifact[] {
+	const results = toolResults
+		.filter((toolResult) => toolResult.toolName === 'execute_semantic_query' && toolResult.response.ok)
+		.map((toolResult) => toolResult.response.data)
+		.filter(isStatsQueryResponseWithResult);
+	let resultIndex = 0;
+
+	return artifacts.map((artifact) => {
+		if (artifact.type !== 'table') return artifact;
+		const response = results[resultIndex];
+		if (!response?.result) return artifact;
+		resultIndex += 1;
+		return {
+			type: 'table',
+			shape: response.result.shape,
+			columns: [...response.result.columns],
+			rows: response.result.rows.map((row) => ({ ...row }))
+		};
+	});
+}
+
 function reconcileTimeSeriesLineCharts(artifacts: QueryAnswerArtifact[], toolResults: QueryAnswerAgentToolResult[]): QueryAnswerArtifact[] {
 	const timeSeries = findLatestTimeSeriesData(toolResults);
 	if (!timeSeries) {
@@ -2833,8 +3012,11 @@ function buildShotChartShot(row: StatsQueryRow): Extract<QueryAnswerArtifact, { 
 }
 
 function selectStatus(context: ToolExecutionContext, warnings: StatsQueryWarning[]): StatsQueryStatus {
-	if (context.successfulEndpointCalls > 0) {
+	if (context.successfulEndpointCalls > 0 || context.semanticStatuses.includes('ok')) {
 		return 'ok';
+	}
+	if (context.semanticStatuses.includes('clarification_needed') && !context.semanticStatuses.includes('coverage_gap')) {
+		return 'clarification_needed';
 	}
 
 	if (context.failedEndpointCalls > 0 || warnings.length > 0) {
@@ -2842,6 +3024,16 @@ function selectStatus(context: ToolExecutionContext, warnings: StatsQueryWarning
 	}
 
 	return 'ok';
+}
+
+function isStatsQueryResponseWithResult(value: unknown): value is StatsQueryResponse & { result: NonNullable<StatsQueryResponse['result']> } {
+	return (
+		isPlainObject(value) &&
+		value.status === 'ok' &&
+		isPlainObject(value.result) &&
+		Array.isArray(value.result.columns) &&
+		Array.isArray(value.result.rows)
+	);
 }
 
 function selectPublicWarnings(

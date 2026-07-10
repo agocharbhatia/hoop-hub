@@ -9,10 +9,15 @@ This file is the short source of truth for future agents. Use it before relying 
 - `POST /api/query` is the primary natural-language route and is no longer closed to the legacy planner's supported shapes.
 - `GET /api/query-trace/:traceId` returns semantic trace payloads for structured runs and `runtime: "dynamic_agent"` trace payloads for agent runs, including tool calls, cache/freshness data, warnings, and source calls.
 - Supported semantic query families today:
+  - player and team season lookups
   - player rankings
   - player trends
+  - player win/loss and home/away splits
   - player comparisons
   - team defensive rankings
+  - team standings
+  - team schedule and recent-result queries
+- The dynamic agent exposes the semantic runtime as `execute_semantic_query` using the published capability contract. Successful table artifacts are replaced with canonical semantic rows before returning to the UI.
 - Structured responses should be treated as the core artifact. Summaries are secondary to canonical rows.
 - The legacy planner remains in the tree for compatibility tests and direct orchestrator usage, but it is no longer the default `/api/query` runtime.
 
@@ -20,10 +25,11 @@ This file is the short source of truth for future agents. Use it before relying 
 
 - Semantic query execution now reads stored endpoint payloads only; it no longer exposes request-level live fallback.
 - Dynamic agent endpoint calls use the cataloged NBA Stats endpoint client live-first with SQLite caching. `HOOP_HUB_NBA_PROXY_URL` is needed on networks where direct `stats.nba.com` requests are blocked.
-- Finalized nightly ingestion/materialization is still not implemented yet, so missing stored endpoint data currently returns typed `coverage_gap` responses.
+- Resumable finalized nightly ingestion is implemented through `nightly:bootstrap`; missing stored endpoint data returns typed `coverage_gap` responses.
+- `nightly:audit` verifies run completion, request/cache agreement, payload JSON/checksum integrity, expiry, and finalized/provisional/stale/unavailable freshness. `.github/workflows/nightly-materialization.yml` schedules live bootstrap plus audit and retains the database and health report as artifacts.
 - Player resolution now goes through the shared seeded player-directory snapshot in `apps/web/src/lib/server/players/player-directory.ts`.
 - Curated aliases sit on top of canonical player identity; do not reintroduce ad hoc player name maps in new execution code.
-- Slice 2 planning is now locked around a nightly bootstrap CLI/service that writes authoritative nightly raw-cache rows and teaches reads to use the latest stored snapshot at or before the query date.
+- Nightly reads use the latest stored snapshot at or before the query date. Stale non-final past scoreboards are refreshed during bootstrap instead of becoming permanently authoritative.
 
 ## Trace and Session State
 
@@ -38,9 +44,9 @@ This file is the short source of truth for future agents. Use it before relying 
 
 ## Near-Term Gaps
 
-- nightly-first materialization and stored-data-first reads
-- broader dynamic-agent endpoint coverage, evaluation, and model prompt hardening
-- broader structured planning beyond the current supported query families
+- historical backfill, anomaly policy, shot/event indexes, and production alert routing
+- broader dynamic-agent endpoint coverage, eval corpus growth, and model prompt hardening
+- starter/bench, playoffs, clutch, opponent, lineup, and on/off typed execution
 - persisted session grounding
 - single-file clip compilation/export (ffmpeg); the shipped playlist player auto-advances through clips instead
 
@@ -65,8 +71,11 @@ Derived/computed metrics now run through the agent's `aggregate_endpoint_rows` t
   - `cd apps/web && bun run eval` replays data-defined model turns against deterministic endpoint fixtures with no OpenAI or NBA network calls.
   - `cd apps/web && bun run eval:live` uses the configured OpenAI model and normal NBA cache/live endpoint client; it is excluded from `bun run test` and ordinary CI.
 - Eval cases, invariants, fixture adapters, runner, and redacted JSONL/Markdown reports live in `apps/web/src/lib/server/eval/`; the thin CLI entry point is `apps/web/scripts/run-evals.ts`.
+- Local eval runs every prompt variant at least once and currently covers 20 deterministic prompt-level runs; the custom-shot suite adds seven deterministic contract cases.
+- Dynamic-agent traces record model calls and input/output/total tokens. Eval reports estimate cost only when `HOOP_HUB_EVAL_INPUT_COST_PER_MILLION` and `HOOP_HUB_EVAL_OUTPUT_COST_PER_MILLION` are configured, avoiding stale hardcoded model pricing.
 - Focus runs accept `--case`, `--tag`, and `--repetitions`. The made-three stochastic gate defaults to 20 live repetitions, while `--repetitions 1` is suitable for a credential smoke.
-- Current required eval coverage includes pull-up mid-range grounding and shot-chart reconciliation, latest-ten trend chronology, top-five truncation hygiene, stable made-three clip intent/FG3M mapping, named-defender fallback rejection, and global product-response diagnostic hygiene.
+- Current required eval coverage includes pull-up mid-range grounding and shot-chart reconciliation, latest-ten trend chronology, top-five truncation hygiene, conditional records, win/loss splits, typed semantic lookup/split grounding, stable made-three clip intent/FG3M mapping, named-defender fallback rejection, endpoint failure behavior, and global product-response diagnostic hygiene.
 - The server eval validates playlist contents and contracts, not browser media playback or auto-advance; keep real-browser playlist QA as a separate merge-readiness check.
 - `.github/workflows/live-smoke.yml` runs the dynamic-agent live eval on a daily schedule and manual dispatch, with redacted reports uploaded as workflow artifacts.
+- `.github/workflows/nightly-materialization.yml` runs bootstrap plus health audit on a schedule and manual dispatch; an unhealthy audit fails the workflow.
 - The complete merge/release gate is documented in `.docs/RELEASE_CHECKLIST.md`.

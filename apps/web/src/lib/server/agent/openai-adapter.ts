@@ -58,6 +58,13 @@ export function createOpenAIDynamicAgentAdapter(): DynamicAgentAdapter {
 
 			return {
 				content: message.content ?? null,
+				usage: completion.usage
+					? {
+							inputTokens: completion.usage.prompt_tokens,
+							outputTokens: completion.usage.completion_tokens,
+							totalTokens: completion.usage.total_tokens
+						}
+					: undefined,
 				toolCalls:
 					message.tool_calls
 						?.filter(isFunctionToolCall)

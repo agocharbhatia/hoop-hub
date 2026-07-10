@@ -37,7 +37,14 @@ function buildSuite(answer = 'Grounded answer.'): EvalSuiteResult {
 				answer,
 				warnings: [],
 				artifacts: [{ type: 'bar_chart', bars: 5 }],
-				totalLatencyMs: 10
+				totalLatencyMs: 10,
+				modelUsage: {
+					calls: 2,
+					inputTokens: 100,
+					outputTokens: 20,
+					totalTokens: 120,
+					estimatedCostUsd: 0.001
+				}
 			}
 		]
 	};
@@ -49,6 +56,7 @@ describe('eval reporting', () => {
 		assert.match(markdown, /Result: PASS \(1 passed, 0 failed\)/);
 		assert.match(markdown, /report-test/);
 		assert.match(markdown, /bar_chart\(5 bars\)/);
+		assert.match(markdown, /\| 2 \| 120 \| \$0\.001000 \|/);
 	});
 
 	test('redacts sensitive environment values, URL credentials, and API token forms recursively', () => {
@@ -63,6 +71,7 @@ describe('eval reporting', () => {
 
 		assert.doesNotMatch(serialized, /eval-secret|user:pass|abc\.def\.ghi/);
 		assert.match(serialized, /\[REDACTED\]/);
+		assert.deepEqual(redactSecrets({ inputTokens: 123, outputTokens: 45 }), { inputTokens: 123, outputTokens: 45 });
 	});
 
 	test('writes JSONL and Markdown after redaction', async () => {
