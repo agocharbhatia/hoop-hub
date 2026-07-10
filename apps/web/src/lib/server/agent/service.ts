@@ -11,6 +11,20 @@ import { listEndpointCatalog } from '$lib/server/data/catalog';
 import { ensurePlayerDirectoryAvailable, findPlayerDirectoryEntriesByNameOrAlias } from '$lib/server/players/player-directory';
 import { saveDynamicAgentTrace } from '$lib/server/semantic/trace-store';
 import { findTeamDirectoryEntriesByNameOrAlias } from '$lib/server/teams/team-directory';
+import {
+	buildEmptyCustomShotJoinData,
+	CUSTOM_SHOT_ACTION_FAMILIES,
+	CUSTOM_SHOT_RESULTS,
+	CUSTOM_SHOT_ZONE_AREAS,
+	CUSTOM_SHOT_ZONES,
+	filterCustomShotEvents,
+	joinCustomShotEventsToVideos,
+	type CustomShotActionFamily,
+	type CustomShotFilters,
+	type CustomShotResult,
+	type CustomShotZone,
+	type CustomShotZoneArea
+} from './custom-shot-clips';
 import { parseVideoDetailsAssetClips } from './video-clips';
 import type {
 	DynamicAgentChatMessage,
@@ -32,6 +46,7 @@ const DEFAULT_WALL_CLOCK_MS = 60_000;
 const MAX_RESULT_SET_ROWS = 150;
 const MAX_AGGREGATE_GROUPS = 100;
 const MAX_SELECTED_ROWS = 500;
+const MAX_VIDEO_PLAYLIST_CLIPS = 40;
 const TOOL_NAMES: QueryAnswerAgentToolName[] = [
 	'resolve_players',
 	'resolve_teams',
@@ -43,8 +58,9 @@ const TOOL_NAMES: QueryAnswerAgentToolName[] = [
 const VIDEO_CLIPS_ENDPOINT_ID = 'videodetailsasset';
 const FILTER_OPERATORS = ['eq', 'neq', 'in', 'not_in', 'gt', 'gte', 'lt', 'lte', 'contains'] as const;
 const AGGREGATION_OPERATORS = ['count', 'sum', 'avg', 'min', 'max'] as const;
-const CLIP_EVENT_TYPES = ['made_field_goal', 'made_three', 'assist', 'block', 'steal', 'rebound', 'turnover'] as const;
-const CLIP_EVENT_CONTEXT_MEASURE: Record<ClipEventType, string> = {
+const STANDARD_CLIP_EVENT_TYPES = ['made_field_goal', 'made_three', 'assist', 'block', 'steal', 'rebound', 'turnover'] as const;
+const CLIP_EVENT_TYPES = [...STANDARD_CLIP_EVENT_TYPES, 'custom_shot'] as const;
+const CLIP_EVENT_CONTEXT_MEASURE: Record<StandardClipEventType, string> = {
 	made_field_goal: 'FGM',
 	made_three: 'FG3M',
 	assist: 'AST',
@@ -55,6 +71,7 @@ const CLIP_EVENT_CONTEXT_MEASURE: Record<ClipEventType, string> = {
 };
 
 type ToolExecutionContext = {
+	question: string;
 	toolResults: QueryAnswerAgentToolResult[];
 	traceToolCalls: Parameters<typeof saveDynamicAgentTrace>[0]['toolCalls'];
 	sourceCalls: TraceSourceCall[];
@@ -136,6 +153,8 @@ type AggregateEndpointRowsData = {
 	isProvisional: boolean;
 };
 
+type StandardClipEventType = (typeof STANDARD_CLIP_EVENT_TYPES)[number];
+
 type ClipEventType = (typeof CLIP_EVENT_TYPES)[number];
 
 type FindVideoClipsRequest = {
@@ -148,6 +167,7 @@ type FindVideoClipsRequest = {
 	gameId?: string;
 	dateFrom?: string;
 	dateTo?: string;
+	customShot?: CustomShotFilters;
 };
 
 type AnalyzeTimeSeriesRequest = {
@@ -269,6 +289,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				}
 			];
 			const executionContext: ToolExecutionContext = {
+				question,
 				toolResults: [],
 				traceToolCalls: [],
 				sourceCalls: [],
@@ -334,8 +355,11 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			});
 			const renderLatencyMs = Math.round(clock.nowMs() - finalStartedAt);
 			const finalOutput = parseFinalOutput(finalResponse);
-			const groundedArtifacts = reconcileTimeSeriesLineCharts(
-				reconcileFilteredShotCharts(finalOutput.artifacts, executionContext.toolResults),
+			const groundedArtifacts = reconcileVideoPlaylists(
+				reconcileTimeSeriesLineCharts(
+					reconcileFilteredShotCharts(finalOutput.artifacts, executionContext.toolResults),
+					executionContext.toolResults
+				),
 				executionContext.toolResults
 			);
 			const modelWarnings = finalOutput.warnings.map((warning) => ({
@@ -344,7 +368,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			}));
 			const traceWarnings = mergeWarnings(executionContext.warnings, modelWarnings);
 			const status = selectStatus(executionContext, traceWarnings);
-			const publicWarnings = selectPublicWarnings(status, modelWarnings);
+			const publicWarnings = selectPublicWarnings(status, modelWarnings, executionContext.toolResults);
 			const dataFreshnessMode = executionContext.sourceCalls.some((sourceCall) => sourceCall.isProvisional)
 				? 'provisional_live'
 				: 'nightly';
@@ -419,7 +443,7 @@ function buildSystemMessages(): DynamicAgentChatMessage[] {
 		{
 			role: 'system',
 			content:
-				'Use find_video_clips when the user asks to see or watch plays/clips. Pass the semantic eventType that exactly matches the request: made_three for made threes, made_field_goal for all made baskets, assist, block, steal, rebound, or turnover. Never broaden made_three to made_field_goal. opponentTeamId filters by the opposing TEAM only; there is no named-defender field in this video endpoint. Do not silently replace a named defender with their team. Explain the limitation and ask whether the user wants team-level clips instead. When clips are found, emit a video_playlist artifact containing only the clips returned by the tool and keep the prose answer short (count + scope).'
+				'Use find_video_clips when the user asks to see or watch plays/clips. Use the efficient direct eventType for made_three, made_field_goal, assist, block, steal, rebound, or turnover. Never broaden made_three to made_field_goal. For exact shot descriptions such as pull-up, step-back, layup, shot zone, make/miss, distance, or period combinations, use eventType custom_shot and pass canonical customShot filters; never approximate them with a broader direct event. custom_shot joins the full shot log to videos by game and event id. opponentTeamId filters by the opposing TEAM only; there is no named-defender field. Do not silently replace a named defender with their team. Explain that limitation and ask whether the user wants team-level clips instead. When clips are found, emit a video_playlist artifact containing only the clips returned by the tool and keep prose short. Use matchingShotEventCount, joinedClipCount, missingVideoCount, and playlistCapped exactly. Do not add a warning when missingVideoCount is zero; when it is positive, state one concise video-availability limitation.'
 		},
 		{
 			role: 'system',
@@ -603,7 +627,7 @@ function buildToolDefinitions(): DynamicAgentToolDefinition[] {
 			function: {
 				name: 'find_video_clips',
 				description:
-					'Fetch playable NBA video clips for a canonical player and semantic event type. Event types are mapped to NBA parameters and validated server-side.',
+					'Fetch playable NBA video clips for a direct event or an exact canonical custom-shot filter joined by game and event id.',
 				parameters: {
 					type: 'object',
 					additionalProperties: false,
@@ -616,7 +640,22 @@ function buildToolDefinitions(): DynamicAgentToolDefinition[] {
 						opponentTeamId: { type: 'string' },
 						gameId: { type: 'string' },
 						dateFrom: { type: 'string' },
-						dateTo: { type: 'string' }
+						dateTo: { type: 'string' },
+						customShot: {
+							type: 'object',
+							additionalProperties: false,
+							properties: {
+								result: { type: 'string', enum: CUSTOM_SHOT_RESULTS },
+								shotValue: { type: 'integer', enum: [2, 3] },
+								zone: { type: 'string', enum: CUSTOM_SHOT_ZONES },
+								zoneArea: { type: 'string', enum: CUSTOM_SHOT_ZONE_AREAS },
+								actionFamily: { type: 'string', enum: CUSTOM_SHOT_ACTION_FAMILIES },
+								period: { type: 'integer', minimum: 1, maximum: 10 },
+								distanceFeetMin: { type: 'number', minimum: 0, maximum: 94 },
+								distanceFeetMax: { type: 'number', minimum: 0, maximum: 94 }
+							},
+							required: ['result']
+						}
 					},
 					required: ['playerId', 'eventType', 'season', 'seasonType']
 				}
@@ -1033,7 +1072,18 @@ function parseToolRequest(toolCall: DynamicAgentToolCall): ParsedToolRequest {
 function parseFindVideoClipsRequest(
 	rawArguments: Record<string, unknown>
 ): { ok: true; request: FindVideoClipsRequest } | { ok: false; error: string } {
-	const allowedKeys = ['playerId', 'eventType', 'season', 'seasonType', 'teamId', 'opponentTeamId', 'gameId', 'dateFrom', 'dateTo'];
+	const allowedKeys = [
+		'playerId',
+		'eventType',
+		'season',
+		'seasonType',
+		'teamId',
+		'opponentTeamId',
+		'gameId',
+		'dateFrom',
+		'dateTo',
+		'customShot'
+	];
 	const unsupportedKey = findUnsupportedKey(rawArguments, allowedKeys);
 	if (unsupportedKey) {
 		return { ok: false, error: `find_video_clips received unsupported argument '${unsupportedKey}'.` };
@@ -1060,6 +1110,10 @@ function parseFindVideoClipsRequest(
 			return { ok: false, error: `find_video_clips ${field} must be a non-empty string when provided.` };
 		}
 	}
+	const customShot = parseCustomShotFilters(rawArguments.customShot, eventType);
+	if (!customShot.ok) {
+		return customShot;
+	}
 
 	return {
 		ok: true,
@@ -1072,7 +1126,88 @@ function parseFindVideoClipsRequest(
 			...(isNonEmptyString(rawArguments.opponentTeamId) ? { opponentTeamId: rawArguments.opponentTeamId.trim() } : {}),
 			...(isNonEmptyString(rawArguments.gameId) ? { gameId: rawArguments.gameId.trim() } : {}),
 			...(isNonEmptyString(rawArguments.dateFrom) ? { dateFrom: rawArguments.dateFrom.trim() } : {}),
-			...(isNonEmptyString(rawArguments.dateTo) ? { dateTo: rawArguments.dateTo.trim() } : {})
+			...(isNonEmptyString(rawArguments.dateTo) ? { dateTo: rawArguments.dateTo.trim() } : {}),
+			...(customShot.filters ? { customShot: customShot.filters } : {})
+		}
+	};
+}
+
+function parseCustomShotFilters(
+	value: unknown,
+	eventType: ClipEventType
+): { ok: true; filters?: CustomShotFilters } | { ok: false; error: string } {
+	if (eventType !== 'custom_shot') {
+		return value === undefined
+			? { ok: true }
+			: { ok: false, error: 'find_video_clips customShot is only valid with eventType custom_shot.' };
+	}
+	if (!isPlainObject(value)) {
+		return { ok: false, error: 'find_video_clips eventType custom_shot requires customShot filters.' };
+	}
+
+	const allowedKeys = [
+		'result',
+		'shotValue',
+		'zone',
+		'zoneArea',
+		'actionFamily',
+		'period',
+		'distanceFeetMin',
+		'distanceFeetMax'
+	];
+	const unsupportedKey = findUnsupportedKey(value, allowedKeys);
+	if (unsupportedKey) {
+		return { ok: false, error: `find_video_clips customShot received unsupported filter '${unsupportedKey}'.` };
+	}
+
+	const { result, shotValue, zone, zoneArea, actionFamily, period, distanceFeetMin, distanceFeetMax } = value;
+	if (!isCustomShotResult(result)) {
+		return { ok: false, error: 'find_video_clips customShot.result must be made, missed, or any.' };
+	}
+	if (shotValue !== undefined && shotValue !== 2 && shotValue !== 3) {
+		return { ok: false, error: 'find_video_clips customShot.shotValue must be 2 or 3.' };
+	}
+	if (zone !== undefined && !isCustomShotZone(zone)) {
+		return { ok: false, error: `find_video_clips customShot.zone must be one of: ${CUSTOM_SHOT_ZONES.join(', ')}.` };
+	}
+	if (zoneArea !== undefined && !isCustomShotZoneArea(zoneArea)) {
+		return {
+			ok: false,
+			error: `find_video_clips customShot.zoneArea must be one of: ${CUSTOM_SHOT_ZONE_AREAS.join(', ')}.`
+		};
+	}
+	if (actionFamily !== undefined && !isCustomShotActionFamily(actionFamily)) {
+		return {
+			ok: false,
+			error: `find_video_clips customShot.actionFamily must be one of: ${CUSTOM_SHOT_ACTION_FAMILIES.join(', ')}.`
+		};
+	}
+	if (period !== undefined && (!Number.isInteger(period) || Number(period) < 1 || Number(period) > 10)) {
+		return { ok: false, error: 'find_video_clips customShot.period must be an integer from 1 through 10.' };
+	}
+	for (const [field, distance] of [
+		['distanceFeetMin', distanceFeetMin],
+		['distanceFeetMax', distanceFeetMax]
+	] as const) {
+		if (distance !== undefined && (typeof distance !== 'number' || !Number.isFinite(distance) || distance < 0 || distance > 94)) {
+			return { ok: false, error: `find_video_clips customShot.${field} must be a number from 0 through 94.` };
+		}
+	}
+	if (typeof distanceFeetMin === 'number' && typeof distanceFeetMax === 'number' && distanceFeetMin > distanceFeetMax) {
+		return { ok: false, error: 'find_video_clips customShot distanceFeetMin cannot exceed distanceFeetMax.' };
+	}
+
+	return {
+		ok: true,
+		filters: {
+			result,
+			...(shotValue === 2 || shotValue === 3 ? { shotValue } : {}),
+			...(isCustomShotZone(zone) ? { zone } : {}),
+			...(isCustomShotZoneArea(zoneArea) ? { zoneArea } : {}),
+			...(isCustomShotActionFamily(actionFamily) ? { actionFamily } : {}),
+			...(typeof period === 'number' ? { period } : {}),
+			...(typeof distanceFeetMin === 'number' ? { distanceFeetMin } : {}),
+			...(typeof distanceFeetMax === 'number' ? { distanceFeetMax } : {})
 		}
 	};
 }
@@ -1567,6 +1702,17 @@ async function findVideoClips(
 			error: `Named-defender clip filtering is unavailable for ${namedDefender.canonicalName}. Do not substitute team-level clips without the user's approval.`
 		};
 	}
+	if (request.eventType === 'custom_shot') {
+		const intentError = validateExplicitCustomShotCues(context.question, request);
+		if (intentError) {
+			return { ok: false, error: intentError };
+		}
+		return findCustomShotVideoClips(request, dependencies, context);
+	}
+	const directEventType = request.eventType;
+	if (!isStandardClipEventType(directEventType)) {
+		return { ok: false, error: `Unsupported direct clip event type '${request.eventType}'.` };
+	}
 
 	let endpointParams: Record<string, string>;
 	try {
@@ -1593,7 +1739,7 @@ async function findVideoClips(
 		};
 	}
 
-	const parsed = parseVideoDetailsAssetClips(result.payload);
+	const parsed = parseVideoDetailsAssetClips(result.payload, null);
 	if (!parsed.ok) {
 		context.failedEndpointCalls += 1;
 		return {
@@ -1603,15 +1749,16 @@ async function findVideoClips(
 	}
 
 	context.successfulEndpointCalls += 1;
-	const clips = parsed.data.clips.filter((clip) => clipMatchesEventType(clip.description, request.eventType));
+	const matchingClips = parsed.data.clips.filter((clip) => clipMatchesEventType(clip.description, directEventType));
+	const clips = matchingClips.slice(0, MAX_VIDEO_PLAYLIST_CLIPS);
 	return {
 		ok: true,
 		data: {
 			clips,
-			totalAvailable: clips.length,
-			truncated: parsed.data.truncated,
+			totalAvailable: matchingClips.length,
+			truncated: matchingClips.length > clips.length,
 			eventType: request.eventType,
-			discardedMismatchedClips: parsed.data.clips.length - clips.length,
+			discardedMismatchedClips: parsed.data.clips.length - matchingClips.length,
 			cacheStatus: result.cacheStatus,
 			sourceStatus: result.sourceStatus,
 			stale: result.stale,
@@ -1620,9 +1767,84 @@ async function findVideoClips(
 	};
 }
 
+async function findCustomShotVideoClips(
+	request: FindVideoClipsRequest,
+	dependencies: DynamicQueryAgentDependencies,
+	context: ToolExecutionContext
+): Promise<{ ok: true; data: unknown } | { ok: false; data?: unknown; error: string }> {
+	if (!request.customShot) {
+		return { ok: false, error: 'find_video_clips custom_shot filters were not provided.' };
+	}
+
+	const scope = buildCustomShotScope(request);
+	let shotParams: Record<string, string>;
+	try {
+		shotParams = normalizeEndpointParams('shotchartdetail', buildCustomShotEndpointParams(request));
+	} catch (error) {
+		return { ok: false, error: error instanceof Error ? error.message : String(error) };
+	}
+
+	const shotResult = await fetchAndRecordEndpointResult(
+		{ endpointId: 'shotchartdetail', params: shotParams },
+		dependencies,
+		context
+	);
+	if (!shotResult.payload) {
+		context.failedEndpointCalls += 1;
+		return {
+			ok: false,
+			data: buildEndpointToolData(shotResult),
+			error: shotResult.errorDetail ?? "NBA Stats endpoint 'shotchartdetail' did not return data."
+		};
+	}
+
+	const filtered = filterCustomShotEvents(shotResult.payload, request.customShot, scope);
+	if (!filtered.ok) {
+		context.failedEndpointCalls += 1;
+		return { ok: false, error: filtered.error };
+	}
+	if (filtered.data.events.length === 0) {
+		context.successfulEndpointCalls += 1;
+		return { ok: true, data: buildEmptyCustomShotJoinData(filtered.data) };
+	}
+
+	let videoParams: Record<string, string>;
+	try {
+		videoParams = normalizeEndpointParams(VIDEO_CLIPS_ENDPOINT_ID, buildVideoClipEndpointParams(request));
+	} catch (error) {
+		return { ok: false, error: error instanceof Error ? error.message : String(error) };
+	}
+
+	const videoResult = await fetchAndRecordEndpointResult(
+		{ endpointId: VIDEO_CLIPS_ENDPOINT_ID, params: videoParams },
+		dependencies,
+		context
+	);
+	if (!videoResult.payload) {
+		context.failedEndpointCalls += 1;
+		return {
+			ok: false,
+			data: buildEndpointToolData(videoResult),
+			error: videoResult.errorDetail ?? `NBA Stats endpoint '${VIDEO_CLIPS_ENDPOINT_ID}' did not return data.`
+		};
+	}
+
+	const joined = joinCustomShotEventsToVideos(filtered.data, videoResult.payload, MAX_VIDEO_PLAYLIST_CLIPS);
+	if (!joined.ok) {
+		context.failedEndpointCalls += 1;
+		return { ok: false, error: joined.error };
+	}
+
+	context.successfulEndpointCalls += 1;
+	return { ok: true, data: joined.data };
+}
+
 function buildVideoClipEndpointParams(request: FindVideoClipsRequest): Record<string, string> {
 	return {
-		ContextMeasure: CLIP_EVENT_CONTEXT_MEASURE[request.eventType],
+		ContextMeasure:
+			request.eventType === 'custom_shot'
+				? selectCustomVideoContextMeasure(request.customShot)
+				: CLIP_EVENT_CONTEXT_MEASURE[request.eventType],
 		PlayerID: request.playerId,
 		Season: request.season,
 		SeasonType: request.seasonType,
@@ -1630,8 +1852,150 @@ function buildVideoClipEndpointParams(request: FindVideoClipsRequest): Record<st
 		...(request.opponentTeamId ? { OpponentTeamID: request.opponentTeamId } : {}),
 		...(request.gameId ? { GameID: request.gameId } : {}),
 		...(request.dateFrom ? { DateFrom: request.dateFrom } : {}),
-		...(request.dateTo ? { DateTo: request.dateTo } : {})
+		...(request.dateTo ? { DateTo: request.dateTo } : {}),
+		...(request.eventType === 'custom_shot' && request.customShot?.period
+			? { Period: String(request.customShot.period) }
+			: {})
 	};
+}
+
+function buildCustomShotEndpointParams(request: FindVideoClipsRequest): Record<string, string> {
+	return {
+		ContextMeasure: 'FGA',
+		PlayerID: request.playerId,
+		Season: request.season,
+		SeasonType: request.seasonType,
+		...(request.teamId ? { TeamID: request.teamId } : {}),
+		...(request.opponentTeamId ? { OpponentTeamID: request.opponentTeamId } : {}),
+		...(request.gameId ? { GameID: request.gameId } : {}),
+		...(request.dateFrom ? { DateFrom: request.dateFrom } : {}),
+		...(request.dateTo ? { DateTo: request.dateTo } : {}),
+		...(request.customShot?.period ? { Period: String(request.customShot.period) } : {})
+	};
+}
+
+function buildCustomShotScope(request: FindVideoClipsRequest) {
+	return {
+		playerId: request.playerId,
+		season: request.season,
+		seasonType: request.seasonType,
+		...(request.teamId ? { teamId: request.teamId } : {}),
+		...(request.opponentTeamId ? { opponentTeamId: request.opponentTeamId } : {}),
+		...(request.gameId ? { gameId: request.gameId } : {}),
+		...(request.dateFrom ? { dateFrom: request.dateFrom } : {}),
+		...(request.dateTo ? { dateTo: request.dateTo } : {})
+	};
+}
+
+function selectCustomVideoContextMeasure(filters: CustomShotFilters | undefined): string {
+	if (!filters) {
+		return 'FGA';
+	}
+	if (filters.result === 'made') {
+		return filters.shotValue === 3 ? 'FG3M' : 'FGM';
+	}
+	return filters.shotValue === 3 ? 'FG3A' : 'FGA';
+}
+
+function validateExplicitCustomShotCues(question: string, request: FindVideoClipsRequest): string | null {
+	const filters = request.customShot;
+	if (!filters) {
+		return 'The custom shot request omitted its canonical filters.';
+	}
+	const normalized = question
+		.toLocaleLowerCase()
+		.replaceAll(/[’']/g, '')
+		.replaceAll(/[_–—-]+/g, ' ')
+		.replaceAll(/\s+/g, ' ')
+		.trim();
+
+	const required: Array<{ present: boolean; valid: boolean; field: string; expected: string }> = [
+		{
+			present: /\bmid\s*range\b/.test(normalized),
+			valid: filters.zone === 'mid_range',
+			field: 'zone',
+			expected: 'mid_range'
+		},
+		{
+			present: /\bleft\s+corner\b/.test(normalized),
+			valid: filters.zone === 'left_corner_3',
+			field: 'zone',
+			expected: 'left_corner_3'
+		},
+		{
+			present: /\bright\s+corner\b/.test(normalized),
+			valid: filters.zone === 'right_corner_3',
+			field: 'zone',
+			expected: 'right_corner_3'
+		},
+		{
+			present: /\bcorner\b/.test(normalized) && !/\b(?:left|right)\s+corner\b/.test(normalized),
+			valid: filters.zone === 'corner_3',
+			field: 'zone',
+			expected: 'corner_3'
+		},
+		{
+			present: /\bpull\s*up\b/.test(normalized),
+			valid: filters.actionFamily === 'pull_up',
+			field: 'actionFamily',
+			expected: 'pull_up'
+		},
+		{
+			present: /\bstep\s*back\b/.test(normalized),
+			valid: filters.actionFamily === 'step_back',
+			field: 'actionFamily',
+			expected: 'step_back'
+		},
+		{
+			present: /\bdriving\s+(?:finger\s+roll\s+)?layups?\b/.test(normalized),
+			valid: filters.actionFamily === 'driving_layup',
+			field: 'actionFamily',
+			expected: 'driving_layup'
+		},
+		{
+			present: /\bmiss(?:ed|es|ing)?\b/.test(normalized),
+			valid: filters.result === 'missed',
+			field: 'result',
+			expected: 'missed'
+		},
+		{
+			present: /\b(?:made|makes|making|hit|hits|hitting)\b/.test(normalized),
+			valid: filters.result === 'made',
+			field: 'result',
+			expected: 'made'
+		},
+		{
+			present: /\b(?:three(?:s|\s+point(?:ers?)?)?|3\s*pt)\b/.test(normalized) || /\b(?:left|right)?\s*corner\b/.test(normalized),
+			valid: filters.shotValue === 3,
+			field: 'shotValue',
+			expected: '3'
+		},
+		{
+			present: /\b(?:two(?:s|\s+point(?:ers?)?)?|2\s*pt)\b/.test(normalized),
+			valid: filters.shotValue === 2,
+			field: 'shotValue',
+			expected: '2'
+		}
+	];
+
+	for (const [pattern, period] of [
+		[/\b(?:first|1st)\s+quarter\b/, 1],
+		[/\b(?:second|2nd)\s+quarter\b/, 2],
+		[/\b(?:third|3rd)\s+quarter\b/, 3],
+		[/\b(?:fourth|4th)\s+quarter\b/, 4]
+	] as const) {
+		required.push({
+			present: pattern.test(normalized),
+			valid: filters.period === period,
+			field: 'period',
+			expected: String(period)
+		});
+	}
+
+	const mismatch = required.find((cue) => cue.present && !cue.valid);
+	return mismatch
+		? `The question explicitly requires customShot.${mismatch.field}=${mismatch.expected}; do not broaden or omit that filter.`
+		: null;
 }
 
 function recordResolvedPlayers(context: ToolExecutionContext, data: { players: ResolvedNameMatch[] }): void {
@@ -1663,7 +2027,7 @@ function findNamedDefenderFallback(
 	);
 }
 
-function clipMatchesEventType(description: string, eventType: ClipEventType): boolean {
+function clipMatchesEventType(description: string, eventType: StandardClipEventType): boolean {
 	if (eventType !== 'made_three') {
 		return true;
 	}
@@ -2302,6 +2666,62 @@ function validateArtifact(artifact: unknown): { ok: true; value: QueryAnswerArti
 	return { ok: false, error: `Dynamic agent emitted unknown artifact type '${artifact.type}'.` };
 }
 
+function reconcileVideoPlaylists(
+	artifacts: QueryAnswerArtifact[],
+	toolResults: QueryAnswerAgentToolResult[]
+): QueryAnswerArtifact[] {
+	const groundedPlaylists = toolResults
+		.filter((result) => result.toolName === 'find_video_clips' && result.response.ok)
+		.map((result) => readVideoPlaylistClips(result.response.data));
+	if (groundedPlaylists.length === 0) {
+		return artifacts.filter((artifact) => artifact.type !== 'video_playlist');
+	}
+
+	let playlistIndex = 0;
+	const reconciled = artifacts.flatMap((artifact): QueryAnswerArtifact[] => {
+		if (artifact.type !== 'video_playlist') {
+			return [artifact];
+		}
+		const clips = groundedPlaylists[playlistIndex++] ?? [];
+		return clips.length > 0 ? [{ ...artifact, clips }] : [];
+	});
+
+	for (; playlistIndex < groundedPlaylists.length; playlistIndex += 1) {
+		const clips = groundedPlaylists[playlistIndex] ?? [];
+		if (clips.length > 0) {
+			reconciled.push({ type: 'video_playlist', title: 'NBA video clips', clips });
+		}
+	}
+	return reconciled;
+}
+
+function readVideoPlaylistClips(
+	data: unknown
+): Extract<QueryAnswerArtifact, { type: 'video_playlist' }>['clips'] {
+	if (!isPlainObject(data) || !Array.isArray(data.clips)) {
+		return [];
+	}
+	return data.clips
+		.filter(
+			(clip) =>
+				isPlainObject(clip) &&
+				typeof clip.url === 'string' &&
+				typeof clip.description === 'string' &&
+				(clip.thumbnailUrl === null || typeof clip.thumbnailUrl === 'string') &&
+				(clip.gameDate === null || typeof clip.gameDate === 'string') &&
+				(clip.gameId === null || typeof clip.gameId === 'string') &&
+				(clip.eventId === null || typeof clip.eventId === 'string')
+		)
+		.map((clip) => ({
+			url: String(clip.url),
+			description: String(clip.description),
+			thumbnailUrl: typeof clip.thumbnailUrl === 'string' ? clip.thumbnailUrl : null,
+			gameDate: typeof clip.gameDate === 'string' ? clip.gameDate : null,
+			gameId: typeof clip.gameId === 'string' ? clip.gameId : null,
+			eventId: typeof clip.eventId === 'string' ? clip.eventId : null
+		}));
+}
+
 function reconcileFilteredShotCharts(artifacts: QueryAnswerArtifact[], toolResults: QueryAnswerAgentToolResult[]): QueryAnswerArtifact[] {
 	const filteredRows = findLatestShotChartRows(toolResults);
 	if (!filteredRows) {
@@ -2424,9 +2844,26 @@ function selectStatus(context: ToolExecutionContext, warnings: StatsQueryWarning
 	return 'ok';
 }
 
-function selectPublicWarnings(status: StatsQueryStatus, modelWarnings: StatsQueryWarning[]): StatsQueryWarning[] {
+function selectPublicWarnings(
+	status: StatsQueryStatus,
+	modelWarnings: StatsQueryWarning[],
+	toolResults: QueryAnswerAgentToolResult[]
+): StatsQueryWarning[] {
 	const visibleCodes = new Set(['dynamic_agent_partial_data', 'dynamic_agent_capability_limit']);
-	const visible = modelWarnings.filter((warning) => visibleCodes.has(warning.code) && !containsInternalDiagnostic(warning.message));
+	let visible = modelWarnings.filter((warning) => visibleCodes.has(warning.code) && !containsInternalDiagnostic(warning.message));
+	const customShotCoverage = findLatestCustomShotCoverage(toolResults);
+	if (customShotCoverage) {
+		visible = visible.filter((warning) => warning.code !== 'dynamic_agent_partial_data');
+		if (customShotCoverage.missingVideoCount > 0) {
+			const joinedLabel = `${customShotCoverage.joinedClipCount} joined ${customShotCoverage.joinedClipCount === 1 ? 'clip is' : 'clips are'}`;
+			return [
+				{
+					code: 'video_coverage_partial',
+					message: `Video is unavailable for ${customShotCoverage.missingVideoCount} of ${customShotCoverage.matchingShotEventCount} matching shot events; ${joinedLabel} available.`
+				}
+			];
+		}
+	}
 
 	if (visible.length > 0 || status !== 'coverage_gap') {
 		return mergeWarnings(visible);
@@ -2438,6 +2875,31 @@ function selectPublicWarnings(status: StatsQueryStatus, modelWarnings: StatsQuer
 			message: 'Some NBA data required for this answer is currently unavailable.'
 		}
 	];
+}
+
+function findLatestCustomShotCoverage(
+	toolResults: QueryAnswerAgentToolResult[]
+): { matchingShotEventCount: number; joinedClipCount: number; missingVideoCount: number } | null {
+	for (let index = toolResults.length - 1; index >= 0; index -= 1) {
+		const result = toolResults[index];
+		if (
+			result?.toolName !== 'find_video_clips' ||
+			result.request.eventType !== 'custom_shot' ||
+			!result.response.ok ||
+			!isPlainObject(result.response.data)
+		) {
+			continue;
+		}
+		const { matchingShotEventCount, joinedClipCount, missingVideoCount } = result.response.data;
+		if (
+			typeof matchingShotEventCount === 'number' &&
+			typeof joinedClipCount === 'number' &&
+			typeof missingVideoCount === 'number'
+		) {
+			return { matchingShotEventCount, joinedClipCount, missingVideoCount };
+		}
+	}
+	return null;
 }
 
 function buildFinalAnswerText(answer: string, status: StatsQueryStatus, warnings: StatsQueryWarning[]): string {
@@ -2559,6 +3021,26 @@ function isAggregationOperator(value: unknown): value is AggregationOperator {
 
 function isClipEventType(value: unknown): value is ClipEventType {
 	return typeof value === 'string' && CLIP_EVENT_TYPES.includes(value as ClipEventType);
+}
+
+function isStandardClipEventType(value: unknown): value is StandardClipEventType {
+	return typeof value === 'string' && STANDARD_CLIP_EVENT_TYPES.includes(value as StandardClipEventType);
+}
+
+function isCustomShotResult(value: unknown): value is CustomShotResult {
+	return typeof value === 'string' && CUSTOM_SHOT_RESULTS.includes(value as CustomShotResult);
+}
+
+function isCustomShotZone(value: unknown): value is CustomShotZone {
+	return typeof value === 'string' && CUSTOM_SHOT_ZONES.includes(value as CustomShotZone);
+}
+
+function isCustomShotZoneArea(value: unknown): value is CustomShotZoneArea {
+	return typeof value === 'string' && CUSTOM_SHOT_ZONE_AREAS.includes(value as CustomShotZoneArea);
+}
+
+function isCustomShotActionFamily(value: unknown): value is CustomShotActionFamily {
+	return typeof value === 'string' && CUSTOM_SHOT_ACTION_FAMILIES.includes(value as CustomShotActionFamily);
 }
 
 function isClipSeasonType(value: unknown): value is FindVideoClipsRequest['seasonType'] {

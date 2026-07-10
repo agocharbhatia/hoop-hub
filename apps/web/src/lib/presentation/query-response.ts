@@ -130,6 +130,7 @@ export type VideoPlaylistClip = {
 	thumbnailUrl: string | null;
 	gameDate: string | null;
 	gameId: string | null;
+	eventId?: string | null;
 };
 
 export type VideoPlaylistArtifactView = {

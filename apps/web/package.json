@@ -28,6 +28,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:endpoint-catalog-contracts": "bun ./scripts/check-endpoint-catalog-contracts.ts",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"eval": "HOOP_HUB_DB_PATH=:memory: HOOP_HUB_ENABLE_LIVE_NBA=0 bun test ./eval",
 		"test": "HOOP_HUB_DB_PATH=:memory: HOOP_HUB_ENABLE_LIVE_NBA=0 bun test ./src",
 		"test:planner-smoke": "bun test ./smoke/query-acceptance.smoke.test.ts",
 		"test:live-smoke": "bun test ./smoke/live-player-resolution.smoke.test.ts"
