@@ -5,17 +5,50 @@
 
 	let currentIndex = $state(0);
 	let isChainPlaying = $state(false);
+	let pendingAutoplay = $state(false);
+	let playbackError = $state<string | null>(null);
 	let videoElement = $state<HTMLVideoElement | null>(null);
 
 	const clips = $derived(artifact.clips);
 	const currentClip = $derived(clips[Math.min(currentIndex, clips.length - 1)]);
 
 	function playClip(index: number, autoplay: boolean) {
-		currentIndex = Math.max(0, Math.min(clips.length - 1, index));
+		const nextIndex = Math.max(0, Math.min(clips.length - 1, index));
+		const sourceWillChange = nextIndex !== currentIndex;
+		currentIndex = nextIndex;
 		isChainPlaying = autoplay;
+		pendingAutoplay = autoplay && sourceWillChange;
+		playbackError = null;
 		if (autoplay) {
-			// Wait for the new src to bind before playing.
-			queueMicrotask(() => videoElement?.play().catch(() => {}));
+			if (sourceWillChange) {
+				return;
+			}
+			void startPlayback();
+		}
+	}
+
+	async function startPlayback() {
+		if (!videoElement) {
+			return;
+		}
+		try {
+			await videoElement.play();
+			await new Promise((resolve) => setTimeout(resolve, 150));
+			if (videoElement.paused && !videoElement.ended) {
+				throw new Error('The browser left the video paused after accepting play().');
+			}
+			pendingAutoplay = false;
+			playbackError = null;
+		} catch {
+			isChainPlaying = false;
+			pendingAutoplay = false;
+			playbackError = 'Playback could not start automatically. Use the video play control to continue.';
+		}
+	}
+
+	function handleCanPlay() {
+		if (pendingAutoplay) {
+			void startPlayback();
 		}
 	}
 
@@ -28,6 +61,7 @@
 			playClip(currentIndex + 1, true);
 		} else {
 			isChainPlaying = false;
+			pendingAutoplay = false;
 		}
 	}
 
@@ -58,7 +92,7 @@
 		controls
 		playsinline
 		preload="metadata"
-		autoplay={isChainPlaying}
+		oncanplay={handleCanPlay}
 		onended={handleEnded}
 		class="aspect-video w-full rounded-lg border border-border bg-black"
 	></video>
@@ -95,6 +129,10 @@
 			Play all
 		</button>
 	</div>
+
+	{#if playbackError}
+		<p class="mt-2 text-xs text-amber-700 dark:text-amber-300" role="status">{playbackError}</p>
+	{/if}
 
 	{#if clips.length > 1}
 		<ol class="mt-2 max-h-44 space-y-0.5 overflow-y-auto rounded-md border border-border p-1">

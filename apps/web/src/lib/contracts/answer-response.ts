@@ -1,11 +1,5 @@
 import type { Citation } from './chat';
-import type {
-	SemanticQueryRequest,
-	StatsQueryResponse,
-	StatsQueryRow,
-	StatsQueryStatus,
-	StatsQueryWarning
-} from './semantic-query';
+import type { SemanticQueryRequest, StatsQueryResponse, StatsQueryRow, StatsQueryStatus, StatsQueryWarning } from './semantic-query';
 
 export type QueryAnswerArtifact =
 	| {
@@ -78,7 +72,8 @@ export type QueryAnswerAgentToolName =
 	| 'resolve_teams'
 	| 'call_nba_stats_endpoint'
 	| 'find_video_clips'
-	| 'aggregate_endpoint_rows';
+	| 'aggregate_endpoint_rows'
+	| 'analyze_time_series';
 
 export type QueryAnswerAgentToolResult = {
 	toolName: QueryAnswerAgentToolName;

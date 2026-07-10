@@ -27,10 +27,22 @@ type AggregateToolDataForTest = {
 		aggregates: Record<string, number | null>;
 	}>;
 	groupsTruncated: boolean;
+	selectedColumns: string[];
+	selectedRows: Array<Record<string, string | number | boolean | null>>;
+	selectedRowsTruncated: boolean;
 	cacheStatus: string;
 	sourceStatus: string;
 	stale: boolean;
 	isProvisional: boolean;
+};
+
+type AnalyzeTimeSeriesDataForTest = {
+	points: Array<{ x: string; y: number }>;
+	earlierWindow: { count: number; average: number | null };
+	recentWindow: { count: number; average: number | null };
+	change: number | null;
+	direction: 'up' | 'down' | 'flat' | 'insufficient_data';
+	ordering: 'oldest_to_newest';
 };
 
 /* Test helpers */
@@ -103,12 +115,22 @@ function buildEndpointResult(overrides: Partial<EndpointFetchResult> = {}): Endp
 function buildShotChartRows(): unknown[][] {
 	return Array.from({ length: 180 }, (_, index) => {
 		if (index < 120) {
-			return ['1630173', 'Mid-Range', 'Pullup Jump Shot', index < 50 ? 1 : 0, 14, 'TOR'];
+			return ['1630173', 'Mid-Range', 'Pullup Jump Shot', index < 50 ? 1 : 0, 14, 'TOR', index - 90, index % 50, '2PT Field Goal'];
 		}
 		if (index < 170) {
-			return ['1630173', 'Mid-Range', 'Step Back Pullup Jump Shot', index < 145 ? 1 : 0, 17, 'TOR'];
+			return [
+				'1630173',
+				'Mid-Range',
+				'Step Back Pullup Jump Shot',
+				index < 145 ? 1 : 0,
+				17,
+				'TOR',
+				index - 90,
+				index % 50,
+				'2PT Field Goal'
+			];
 		}
-		return ['1630173', 'Mid-Range', 'Fadeaway Jump Shot', 1, 12, 'TOR'];
+		return ['1630173', 'Mid-Range', 'Fadeaway Jump Shot', 1, 12, 'TOR', index - 90, index % 50, '2PT Field Goal'];
 	});
 }
 
@@ -124,7 +146,17 @@ function buildShotChartEndpointResult(rowSet: unknown[][], overrides: Partial<En
 				},
 				{
 					name: 'Shot Chart Detail',
-					headers: ['PLAYER_ID', 'SHOT_ZONE_BASIC', 'ACTION_TYPE', 'SHOT_MADE_FLAG', 'SHOT_DISTANCE', 'TEAM_ABBREVIATION'],
+					headers: [
+						'PLAYER_ID',
+						'SHOT_ZONE_BASIC',
+						'ACTION_TYPE',
+						'SHOT_MADE_FLAG',
+						'SHOT_DISTANCE',
+						'TEAM_ABBREVIATION',
+						'LOC_X',
+						'LOC_Y',
+						'SHOT_TYPE'
+					],
 					rowSet
 				}
 			]
@@ -139,13 +171,13 @@ function buildShotChartEndpointResult(rowSet: unknown[][], overrides: Partial<En
 	});
 }
 
-function buildAggregateModel(toolArgs: Record<string, unknown>, finalAnswer = 'Done.'): ScriptedModel {
+function buildAggregateModel(toolArgs: Record<string, unknown>, finalAnswer = 'Done.', artifacts: unknown[] = []): ScriptedModel {
 	return createScriptedModel([
 		toolCall('aggregate-1', 'aggregate_endpoint_rows', toolArgs),
 		emptyAssistantTurn(),
 		finalResponse({
 			answer: finalAnswer,
-			artifacts: [],
+			artifacts,
 			warnings: []
 		})
 	]);
@@ -164,6 +196,18 @@ function createFakePlayerDirectory(): DynamicAgentPlayerDirectory {
 			return { ok: true };
 		},
 		findByNameOrAlias(name) {
+			if (name === 'Bam Adebayo') {
+				return [
+					{
+						playerId: '1628389',
+						canonicalName: 'Bam Adebayo',
+						normalizedName: 'bam adebayo',
+						teamId: '1610612748',
+						snapshotVersion: 'test',
+						importedAt: '2026-01-01T00:00:00.000Z'
+					}
+				];
+			}
 			if (name !== 'Scottie Barnes') {
 				return [];
 			}
@@ -263,11 +307,10 @@ describe('createDynamicQueryAgent', () => {
 		const model = createScriptedModel([
 			toolCall('players-1', 'resolve_players', { names: ['Scottie Barnes'] }),
 			toolCall('clips-1', 'find_video_clips', {
-				params: {
-					PlayerID: '1630173',
-					ContextMeasure: 'FGM',
-					SeasonType: 'Playoffs'
-				}
+				playerId: '1630173',
+				eventType: 'made_field_goal',
+				season: '2025-26',
+				seasonType: 'Playoffs'
 			}),
 			emptyAssistantTurn(),
 			finalResponse({
@@ -349,16 +392,139 @@ describe('createDynamicQueryAgent', () => {
 		if (!trace || !('runtime' in trace) || trace.runtime !== 'dynamic_agent') {
 			assert.fail('Expected a dynamic_agent trace for the clips run.');
 		}
-		assert.equal(trace.toolCalls.some((call) => call.toolName === 'find_video_clips' && call.ok), true);
+		assert.equal(
+			trace.toolCalls.some((call) => call.toolName === 'find_video_clips' && call.ok),
+			true
+		);
+	});
+
+	test('maps made-three clip intent to FG3M and discards mismatched returned events', async () => {
+		const model = createScriptedModel([
+			toolCall('clips-1', 'find_video_clips', {
+				playerId: '1630173',
+				eventType: 'made_three',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				opponentTeamId: '1610612738'
+			}),
+			emptyAssistantTurn(),
+			finalResponse({
+				answer: 'Found one made three.',
+				artifacts: [
+					{
+						type: 'video_playlist',
+						title: 'Scottie Barnes made threes',
+						clips: [
+							{
+								url: 'https://videos.nba.com/three.mp4',
+								description: "Barnes 26' 3PT Running Jump Shot",
+								thumbnailUrl: null,
+								gameDate: '2025-12-20',
+								gameId: '0022500388'
+							}
+						]
+					}
+				],
+				warnings: []
+			})
+		]);
+		let endpointRequest: Parameters<StatsEndpointFetcher>[0] | null = null;
+		const agent = createDynamicQueryAgent({
+			model,
+			endpointFetcher: async (request) => {
+				endpointRequest = request;
+				return buildEndpointResult({
+					endpointId: 'videodetailsasset',
+					payload: {
+						resultSets: {
+							Meta: {
+								videoUrls: [{ murl: 'https://videos.nba.com/layup.mp4' }, { murl: 'https://videos.nba.com/three.mp4' }]
+							},
+							playlist: [
+								{ gi: '1', ei: '1', dsc: 'Barnes driving layup' },
+								{ gi: '2', ei: '2', dsc: "Barnes 26' 3PT Running Jump Shot" }
+							]
+						}
+					}
+				});
+			},
+			playerDirectory: createFakePlayerDirectory(),
+			teamDirectory: createFakeTeamDirectory()
+		});
+
+		const response = await agent.answerQuestion('show Scottie Barnes made threes against Boston');
+		const recordedRequest = endpointRequest as Parameters<StatsEndpointFetcher>[0] | null;
+		assert.equal(recordedRequest?.params.ContextMeasure, 'FG3M');
+		assert.equal(recordedRequest?.params.OpponentTeamID, '1610612738');
+		const clipResult = response.toolResults.find((result) => result.toolName === 'find_video_clips');
+		if (!clipResult || clipResult.toolName !== 'find_video_clips') {
+			assert.fail('Expected a clip tool result.');
+		}
+		const data = clipResult.response.data as {
+			clips: Array<{ description: string }>;
+			discardedMismatchedClips: number;
+		};
+		assert.deepEqual(
+			data.clips.map((clip) => clip.description),
+			["Barnes 26' 3PT Running Jump Shot"]
+		);
+		assert.equal(data.discardedMismatchedClips, 1);
+	});
+
+	test('blocks silent named-defender to opponent-team clip substitution', async () => {
+		const model = createScriptedModel([
+			toolCall('players-1', 'resolve_players', { names: ['Scottie Barnes', 'Bam Adebayo'] }),
+			toolCall('clips-1', 'find_video_clips', {
+				playerId: '1630173',
+				eventType: 'made_field_goal',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				opponentTeamId: '1610612748'
+			}),
+			emptyAssistantTurn(),
+			finalResponse({
+				answer: 'The public clip feed cannot identify Bam Adebayo as the defender. I can search team-level Miami clips if you want.',
+				artifacts: [],
+				warnings: [
+					{
+						kind: 'capability_limit',
+						message: 'Named-defender clip filtering is unavailable; team-level clips require confirmation.'
+					}
+				]
+			})
+		]);
+		let fetchCount = 0;
+		const agent = createDynamicQueryAgent({
+			model,
+			endpointFetcher: async () => {
+				fetchCount += 1;
+				return buildEndpointResult();
+			},
+			playerDirectory: createFakePlayerDirectory(),
+			teamDirectory: createFakeTeamDirectory()
+		});
+
+		const response = await agent.answerQuestion('show Scottie Barnes makes against Bam Adebayo');
+		assert.equal(fetchCount, 0);
+		assert.equal(response.status, 'coverage_gap');
+		assert.equal(response.artifacts.length, 0);
+		assert.equal(response.warnings[0]?.code, 'dynamic_agent_capability_limit');
+		const clipResult = response.toolResults.find((result) => result.toolName === 'find_video_clips');
+		if (!clipResult || clipResult.toolName !== 'find_video_clips') {
+			assert.fail('Expected rejected clip result.');
+		}
+		assert.equal(clipResult.response.ok, false);
+		assert.match(clipResult.response.error ?? '', /Bam Adebayo/);
 	});
 
 	test('rejects find_video_clips requests with uncataloged params', async () => {
 		const model = createScriptedModel([
 			toolCall('clips-1', 'find_video_clips', {
-				params: {
-					PlayerID: '1630173',
-					DefenderID: '1628389'
-				}
+				playerId: '1630173',
+				eventType: 'made_field_goal',
+				season: '2025-26',
+				seasonType: 'Regular Season',
+				DefenderID: '1628389'
 			}),
 			emptyAssistantTurn(),
 			finalResponse({
@@ -404,7 +570,15 @@ describe('createDynamicQueryAgent', () => {
 		assert.equal(model.inputs.length, 3);
 		assert.equal(response.status, 'coverage_gap');
 		assert.equal(response.toolResults.length, 2);
-		assert.equal(response.warnings.some((warning) => warning.code === 'dynamic_agent_iteration_limit'), true);
+		assert.equal(
+			response.warnings.some((warning) => warning.code === 'dynamic_agent_partial_data'),
+			true
+		);
+		const trace = getQueryTraceById(response.traceId);
+		assert.equal(
+			trace?.warnings.some((warning) => warning.code === 'dynamic_agent_iteration_limit'),
+			true
+		);
 		assert.equal(model.inputs[2]?.responseFormat?.name, 'dynamic_query_answer');
 	});
 
@@ -418,9 +592,9 @@ describe('createDynamicQueryAgent', () => {
 			}),
 			emptyAssistantTurn(),
 			finalResponse({
-				answer: 'I could not fetch the playerdashptshots data, so I cannot ground the requested field-goal percentage.',
+				answer: 'The required NBA data is currently unavailable, so I cannot ground the requested field-goal percentage.',
 				artifacts: [],
-				warnings: ['playerdashptshots did not return data.']
+				warnings: [{ kind: 'partial_data', message: 'The requested shooting data is currently unavailable.' }]
 			})
 		]);
 		const agent = createDynamicQueryAgent({
@@ -437,9 +611,18 @@ describe('createDynamicQueryAgent', () => {
 		const response = await agent.answerQuestion('show me Scottie Barnes pull up mid range fg%');
 
 		assert.equal(response.status, 'coverage_gap');
-		assert.match(response.answer, /could not fetch/i);
-		assert.equal(response.warnings.some((warning) => warning.code === 'nba_endpoint_unavailable'), true);
-		assert.equal(response.warnings.some((warning) => /playerdashptshots/i.test(warning.message)), true);
+		assert.match(response.answer, /currently unavailable/i);
+		assert.deepEqual(response.warnings, [
+			{
+				code: 'dynamic_agent_partial_data',
+				message: 'The requested shooting data is currently unavailable.'
+			}
+		]);
+		const trace = getQueryTraceById(response.traceId);
+		assert.equal(
+			trace?.warnings.some((warning) => warning.code === 'nba_endpoint_unavailable'),
+			true
+		);
 		const toolResult = response.toolResults[0];
 		if (!toolResult || toolResult.toolName !== 'call_nba_stats_endpoint') {
 			assert.fail('Expected endpoint tool result.');
@@ -481,12 +664,21 @@ describe('createDynamicQueryAgent', () => {
 					{ column: 'ACTION_TYPE', op: 'contains', value: 'PULL' }
 				],
 				groupBy: ['ACTION_TYPE'],
-				aggregations: [
-					{ op: 'count' },
-					{ op: 'sum', column: 'SHOT_MADE_FLAG' }
-				]
+				selectColumns: ['LOC_X', 'LOC_Y', 'SHOT_MADE_FLAG', 'SHOT_TYPE', 'ACTION_TYPE'],
+				rowLimit: 500,
+				aggregations: [{ op: 'count' }, { op: 'sum', column: 'SHOT_MADE_FLAG' }]
 			},
-			'Scottie Barnes made 75 of 170 pull-up mid-range attempts.'
+			'Scottie Barnes made 75 of 170 pull-up mid-range attempts.',
+			[
+				{
+					type: 'shot_chart',
+					title: 'Scottie Barnes pull-up mid-range shots',
+					shots: [
+						{ locX: 0, locY: 0, made: true, value: 3, label: 'Unfiltered shot' },
+						{ locX: 1, locY: 1, made: false, value: 3, label: 'Unfiltered shot' }
+					]
+				}
+			]
 		);
 		let endpointRequest: Parameters<StatsEndpointFetcher>[0] | null = null;
 		const endpointFetcher: StatsEndpointFetcher = async (request) => {
@@ -508,7 +700,10 @@ describe('createDynamicQueryAgent', () => {
 				Season: '2025-26'
 			}
 		});
-		assert.equal(model.inputs[0]?.tools?.some((tool) => tool.function.name === 'aggregate_endpoint_rows'), true);
+		assert.equal(
+			model.inputs[0]?.tools?.some((tool) => tool.function.name === 'aggregate_endpoint_rows'),
+			true
+		);
 		const toolResult = response.toolResults[0];
 		if (!toolResult || toolResult.toolName !== 'aggregate_endpoint_rows') {
 			assert.fail('Expected aggregate tool result.');
@@ -520,6 +715,16 @@ describe('createDynamicQueryAgent', () => {
 		assert.equal(data.totalRows, 180);
 		assert.equal(data.matchedRows, 170);
 		assert.equal(data.groupsTruncated, false);
+		assert.deepEqual(data.selectedColumns, ['LOC_X', 'LOC_Y', 'SHOT_MADE_FLAG', 'SHOT_TYPE', 'ACTION_TYPE']);
+		assert.equal(data.selectedRows.length, 170);
+		assert.equal(data.selectedRowsTruncated, false);
+		assert.deepEqual(data.selectedRows[0], {
+			LOC_X: -90,
+			LOC_Y: 0,
+			SHOT_MADE_FLAG: 1,
+			SHOT_TYPE: '2PT Field Goal',
+			ACTION_TYPE: 'Pullup Jump Shot'
+		});
 		assert.deepEqual(data.groups, [
 			{
 				key: { ACTION_TYPE: 'Pullup Jump Shot' },
@@ -538,6 +743,16 @@ describe('createDynamicQueryAgent', () => {
 				}
 			}
 		]);
+		const shotChart = response.artifacts.find((artifact) => artifact.type === 'shot_chart');
+		if (shotChart?.type !== 'shot_chart') {
+			assert.fail('Expected a reconciled shot chart.');
+		}
+		assert.equal(shotChart.shots.length, 170);
+		assert.equal(shotChart.shots.filter((shot) => shot.made).length, 75);
+		assert.equal(
+			shotChart.shots.every((shot) => shot.value === 2),
+			true
+		);
 		const trace = getQueryTraceById(response.traceId);
 		if (!trace || !('runtime' in trace) || trace.runtime !== 'dynamic_agent') {
 			assert.fail('Expected a dynamic agent trace.');
@@ -559,11 +774,7 @@ describe('createDynamicQueryAgent', () => {
 				{ column: 'SHOT_DISTANCE', op: 'gt', value: 10 },
 				{ column: 'SHOT_ZONE_BASIC', op: 'in', values: ['mid-range', 'above the break 3'] }
 			],
-			aggregations: [
-				{ op: 'count' },
-				{ op: 'sum', column: 'SHOT_MADE_FLAG' },
-				{ op: 'avg', column: 'SHOT_DISTANCE' }
-			]
+			aggregations: [{ op: 'count' }, { op: 'sum', column: 'SHOT_MADE_FLAG' }, { op: 'avg', column: 'SHOT_DISTANCE' }]
 		});
 		const rowSet = [
 			['1630173', 'Mid-Range', 'Pullup Jump Shot', 1, 12, 'TOR'],
@@ -599,6 +810,93 @@ describe('createDynamicQueryAgent', () => {
 				}
 			}
 		]);
+	});
+
+	test('analyzes latest game trends chronologically and grounds line charts in the computed series', async () => {
+		const reboundsNewestFirst = [8, 16, 14, 8, 17, 15, 15, 21, 17, 14];
+		const datesNewestFirst = [
+			'2026-04-12',
+			'2026-04-08',
+			'2026-04-06',
+			'2026-04-04',
+			'2026-04-01',
+			'2026-03-29',
+			'2026-03-27',
+			'2026-03-25',
+			'2026-03-24',
+			'2026-03-22'
+		];
+		const model = createScriptedModel([
+			toolCall('trend-1', 'analyze_time_series', {
+				endpointId: 'playergamelogs',
+				params: { PlayerID: '203999', Season: '2025-26', SeasonType: 'Regular Season' },
+				resultSetName: 'PlayerGameLogs',
+				dateColumn: 'GAME_DATE',
+				valueColumn: 'REB',
+				labelColumns: ['MATCHUP'],
+				lastN: 10
+			}),
+			emptyAssistantTurn(),
+			finalResponse({
+				answer: 'The recent five-game average is 12.6 versus 16.4 in the earlier five, so the direction is down.',
+				artifacts: [
+					{
+						type: 'line_chart',
+						title: 'Jokić rebounds',
+						xLabel: 'Game',
+						yLabel: 'Rebounds',
+						series: [{ name: 'REB', points: [{ x: 'wrong-order', y: 999 }] }]
+					}
+				],
+				warnings: []
+			})
+		]);
+		const agent = createDynamicQueryAgent({
+			model,
+			endpointFetcher: async () =>
+				buildEndpointResult({
+					endpointId: 'playergamelogs',
+					payload: {
+						resultSets: [
+							{
+								name: 'PlayerGameLogs',
+								headers: ['GAME_DATE', 'MATCHUP', 'REB'],
+								rowSet: datesNewestFirst.map((date, index) => [date, `Game ${index + 1}`, reboundsNewestFirst[index]])
+							}
+						]
+					}
+				}),
+			playerDirectory: createFakePlayerDirectory(),
+			teamDirectory: createFakeTeamDirectory()
+		});
+
+		const response = await agent.answerQuestion('Is Joker rebounding up or down over his latest ten games?');
+		const toolResult = response.toolResults.find((result) => result.toolName === 'analyze_time_series');
+		if (!toolResult || toolResult.toolName !== 'analyze_time_series') {
+			assert.fail('Expected time-series tool result.');
+		}
+		const data = toolResult.response.data as AnalyzeTimeSeriesDataForTest;
+		assert.equal(data.ordering, 'oldest_to_newest');
+		assert.deepEqual(
+			data.points.map((point) => point.x),
+			datesNewestFirst.toReversed()
+		);
+		assert.equal(data.earlierWindow.average, 16.4);
+		assert.equal(data.recentWindow.average, 12.6);
+		assert.ok(Math.abs((data.change ?? 0) - -3.8) < 1e-9);
+		assert.equal(data.direction, 'down');
+		const chart = response.artifacts.find((artifact) => artifact.type === 'line_chart');
+		if (chart?.type !== 'line_chart') {
+			assert.fail('Expected grounded line chart.');
+		}
+		assert.deepEqual(
+			chart.series[0]?.points.map((point) => point.x),
+			datesNewestFirst.toReversed()
+		);
+		assert.deepEqual(
+			chart.series[0]?.points.map((point) => point.y),
+			reboundsNewestFirst.toReversed()
+		);
 	});
 
 	test('rejects malformed aggregate endpoint params before fetching', async () => {
@@ -655,7 +953,12 @@ describe('createDynamicQueryAgent', () => {
 		assert.equal(toolResult.response.ok, false);
 		assert.match(toolResult.response.error ?? '', /Unknown column 'BAD_COLUMN'/);
 		assert.match(toolResult.response.error ?? '', /SHOT_ZONE_BASIC/);
-		assert.equal(response.warnings.some((warning) => warning.code === 'dynamic_agent_tool_error'), true);
+		assert.deepEqual(response.warnings, []);
+		const trace = getQueryTraceById(response.traceId);
+		assert.equal(
+			trace?.warnings.some((warning) => warning.code === 'dynamic_agent_tool_error'),
+			true
+		);
 	});
 
 	test('reports aggregate unknown result set names with available names', async () => {
@@ -707,7 +1010,17 @@ describe('createDynamicQueryAgent', () => {
 		const response = await agent.answerQuestion('aggregate fetch failure');
 
 		assert.equal(response.status, 'coverage_gap');
-		assert.equal(response.warnings.some((warning) => warning.code === 'nba_endpoint_unavailable'), true);
+		assert.deepEqual(response.warnings, [
+			{
+				code: 'data_unavailable',
+				message: 'Some NBA data required for this answer is currently unavailable.'
+			}
+		]);
+		const trace = getQueryTraceById(response.traceId);
+		assert.equal(
+			trace?.warnings.some((warning) => warning.code === 'nba_endpoint_unavailable'),
+			true
+		);
 		const toolResult = response.toolResults[0];
 		if (!toolResult || toolResult.toolName !== 'aggregate_endpoint_rows') {
 			assert.fail('Expected aggregate tool result.');

@@ -8,15 +8,14 @@ import type { TraceSourceCall } from '$lib/contracts/chat';
 import type { StatsQueryRow, StatsQueryRowValue, StatsQueryStatus, StatsQueryWarning } from '$lib/contracts/semantic-query';
 import { normalizeEndpointParams, type EndpointFetchResult } from '$lib/server/data/adapters/stats-endpoint-client';
 import { listEndpointCatalog } from '$lib/server/data/catalog';
-import {
-	ensurePlayerDirectoryAvailable,
-	findPlayerDirectoryEntriesByNameOrAlias
-} from '$lib/server/players/player-directory';
+import { ensurePlayerDirectoryAvailable, findPlayerDirectoryEntriesByNameOrAlias } from '$lib/server/players/player-directory';
 import { saveDynamicAgentTrace } from '$lib/server/semantic/trace-store';
 import { findTeamDirectoryEntriesByNameOrAlias } from '$lib/server/teams/team-directory';
 import { parseVideoDetailsAssetClips } from './video-clips';
 import type {
 	DynamicAgentChatMessage,
+	DynamicAgentFinalWarning,
+	DynamicAgentFinalWarningKind,
 	DynamicAgentFinalOutput,
 	DynamicAgentModelResponse,
 	DynamicAgentPlayerDirectory,
@@ -32,16 +31,28 @@ const DEFAULT_MAX_TOOL_ITERATIONS = 8;
 const DEFAULT_WALL_CLOCK_MS = 60_000;
 const MAX_RESULT_SET_ROWS = 150;
 const MAX_AGGREGATE_GROUPS = 100;
+const MAX_SELECTED_ROWS = 500;
 const TOOL_NAMES: QueryAnswerAgentToolName[] = [
 	'resolve_players',
 	'resolve_teams',
 	'call_nba_stats_endpoint',
 	'aggregate_endpoint_rows',
+	'analyze_time_series',
 	'find_video_clips'
 ];
 const VIDEO_CLIPS_ENDPOINT_ID = 'videodetailsasset';
 const FILTER_OPERATORS = ['eq', 'neq', 'in', 'not_in', 'gt', 'gte', 'lt', 'lte', 'contains'] as const;
 const AGGREGATION_OPERATORS = ['count', 'sum', 'avg', 'min', 'max'] as const;
+const CLIP_EVENT_TYPES = ['made_field_goal', 'made_three', 'assist', 'block', 'steal', 'rebound', 'turnover'] as const;
+const CLIP_EVENT_CONTEXT_MEASURE: Record<ClipEventType, string> = {
+	made_field_goal: 'FGM',
+	made_three: 'FG3M',
+	assist: 'AST',
+	block: 'BLK',
+	steal: 'STL',
+	rebound: 'REB',
+	turnover: 'TOV'
+};
 
 type ToolExecutionContext = {
 	toolResults: QueryAnswerAgentToolResult[];
@@ -51,6 +62,11 @@ type ToolExecutionContext = {
 	successfulEndpointCalls: number;
 	failedEndpointCalls: number;
 	retrievalLatencyMs: number;
+	resolvedPlayers: Array<{
+		id: string;
+		canonicalName: string;
+		teamId: string | null;
+	}>;
 };
 
 type ResolvedNameMatch = {
@@ -95,6 +111,8 @@ type AggregateEndpointRowsRequest = {
 	resultSetName?: string;
 	filters?: AggregateFilter[];
 	groupBy?: string[];
+	selectColumns?: string[];
+	rowLimit?: number;
 	aggregations: AggregateOperation[];
 };
 
@@ -109,6 +127,54 @@ type AggregateEndpointRowsData = {
 		aggregates: Record<string, number | null>;
 	}>;
 	groupsTruncated: boolean;
+	selectedColumns: string[];
+	selectedRows: StatsQueryRow[];
+	selectedRowsTruncated: boolean;
+	cacheStatus: EndpointFetchResult['cacheStatus'];
+	sourceStatus: EndpointFetchResult['sourceStatus'];
+	stale: boolean;
+	isProvisional: boolean;
+};
+
+type ClipEventType = (typeof CLIP_EVENT_TYPES)[number];
+
+type FindVideoClipsRequest = {
+	playerId: string;
+	eventType: ClipEventType;
+	season: string;
+	seasonType: 'Regular Season' | 'Playoffs' | 'Play In' | 'NBA Cup';
+	teamId?: string;
+	opponentTeamId?: string;
+	gameId?: string;
+	dateFrom?: string;
+	dateTo?: string;
+};
+
+type AnalyzeTimeSeriesRequest = {
+	endpointId: string;
+	params: Record<string, string>;
+	resultSetName?: string;
+	dateColumn: string;
+	valueColumn: string;
+	labelColumns?: string[];
+	lastN: number;
+};
+
+type AnalyzeTimeSeriesData = {
+	endpointId: string;
+	resultSetName: string;
+	dateColumn: string;
+	valueColumn: string;
+	points: Array<{
+		x: string;
+		y: number;
+		labels: StatsQueryRow;
+	}>;
+	earlierWindow: { count: number; average: number | null };
+	recentWindow: { count: number; average: number | null };
+	change: number | null;
+	direction: 'up' | 'down' | 'flat' | 'insufficient_data';
+	ordering: 'oldest_to_newest';
 	cacheStatus: EndpointFetchResult['cacheStatus'];
 	sourceStatus: EndpointFetchResult['sourceStatus'];
 	stale: boolean;
@@ -173,8 +239,13 @@ type ParsedToolRequest =
 	  }
 	| {
 			ok: true;
+			toolName: 'analyze_time_series';
+			request: AnalyzeTimeSeriesRequest;
+	  }
+	| {
+			ok: true;
 			toolName: 'find_video_clips';
-			request: { params: Record<string, string> };
+			request: FindVideoClipsRequest;
 	  }
 	| { ok: false; toolName: QueryAnswerAgentToolName; request: Record<string, unknown>; error: string };
 
@@ -204,7 +275,8 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				warnings: [],
 				successfulEndpointCalls: 0,
 				failedEndpointCalls: 0,
-				retrievalLatencyMs: 0
+				retrievalLatencyMs: 0,
+				resolvedPlayers: []
 			};
 			let planningLatencyMs = 0;
 			let hitToolIterationLimit = false;
@@ -262,22 +334,26 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			});
 			const renderLatencyMs = Math.round(clock.nowMs() - finalStartedAt);
 			const finalOutput = parseFinalOutput(finalResponse);
-			const mergedWarnings = mergeWarnings(
-				executionContext.warnings,
-				finalOutput.warnings.map((message) => ({
-					code: 'dynamic_agent_warning',
-					message
-				}))
+			const groundedArtifacts = reconcileTimeSeriesLineCharts(
+				reconcileFilteredShotCharts(finalOutput.artifacts, executionContext.toolResults),
+				executionContext.toolResults
 			);
-			const status = selectStatus(executionContext, mergedWarnings);
+			const modelWarnings = finalOutput.warnings.map((warning) => ({
+				code: `dynamic_agent_${warning.kind}`,
+				message: warning.message
+			}));
+			const traceWarnings = mergeWarnings(executionContext.warnings, modelWarnings);
+			const status = selectStatus(executionContext, traceWarnings);
+			const publicWarnings = selectPublicWarnings(status, modelWarnings);
 			const dataFreshnessMode = executionContext.sourceCalls.some((sourceCall) => sourceCall.isProvisional)
 				? 'provisional_live'
 				: 'nightly';
 			const totalLatencyMs = Math.round(clock.nowMs() - startedAt);
 			const cache = summarizeCache(executionContext.sourceCalls);
-			const citations = executionContext.successfulEndpointCalls > 0
-				? [{ source: 'stats.nba.com', detail: 'NBA Stats endpoint results fetched by the dynamic agent.' }]
-				: [];
+			const citations =
+				executionContext.successfulEndpointCalls > 0
+					? [{ source: 'stats.nba.com', detail: 'NBA Stats endpoint results fetched by the dynamic agent.' }]
+					: [];
 
 			saveDynamicAgentTrace({
 				traceId,
@@ -287,7 +363,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				dataFreshnessMode,
 				sourceCalls: executionContext.sourceCalls,
 				executedSources: citations,
-				warnings: mergedWarnings,
+				warnings: traceWarnings,
 				computations: [],
 				latencyMs: {
 					planning: planningLatencyMs,
@@ -298,16 +374,16 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				},
 				cache,
 				toolCalls: executionContext.traceToolCalls,
-				artifacts: finalOutput.artifacts
+				artifacts: groundedArtifacts
 			});
 
 			return {
 				status,
-				answer: buildFinalAnswerText(finalOutput.answer, status, mergedWarnings),
-				artifacts: finalOutput.artifacts,
+				answer: buildFinalAnswerText(finalOutput.answer, status, publicWarnings),
+				artifacts: groundedArtifacts,
 				toolResults: executionContext.toolResults,
 				citations,
-				warnings: mergedWarnings,
+				warnings: publicWarnings,
 				traceId
 			};
 		}
@@ -334,22 +410,26 @@ function buildSystemMessages(): DynamicAgentChatMessage[] {
 		{
 			role: 'system',
 			content:
-				'You are a dynamic NBA stats analyst. Answer arbitrary NBA stats questions by resolving entities, fetching NBA Stats endpoint data, and grounding every number in fetched rows. Never invent stats, dates, records, percentages, or rankings. State season and scope assumptions explicitly. If data cannot be fetched or is incomplete, say that plainly.'
+				'You are a dynamic NBA stats analyst. Answer arbitrary NBA stats questions by resolving entities, fetching NBA Stats endpoint data, and grounding every number in fetched rows. Never invent stats, dates, records, percentages, or rankings. State season and scope assumptions naturally in the answer, not as warnings. Warnings are product-facing limitations only: partial_data when missing data materially limits the answer, capability_limit when the requested operation cannot be performed, artifact_sample when only a visual artifact is sampled, scope_assumption for non-blocking assumptions, and diagnostic for internal execution details. Never expose endpoint names, transport modes, HTTP statuses, timeout/retry/proxy settings, cache details, or row-cap diagnostics in a product-facing warning. Do not warn about truncation when the requested ranked subset is present and complete.'
+		},
+		{
+			role: 'system',
+			content: `Available NBA Stats endpoint catalog: ${JSON.stringify(buildEndpointCatalogForPrompt())}. Use endpoint defaults for omitted NBA Stats parameters and only send cataloged parameters.`
 		},
 		{
 			role: 'system',
 			content:
-				`Available NBA Stats endpoint catalog: ${JSON.stringify(buildEndpointCatalogForPrompt())}. Use endpoint defaults for omitted NBA Stats parameters and only send cataloged parameters.`
+				'Use find_video_clips when the user asks to see or watch plays/clips. Pass the semantic eventType that exactly matches the request: made_three for made threes, made_field_goal for all made baskets, assist, block, steal, rebound, or turnover. Never broaden made_three to made_field_goal. opponentTeamId filters by the opposing TEAM only; there is no named-defender field in this video endpoint. Do not silently replace a named defender with their team. Explain the limitation and ask whether the user wants team-level clips instead. When clips are found, emit a video_playlist artifact containing only the clips returned by the tool and keep the prose answer short (count + scope).'
 		},
 		{
 			role: 'system',
 			content:
-				"Use find_video_clips when the user asks to see or watch plays/clips. Its params follow the videodetailsasset endpoint: ContextMeasure picks the event type (FGM scoring, FG3M threes, AST, BLK, STL, REB, TOV), SeasonType 'Playoffs' for playoff asks, OpponentTeamID filters by the opposing TEAM only — there is no per-defender filter, so for asks like 'against Bam Adebayo' resolve the defender's team, filter by that team, and say plainly that the filter is team-level. When clips are found, emit a video_playlist artifact with the clips and a descriptive title, and keep the prose answer short (count + scope)."
+				"Use resolve_players for player names and resolve_teams for team names before calling id-based endpoints. Use call_nba_stats_endpoint for live/cache-backed NBA data. The tool returns resultSets with headers and row arrays capped at 150 rows; truncated=true means more rows existed. Use aggregate_endpoint_rows when a precise stat requires filtering or aggregating beyond that cap, such as pull-up mid-range FG% from shotchartdetail with filters SHOT_ZONE_BASIC eq 'Mid-Range' and ACTION_TYPE contains 'pull', plus count and sum:SHOT_MADE_FLAG. When a chart or table must represent that filtered population, request selectColumns and rowLimit in the same aggregate call; build the artifact only from selectedRows. For a shot chart select LOC_X, LOC_Y, SHOT_MADE_FLAG, SHOT_TYPE, and ACTION_TYPE. Never build a filtered artifact from a separate unfiltered endpoint sample. Final artifacts must be grounded in the rows or aggregates you fetched. In table artifacts, each entry of rows is an array of cell values aligned with the columns order."
 		},
 		{
 			role: 'system',
 			content:
-				"Use resolve_players for player names and resolve_teams for team names before calling id-based endpoints. Use call_nba_stats_endpoint for live/cache-backed NBA data. The tool returns resultSets with headers and row arrays capped at 150 rows; truncated=true means more rows existed. Use aggregate_endpoint_rows when a precise stat requires filtering or aggregating beyond that cap, such as pull-up mid-range FG% from shotchartdetail with filters SHOT_ZONE_BASIC eq 'Mid-Range' and ACTION_TYPE contains 'pull', plus count and sum:SHOT_MADE_FLAG. Final artifacts must be grounded in the rows or aggregates you fetched. In table artifacts, each entry of rows is an array of cell values aligned with the columns order."
+				'Use analyze_time_series for questions about trends, direction, or the latest N games. It sorts the requested rows chronologically and computes earlier-window average, recent-window average, change, and direction server-side. Use its direction and averages exactly; never reverse newest/oldest chronology or recompute trend arithmetic yourself. Build line charts from the returned oldest-to-newest points.'
 		}
 	];
 }
@@ -361,8 +441,7 @@ const ENDPOINT_PROMPT_HINTS: Record<string, string> = {
 		'League-wide player tracking shot table; narrow with GeneralRange (e.g. Pullups, Catch and Shoot), DribbleRange, CloseDefDistRange, ShotDistRange, or TouchTimeRange.',
 	shotchartdetail:
 		'Row-per-shot log with SHOT_ZONE_BASIC (e.g. Mid-Range), SHOT_TYPE, ACTION_TYPE (e.g. Pullup Jump Shot), LOC_X/LOC_Y, SHOT_MADE_FLAG; combine filters in-answer for custom splits like pull-up mid-range, and use LOC_X/LOC_Y for shot_chart artifacts.',
-	leaguegamefinder:
-		'Query games by team/player/date filters; useful for schedules, results, and head-to-head game lists.'
+	leaguegamefinder: 'Query games by team/player/date filters; useful for schedules, results, and head-to-head game lists.'
 };
 
 function buildEndpointCatalogForPrompt() {
@@ -471,6 +550,11 @@ function buildToolDefinitions(): DynamicAgentToolDefinition[] {
 							type: 'array',
 							items: { type: 'string' }
 						},
+						selectColumns: {
+							type: 'array',
+							items: { type: 'string' }
+						},
+						rowLimit: { type: 'integer', minimum: 1, maximum: MAX_SELECTED_ROWS },
 						aggregations: {
 							type: 'array',
 							minItems: 1,
@@ -492,19 +576,49 @@ function buildToolDefinitions(): DynamicAgentToolDefinition[] {
 		{
 			type: 'function',
 			function: {
-				name: 'find_video_clips',
+				name: 'analyze_time_series',
 				description:
-					'Fetch playable NBA video clips from the videodetailsasset endpoint for a player/event filter. Returns clip URLs, descriptions, thumbnails, and game dates.',
+					'Fetch a full NBA result set, select the latest N dated numeric rows, order them oldest-to-newest, and compute deterministic earlier-versus-recent trend statistics.',
 				parameters: {
 					type: 'object',
 					additionalProperties: false,
 					properties: {
+						endpointId: { type: 'string' },
 						params: {
 							type: 'object',
 							additionalProperties: { type: 'string' }
-						}
+						},
+						resultSetName: { type: 'string' },
+						dateColumn: { type: 'string' },
+						valueColumn: { type: 'string' },
+						labelColumns: { type: 'array', items: { type: 'string' } },
+						lastN: { type: 'integer', minimum: 2, maximum: 100 }
 					},
-					required: ['params']
+					required: ['endpointId', 'params', 'dateColumn', 'valueColumn', 'lastN']
+				}
+			}
+		},
+		{
+			type: 'function',
+			function: {
+				name: 'find_video_clips',
+				description:
+					'Fetch playable NBA video clips for a canonical player and semantic event type. Event types are mapped to NBA parameters and validated server-side.',
+				parameters: {
+					type: 'object',
+					additionalProperties: false,
+					properties: {
+						playerId: { type: 'string' },
+						eventType: { type: 'string', enum: CLIP_EVENT_TYPES },
+						season: { type: 'string' },
+						seasonType: { type: 'string', enum: ['Regular Season', 'Playoffs', 'Play In', 'NBA Cup'] },
+						teamId: { type: 'string' },
+						opponentTeamId: { type: 'string' },
+						gameId: { type: 'string' },
+						dateFrom: { type: 'string' },
+						dateTo: { type: 'string' }
+					},
+					required: ['playerId', 'eventType', 'season', 'seasonType']
 				}
 			}
 		}
@@ -535,7 +649,18 @@ function buildFinalAnswerSchema() {
 				},
 				warnings: {
 					type: 'array',
-					items: { type: 'string' }
+					items: {
+						type: 'object',
+						additionalProperties: false,
+						properties: {
+							kind: {
+								type: 'string',
+								enum: ['partial_data', 'capability_limit', 'artifact_sample', 'scope_assumption', 'diagnostic']
+							},
+							message: { type: 'string' }
+						},
+						required: ['kind', 'message']
+					}
 				}
 			},
 			required: ['answer', 'artifacts', 'warnings']
@@ -721,7 +846,9 @@ async function executeToolCall(
 		request = parsed.request;
 		try {
 			if (parsed.toolName === 'resolve_players') {
-				data = resolvePlayers(parsed.request.names, dependencies.playerDirectory);
+				const resolvedPlayerData = resolvePlayers(parsed.request.names, dependencies.playerDirectory);
+				data = resolvedPlayerData;
+				recordResolvedPlayers(context, resolvedPlayerData);
 				ok = true;
 			} else if (parsed.toolName === 'resolve_teams') {
 				data = resolveTeams(parsed.request.names, dependencies.teamDirectory);
@@ -736,6 +863,11 @@ async function executeToolCall(
 				data = aggregateData.data;
 				ok = aggregateData.ok;
 				error = aggregateData.ok ? undefined : aggregateData.error;
+			} else if (parsed.toolName === 'analyze_time_series') {
+				const timeSeriesData = await analyzeTimeSeries(parsed.request, dependencies, context);
+				data = timeSeriesData.data;
+				ok = timeSeriesData.ok;
+				error = timeSeriesData.ok ? undefined : timeSeriesData.error;
 			} else if (parsed.toolName === 'find_video_clips') {
 				const clipsData = await findVideoClips(parsed.request, dependencies, context);
 				data = clipsData.data;
@@ -850,34 +982,34 @@ function parseToolRequest(toolCall: DynamicAgentToolCall): ParsedToolRequest {
 		};
 	}
 
-	if (toolName === 'find_video_clips') {
-		const unsupportedKey = findUnsupportedKey(rawArguments, ['params']);
-		if (unsupportedKey) {
+	if (toolName === 'analyze_time_series') {
+		const timeSeriesRequest = parseAnalyzeTimeSeriesRequest(rawArguments);
+		if (!timeSeriesRequest.ok) {
 			return {
 				ok: false,
 				toolName,
 				request: rawArguments,
-				error: `find_video_clips received unsupported argument '${unsupportedKey}'. Allowed: params.`
+				error: timeSeriesRequest.error
 			};
 		}
+		return { ok: true, toolName, request: timeSeriesRequest.request };
+	}
 
-		const endpointRequest = parseEndpointRequest(
-			{ endpointId: VIDEO_CLIPS_ENDPOINT_ID, params: rawArguments.params },
-			toolName
-		);
-		if (!endpointRequest.ok) {
+	if (toolName === 'find_video_clips') {
+		const clipRequest = parseFindVideoClipsRequest(rawArguments);
+		if (!clipRequest.ok) {
 			return {
 				ok: false,
 				toolName,
 				request: rawArguments,
-				error: endpointRequest.error
+				error: clipRequest.error
 			};
 		}
 
 		return {
 			ok: true,
 			toolName,
-			request: { params: endpointRequest.request.params }
+			request: clipRequest.request
 		};
 	}
 
@@ -898,9 +1030,56 @@ function parseToolRequest(toolCall: DynamicAgentToolCall): ParsedToolRequest {
 	};
 }
 
+function parseFindVideoClipsRequest(
+	rawArguments: Record<string, unknown>
+): { ok: true; request: FindVideoClipsRequest } | { ok: false; error: string } {
+	const allowedKeys = ['playerId', 'eventType', 'season', 'seasonType', 'teamId', 'opponentTeamId', 'gameId', 'dateFrom', 'dateTo'];
+	const unsupportedKey = findUnsupportedKey(rawArguments, allowedKeys);
+	if (unsupportedKey) {
+		return { ok: false, error: `find_video_clips received unsupported argument '${unsupportedKey}'.` };
+	}
+
+	const { playerId, eventType, season, seasonType } = rawArguments;
+	if (!isNonEmptyString(playerId) || !isClipEventType(eventType) || !isNonEmptyString(season)) {
+		return {
+			ok: false,
+			error: 'find_video_clips requires playerId, eventType, season, and seasonType.'
+		};
+	}
+	if (!isClipSeasonType(seasonType)) {
+		return {
+			ok: false,
+			error: 'find_video_clips seasonType must be Regular Season, Playoffs, Play In, or NBA Cup.'
+		};
+	}
+
+	const optionalFields = ['teamId', 'opponentTeamId', 'gameId', 'dateFrom', 'dateTo'] as const;
+	for (const field of optionalFields) {
+		const value = rawArguments[field];
+		if (value !== undefined && !isNonEmptyString(value)) {
+			return { ok: false, error: `find_video_clips ${field} must be a non-empty string when provided.` };
+		}
+	}
+
+	return {
+		ok: true,
+		request: {
+			playerId: playerId.trim(),
+			eventType,
+			season: season.trim(),
+			seasonType,
+			...(isNonEmptyString(rawArguments.teamId) ? { teamId: rawArguments.teamId.trim() } : {}),
+			...(isNonEmptyString(rawArguments.opponentTeamId) ? { opponentTeamId: rawArguments.opponentTeamId.trim() } : {}),
+			...(isNonEmptyString(rawArguments.gameId) ? { gameId: rawArguments.gameId.trim() } : {}),
+			...(isNonEmptyString(rawArguments.dateFrom) ? { dateFrom: rawArguments.dateFrom.trim() } : {}),
+			...(isNonEmptyString(rawArguments.dateTo) ? { dateTo: rawArguments.dateTo.trim() } : {})
+		}
+	};
+}
+
 function parseEndpointRequest(
 	rawArguments: Record<string, unknown>,
-	toolName: 'call_nba_stats_endpoint' | 'aggregate_endpoint_rows' | 'find_video_clips'
+	toolName: 'call_nba_stats_endpoint' | 'aggregate_endpoint_rows' | 'analyze_time_series'
 ): { ok: true; request: { endpointId: string; params: Record<string, string> } } | { ok: false; error: string } {
 	const endpointId = rawArguments.endpointId;
 	const params = rawArguments.params;
@@ -931,6 +1110,57 @@ function parseEndpointRequest(
 	};
 }
 
+function parseAnalyzeTimeSeriesRequest(
+	rawArguments: Record<string, unknown>
+): { ok: true; request: AnalyzeTimeSeriesRequest } | { ok: false; error: string } {
+	const unsupportedKey = findUnsupportedKey(rawArguments, [
+		'endpointId',
+		'params',
+		'resultSetName',
+		'dateColumn',
+		'valueColumn',
+		'labelColumns',
+		'lastN'
+	]);
+	if (unsupportedKey) {
+		return { ok: false, error: `analyze_time_series received unsupported argument '${unsupportedKey}'.` };
+	}
+
+	const endpointRequest = parseEndpointRequest(rawArguments, 'analyze_time_series');
+	if (!endpointRequest.ok) {
+		return endpointRequest;
+	}
+	const resultSetName = rawArguments.resultSetName;
+	const dateColumn = rawArguments.dateColumn;
+	const valueColumn = rawArguments.valueColumn;
+	const labelColumns = rawArguments.labelColumns;
+	const lastN = rawArguments.lastN;
+	if (resultSetName !== undefined && !isNonEmptyString(resultSetName)) {
+		return { ok: false, error: 'analyze_time_series resultSetName must be a non-empty string when provided.' };
+	}
+	if (!isNonEmptyString(dateColumn) || !isNonEmptyString(valueColumn)) {
+		return { ok: false, error: 'analyze_time_series requires dateColumn and valueColumn.' };
+	}
+	if (labelColumns !== undefined && (!Array.isArray(labelColumns) || labelColumns.some((column) => !isNonEmptyString(column)))) {
+		return { ok: false, error: 'analyze_time_series labelColumns must be a string array when provided.' };
+	}
+	if (!Number.isInteger(lastN) || Number(lastN) < 2 || Number(lastN) > 100) {
+		return { ok: false, error: 'analyze_time_series lastN must be an integer from 2 to 100.' };
+	}
+
+	return {
+		ok: true,
+		request: {
+			...endpointRequest.request,
+			...(isNonEmptyString(resultSetName) ? { resultSetName: resultSetName.trim() } : {}),
+			dateColumn: dateColumn.trim(),
+			valueColumn: valueColumn.trim(),
+			...(Array.isArray(labelColumns) ? { labelColumns: labelColumns.map((column) => String(column).trim()) } : {}),
+			lastN: Number(lastN)
+		}
+	};
+}
+
 function parseAggregateEndpointRowsRequest(
 	rawArguments: Record<string, unknown>
 ): { ok: true; request: AggregateEndpointRowsRequest } | { ok: false; error: string } {
@@ -940,6 +1170,8 @@ function parseAggregateEndpointRowsRequest(
 		'resultSetName',
 		'filters',
 		'groupBy',
+		'selectColumns',
+		'rowLimit',
 		'aggregations'
 	]);
 	if (unsupportedKey) {
@@ -984,6 +1216,30 @@ function parseAggregateEndpointRowsRequest(
 		groupBy = groupByInput.map((column) => column.trim());
 	}
 
+	const selectColumnsInput = rawArguments.selectColumns;
+	let selectColumns: string[] | undefined;
+	if (selectColumnsInput !== undefined) {
+		if (
+			!Array.isArray(selectColumnsInput) ||
+			selectColumnsInput.length === 0 ||
+			selectColumnsInput.some((column) => typeof column !== 'string' || column.trim().length === 0)
+		) {
+			return { ok: false, error: 'aggregate_endpoint_rows selectColumns must be a non-empty string array.' };
+		}
+		selectColumns = selectColumnsInput.map((column) => column.trim());
+	}
+
+	const rowLimitInput = rawArguments.rowLimit;
+	if (
+		rowLimitInput !== undefined &&
+		(!Number.isInteger(rowLimitInput) || Number(rowLimitInput) < 1 || Number(rowLimitInput) > MAX_SELECTED_ROWS)
+	) {
+		return { ok: false, error: `aggregate_endpoint_rows rowLimit must be an integer from 1 to ${MAX_SELECTED_ROWS}.` };
+	}
+	if (rowLimitInput !== undefined && !selectColumns) {
+		return { ok: false, error: 'aggregate_endpoint_rows rowLimit requires selectColumns.' };
+	}
+
 	const aggregationsInput = rawArguments.aggregations;
 	if (!Array.isArray(aggregationsInput) || aggregationsInput.length === 0) {
 		return { ok: false, error: 'aggregate_endpoint_rows requires a non-empty aggregations array.' };
@@ -1005,22 +1261,23 @@ function parseAggregateEndpointRowsRequest(
 			...(resultSetName !== undefined ? { resultSetName: resultSetName.trim() } : {}),
 			...(filters ? { filters } : {}),
 			...(groupBy ? { groupBy } : {}),
+			...(selectColumns ? { selectColumns, rowLimit: Number(rowLimitInput ?? MAX_RESULT_SET_ROWS) } : {}),
 			aggregations
 		}
 	};
 }
 
-function parseAggregateFilter(
-	input: unknown,
-	index: number
-): { ok: true; filter: AggregateFilter } | { ok: false; error: string } {
+function parseAggregateFilter(input: unknown, index: number): { ok: true; filter: AggregateFilter } | { ok: false; error: string } {
 	if (!isPlainObject(input)) {
 		return { ok: false, error: `aggregate_endpoint_rows filters[${index}] must be an object.` };
 	}
 
 	const unsupportedKey = findUnsupportedKey(input, ['column', 'op', 'value', 'values']);
 	if (unsupportedKey) {
-		return { ok: false, error: `aggregate_endpoint_rows filters[${index}] received unsupported field '${unsupportedKey}'.` };
+		return {
+			ok: false,
+			error: `aggregate_endpoint_rows filters[${index}] received unsupported field '${unsupportedKey}'.`
+		};
 	}
 
 	const column = input.column;
@@ -1038,7 +1295,10 @@ function parseAggregateFilter(
 
 	if (op === 'in' || op === 'not_in') {
 		if (!Array.isArray(input.values) || input.values.length === 0 || input.values.some((value) => !isStringOrNumber(value))) {
-			return { ok: false, error: `aggregate_endpoint_rows filters[${index}].values must be a non-empty string/number array.` };
+			return {
+				ok: false,
+				error: `aggregate_endpoint_rows filters[${index}].values must be a non-empty string/number array.`
+			};
 		}
 		if (input.value !== undefined) {
 			return { ok: false, error: `aggregate_endpoint_rows filters[${index}] must use values, not value, for ${op}.` };
@@ -1080,7 +1340,10 @@ function parseAggregateOperation(
 
 	const unsupportedKey = findUnsupportedKey(input, ['op', 'column']);
 	if (unsupportedKey) {
-		return { ok: false, error: `aggregate_endpoint_rows aggregations[${index}] received unsupported field '${unsupportedKey}'.` };
+		return {
+			ok: false,
+			error: `aggregate_endpoint_rows aggregations[${index}] received unsupported field '${unsupportedKey}'.`
+		};
 	}
 
 	const op = input.op;
@@ -1210,13 +1473,104 @@ async function aggregateEndpointRows(
 	};
 }
 
+async function analyzeTimeSeries(
+	request: AnalyzeTimeSeriesRequest,
+	dependencies: DynamicQueryAgentDependencies,
+	context: ToolExecutionContext
+): Promise<{ ok: true; data: AnalyzeTimeSeriesData } | { ok: false; data?: unknown; error: string }> {
+	const result = await fetchAndRecordEndpointResult(request, dependencies, context);
+	if (!result.payload) {
+		context.failedEndpointCalls += 1;
+		return {
+			ok: false,
+			data: buildEndpointToolData(result),
+			error: result.errorDetail ?? `NBA Stats endpoint '${request.endpointId}' did not return data.`
+		};
+	}
+
+	const resultSets = normalizeResultSets(result.payload, { maxRows: null });
+	const selectedResultSet = selectResultSet(resultSets, request.resultSetName);
+	if (!selectedResultSet.ok) {
+		return selectedResultSet;
+	}
+	const headers = buildHeaderLookup(selectedResultSet.resultSet.headers);
+	const dateColumn = resolveHeader(request.dateColumn, headers, selectedResultSet.resultSet.headers);
+	if (!dateColumn.ok) {
+		return dateColumn;
+	}
+	const valueColumn = resolveHeader(request.valueColumn, headers, selectedResultSet.resultSet.headers);
+	if (!valueColumn.ok) {
+		return valueColumn;
+	}
+	const labelColumns = resolveGroupColumns(request.labelColumns ?? [], headers, selectedResultSet.resultSet.headers);
+	if (!labelColumns.ok) {
+		return labelColumns;
+	}
+
+	const points = selectedResultSet.resultSet.rows
+		.map((row) => {
+			const rawDate = row[dateColumn.header.index];
+			const timestamp = typeof rawDate === 'string' ? Date.parse(rawDate) : Number.NaN;
+			const value = coerceFiniteNumber(row[valueColumn.header.index]);
+			if (!Number.isFinite(timestamp) || value === null) {
+				return null;
+			}
+			return {
+				timestamp,
+				x: normalizeTimeSeriesDate(String(rawDate)),
+				y: value,
+				labels: projectSelectedRow(row, labelColumns.columns)
+			};
+		})
+		.filter((point) => point !== null)
+		.sort((left, right) => left.timestamp - right.timestamp)
+		.slice(-request.lastN);
+
+	const midpoint = Math.floor(points.length / 2);
+	const earlierPoints = points.slice(0, midpoint);
+	const recentPoints = points.slice(midpoint);
+	const earlierAverage = averagePointValues(earlierPoints);
+	const recentAverage = averagePointValues(recentPoints);
+	const change = earlierAverage === null || recentAverage === null ? null : recentAverage - earlierAverage;
+
+	context.successfulEndpointCalls += 1;
+	return {
+		ok: true,
+		data: {
+			endpointId: result.endpointId,
+			resultSetName: selectedResultSet.resultSet.name,
+			dateColumn: dateColumn.header.header,
+			valueColumn: valueColumn.header.header,
+			points: points.map(({ x, y, labels }) => ({ x, y, labels })),
+			earlierWindow: { count: earlierPoints.length, average: earlierAverage },
+			recentWindow: { count: recentPoints.length, average: recentAverage },
+			change,
+			direction: determineTrendDirection(change),
+			ordering: 'oldest_to_newest',
+			cacheStatus: result.cacheStatus,
+			sourceStatus: result.sourceStatus,
+			stale: result.stale,
+			isProvisional: result.isProvisional
+		}
+	};
+}
+
 async function findVideoClips(
-	request: { params: Record<string, string> },
+	request: FindVideoClipsRequest,
 	dependencies: DynamicQueryAgentDependencies,
 	context: ToolExecutionContext
 ): Promise<{ ok: true; data: unknown } | { ok: false; data?: unknown; error: string }> {
+	const namedDefender = findNamedDefenderFallback(request, context.resolvedPlayers);
+	if (namedDefender) {
+		return {
+			ok: false,
+			error: `Named-defender clip filtering is unavailable for ${namedDefender.canonicalName}. Do not substitute team-level clips without the user's approval.`
+		};
+	}
+
+	let endpointParams: Record<string, string>;
 	try {
-		normalizeEndpointParams(VIDEO_CLIPS_ENDPOINT_ID, request.params);
+		endpointParams = normalizeEndpointParams(VIDEO_CLIPS_ENDPOINT_ID, buildVideoClipEndpointParams(request));
 	} catch (error) {
 		return {
 			ok: false,
@@ -1225,7 +1579,7 @@ async function findVideoClips(
 	}
 
 	const result = await fetchAndRecordEndpointResult(
-		{ endpointId: VIDEO_CLIPS_ENDPOINT_ID, params: request.params },
+		{ endpointId: VIDEO_CLIPS_ENDPOINT_ID, params: endpointParams },
 		dependencies,
 		context
 	);
@@ -1249,18 +1603,71 @@ async function findVideoClips(
 	}
 
 	context.successfulEndpointCalls += 1;
+	const clips = parsed.data.clips.filter((clip) => clipMatchesEventType(clip.description, request.eventType));
 	return {
 		ok: true,
 		data: {
-			clips: parsed.data.clips,
-			totalAvailable: parsed.data.totalAvailable,
+			clips,
+			totalAvailable: clips.length,
 			truncated: parsed.data.truncated,
+			eventType: request.eventType,
+			discardedMismatchedClips: parsed.data.clips.length - clips.length,
 			cacheStatus: result.cacheStatus,
 			sourceStatus: result.sourceStatus,
 			stale: result.stale,
 			isProvisional: result.isProvisional
 		}
 	};
+}
+
+function buildVideoClipEndpointParams(request: FindVideoClipsRequest): Record<string, string> {
+	return {
+		ContextMeasure: CLIP_EVENT_CONTEXT_MEASURE[request.eventType],
+		PlayerID: request.playerId,
+		Season: request.season,
+		SeasonType: request.seasonType,
+		...(request.teamId ? { TeamID: request.teamId } : {}),
+		...(request.opponentTeamId ? { OpponentTeamID: request.opponentTeamId } : {}),
+		...(request.gameId ? { GameID: request.gameId } : {}),
+		...(request.dateFrom ? { DateFrom: request.dateFrom } : {}),
+		...(request.dateTo ? { DateTo: request.dateTo } : {})
+	};
+}
+
+function recordResolvedPlayers(context: ToolExecutionContext, data: { players: ResolvedNameMatch[] }): void {
+	for (const player of data.players) {
+		for (const match of player.matches) {
+			if (context.resolvedPlayers.some((candidate) => candidate.id === match.id)) {
+				continue;
+			}
+			context.resolvedPlayers.push({
+				id: match.id,
+				canonicalName: match.canonicalName,
+				teamId: match.teamId ?? null
+			});
+		}
+	}
+}
+
+function findNamedDefenderFallback(
+	request: FindVideoClipsRequest,
+	resolvedPlayers: ToolExecutionContext['resolvedPlayers']
+): ToolExecutionContext['resolvedPlayers'][number] | null {
+	if (!request.opponentTeamId) {
+		return null;
+	}
+	return (
+		resolvedPlayers.find(
+			(player) => player.id !== request.playerId && player.teamId !== null && player.teamId === request.opponentTeamId
+		) ?? null
+	);
+}
+
+function clipMatchesEventType(description: string, eventType: ClipEventType): boolean {
+	if (eventType !== 'made_three') {
+		return true;
+	}
+	return /\b3PT\b/i.test(description);
 }
 
 async function fetchAndRecordEndpointResult(
@@ -1373,9 +1780,15 @@ function aggregateResultSetRows(
 	if (!aggregations.ok) {
 		return aggregations;
 	}
+	const selectedColumns = resolveGroupColumns(request.selectColumns ?? [], headers, resultSet.headers);
+	if (!selectedColumns.ok) {
+		return selectedColumns;
+	}
 
 	let matchedRows = 0;
 	const groups = new Map<string, AggregateGroupState>();
+	const selectedRows: StatsQueryRow[] = [];
+	const rowLimit = request.rowLimit ?? 0;
 
 	for (const row of resultSet.rows) {
 		if (!filters.filters.every((filter) => rowMatchesFilter(row, filter))) {
@@ -1383,6 +1796,9 @@ function aggregateResultSetRows(
 		}
 
 		matchedRows += 1;
+		if (selectedRows.length < rowLimit) {
+			selectedRows.push(projectSelectedRow(row, selectedColumns.columns));
+		}
 		const groupState = getAggregateGroupState(groups, row, groupColumns.columns, aggregations.aggregations);
 		groupState.rowCount += 1;
 		updateAggregateStates(groupState, row, aggregations.aggregations);
@@ -1409,6 +1825,9 @@ function aggregateResultSetRows(
 				aggregates: finalizeAggregateStates(group.states)
 			})),
 			groupsTruncated,
+			selectedColumns: selectedColumns.columns.map((column) => column.header),
+			selectedRows,
+			selectedRowsTruncated: matchedRows > selectedRows.length,
 			cacheStatus: result.cacheStatus,
 			sourceStatus: result.sourceStatus,
 			stale: result.stale,
@@ -1463,6 +1882,42 @@ function resolveGroupColumns(
 		columns.push(resolvedColumn.header);
 	}
 	return { ok: true, columns };
+}
+
+function projectSelectedRow(row: unknown[], columns: HeaderReference[]): StatsQueryRow {
+	return Object.fromEntries(columns.map((column) => [column.header, normalizeSelectedRowValue(row[column.index])]));
+}
+
+function normalizeSelectedRowValue(value: unknown): StatsQueryRowValue {
+	if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+		return value;
+	}
+	if (value === undefined) {
+		return null;
+	}
+	return String(value);
+}
+
+function normalizeTimeSeriesDate(value: string): string {
+	const trimmed = value.trim();
+	return /^\d{4}-\d{2}-\d{2}/.test(trimmed) ? trimmed.slice(0, 10) : trimmed;
+}
+
+function averagePointValues(points: Array<{ y: number }>): number | null {
+	if (points.length === 0) {
+		return null;
+	}
+	return points.reduce((sum, point) => sum + point.y, 0) / points.length;
+}
+
+function determineTrendDirection(change: number | null): AnalyzeTimeSeriesData['direction'] {
+	if (change === null) {
+		return 'insufficient_data';
+	}
+	if (Math.abs(change) < 1e-9) {
+		return 'flat';
+	}
+	return change > 0 ? 'up' : 'down';
 }
 
 function resolveAggregateOperations(
@@ -1549,9 +2004,10 @@ function getAggregateGroupState(
 	groupColumns: ResolvedGroupColumn[],
 	aggregations: ResolvedAggregateOperation[]
 ): AggregateGroupState {
-	const key = Object.fromEntries(
-		groupColumns.map((column) => [column.header, normalizeGroupKeyValue(row[column.index])])
-	) as Record<string, string | number | null>;
+	const key = Object.fromEntries(groupColumns.map((column) => [column.header, normalizeGroupKeyValue(row[column.index])])) as Record<
+		string,
+		string | number | null
+	>;
 	const keySortValue = JSON.stringify(key);
 	const mapKey = groupColumns.length === 0 ? '__overall__' : keySortValue;
 	const existingGroup = groups.get(mapKey);
@@ -1582,11 +2038,7 @@ function getAggregateGroupState(
 	return groupState;
 }
 
-function updateAggregateStates(
-	group: AggregateGroupState,
-	row: unknown[],
-	aggregations: ResolvedAggregateOperation[]
-): void {
+function updateAggregateStates(group: AggregateGroupState, row: unknown[], aggregations: ResolvedAggregateOperation[]): void {
 	for (const aggregation of aggregations) {
 		const state = group.states[aggregation.key];
 		if (!state) {
@@ -1653,9 +2105,7 @@ function parseFinalOutput(response: DynamicAgentModelResponse): DynamicAgentFina
 	return validated.value;
 }
 
-function validateFinalOutput(
-	input: unknown
-): { ok: true; value: DynamicAgentFinalOutput } | { ok: false; error: string } {
+function validateFinalOutput(input: unknown): { ok: true; value: DynamicAgentFinalOutput } | { ok: false; error: string } {
 	if (!isPlainObject(input)) {
 		return { ok: false, error: 'Dynamic agent final response must be a JSON object.' };
 	}
@@ -1668,8 +2118,12 @@ function validateFinalOutput(
 		return { ok: false, error: 'Dynamic agent final response requires artifacts.' };
 	}
 
-	if (!Array.isArray(input.warnings) || input.warnings.some((warning) => typeof warning !== 'string')) {
-		return { ok: false, error: 'Dynamic agent final response requires string warnings.' };
+	if (!Array.isArray(input.warnings)) {
+		return { ok: false, error: 'Dynamic agent final response requires warnings.' };
+	}
+	const parsedWarnings = parseFinalWarnings(input.warnings);
+	if (!parsedWarnings.ok) {
+		return parsedWarnings;
 	}
 
 	const artifacts: QueryAnswerArtifact[] = [];
@@ -1686,14 +2140,38 @@ function validateFinalOutput(
 		value: {
 			answer: input.answer,
 			artifacts,
-			warnings: input.warnings.map((warning) => warning.trim()).filter((warning) => warning.length > 0)
+			warnings: parsedWarnings.value
 		}
 	};
 }
 
-function validateArtifact(
-	artifact: unknown
-): { ok: true; value: QueryAnswerArtifact } | { ok: false; error: string } {
+function parseFinalWarnings(warnings: unknown[]): { ok: true; value: DynamicAgentFinalWarning[] } | { ok: false; error: string } {
+	const parsed: DynamicAgentFinalWarning[] = [];
+	for (const warning of warnings) {
+		// Keep scripted adapters from older tests compatible while real model output
+		// is constrained by the structured warning schema.
+		if (typeof warning === 'string') {
+			const message = warning.trim();
+			if (message) {
+				parsed.push({ kind: 'partial_data', message });
+			}
+			continue;
+		}
+
+		if (!isPlainObject(warning) || !isDynamicAgentFinalWarningKind(warning.kind) || typeof warning.message !== 'string') {
+			return { ok: false, error: 'Dynamic agent final response emitted an invalid warning.' };
+		}
+
+		const message = warning.message.trim();
+		if (message) {
+			parsed.push({ kind: warning.kind, message });
+		}
+	}
+
+	return { ok: true, value: parsed };
+}
+
+function validateArtifact(artifact: unknown): { ok: true; value: QueryAnswerArtifact } | { ok: false; error: string } {
 	if (!isPlainObject(artifact) || typeof artifact.type !== 'string') {
 		return { ok: false, error: 'Dynamic agent artifacts must be typed objects.' };
 	}
@@ -1824,6 +2302,116 @@ function validateArtifact(
 	return { ok: false, error: `Dynamic agent emitted unknown artifact type '${artifact.type}'.` };
 }
 
+function reconcileFilteredShotCharts(artifacts: QueryAnswerArtifact[], toolResults: QueryAnswerAgentToolResult[]): QueryAnswerArtifact[] {
+	const filteredRows = findLatestShotChartRows(toolResults);
+	if (!filteredRows) {
+		return artifacts;
+	}
+
+	const shots = filteredRows.map(buildShotChartShot).filter((shot) => shot !== null);
+	return artifacts.map((artifact) =>
+		artifact.type === 'shot_chart'
+			? {
+					type: 'shot_chart',
+					title: artifact.title,
+					shots
+				}
+			: artifact
+	);
+}
+
+function reconcileTimeSeriesLineCharts(artifacts: QueryAnswerArtifact[], toolResults: QueryAnswerAgentToolResult[]): QueryAnswerArtifact[] {
+	const timeSeries = findLatestTimeSeriesData(toolResults);
+	if (!timeSeries) {
+		return artifacts;
+	}
+
+	return artifacts.map((artifact) =>
+		artifact.type === 'line_chart'
+			? {
+					type: 'line_chart',
+					title: artifact.title,
+					xLabel: artifact.xLabel,
+					yLabel: artifact.yLabel,
+					series: [
+						{
+							name: artifact.series[0]?.name || timeSeries.valueColumn,
+							points: timeSeries.points
+						}
+					]
+				}
+			: artifact
+	);
+}
+
+function findLatestTimeSeriesData(
+	toolResults: QueryAnswerAgentToolResult[]
+): { valueColumn: string; points: Array<{ x: string; y: number }> } | null {
+	for (let index = toolResults.length - 1; index >= 0; index -= 1) {
+		const result = toolResults[index];
+		if (result?.toolName !== 'analyze_time_series' || !result.response.ok || !isPlainObject(result.response.data)) {
+			continue;
+		}
+		const { valueColumn, points } = result.response.data;
+		if (
+			typeof valueColumn !== 'string' ||
+			!Array.isArray(points) ||
+			!points.every((point) => isPlainObject(point) && typeof point.x === 'string' && typeof point.y === 'number')
+		) {
+			continue;
+		}
+		return {
+			valueColumn,
+			points: points.map((point) => ({ x: String(point.x), y: Number(point.y) }))
+		};
+	}
+	return null;
+}
+
+function findLatestShotChartRows(toolResults: QueryAnswerAgentToolResult[]): StatsQueryRow[] | null {
+	for (let index = toolResults.length - 1; index >= 0; index -= 1) {
+		const result = toolResults[index];
+		if (result?.toolName !== 'aggregate_endpoint_rows' || !result.response.ok || !isPlainObject(result.response.data)) {
+			continue;
+		}
+		const columns = result.response.data.selectedColumns;
+		const rows = result.response.data.selectedRows;
+		if (!isStringArray(columns) || !Array.isArray(rows)) {
+			continue;
+		}
+		const normalizedColumns = new Set(columns.map(normalizeLookupKey));
+		if (!['loc_x', 'loc_y', 'shot_made_flag'].every((column) => normalizedColumns.has(column))) {
+			continue;
+		}
+		if (!rows.every(isStatsRow)) {
+			continue;
+		}
+		return rows;
+	}
+	return null;
+}
+
+function buildShotChartShot(row: StatsQueryRow): Extract<QueryAnswerArtifact, { type: 'shot_chart' }>['shots'][number] | null {
+	const locX = coerceFiniteNumber(row.LOC_X);
+	const locY = coerceFiniteNumber(row.LOC_Y);
+	const madeValue = row.SHOT_MADE_FLAG;
+	const hasValidMadeValue =
+		madeValue === 0 || madeValue === 1 || madeValue === false || madeValue === true || madeValue === '0' || madeValue === '1';
+	if (locX === null || locY === null || !hasValidMadeValue) {
+		return null;
+	}
+
+	const shotType = typeof row.SHOT_TYPE === 'string' ? row.SHOT_TYPE : '';
+	const actionType = typeof row.ACTION_TYPE === 'string' ? row.ACTION_TYPE : undefined;
+	return {
+		locX,
+		locY,
+		made: madeValue === 1 || madeValue === true || madeValue === '1',
+		value: /3PT/i.test(shotType) ? 3 : 2,
+		...(actionType ? { label: actionType } : {})
+	};
+}
+
 function selectStatus(context: ToolExecutionContext, warnings: StatsQueryWarning[]): StatsQueryStatus {
 	if (context.successfulEndpointCalls > 0) {
 		return 'ok';
@@ -1834,6 +2422,22 @@ function selectStatus(context: ToolExecutionContext, warnings: StatsQueryWarning
 	}
 
 	return 'ok';
+}
+
+function selectPublicWarnings(status: StatsQueryStatus, modelWarnings: StatsQueryWarning[]): StatsQueryWarning[] {
+	const visibleCodes = new Set(['dynamic_agent_partial_data', 'dynamic_agent_capability_limit']);
+	const visible = modelWarnings.filter((warning) => visibleCodes.has(warning.code) && !containsInternalDiagnostic(warning.message));
+
+	if (visible.length > 0 || status !== 'coverage_gap') {
+		return mergeWarnings(visible);
+	}
+
+	return [
+		{
+			code: 'data_unavailable',
+			message: 'Some NBA data required for this answer is currently unavailable.'
+		}
+	];
 }
 
 function buildFinalAnswerText(answer: string, status: StatsQueryStatus, warnings: StatsQueryWarning[]): string {
@@ -1883,13 +2487,27 @@ function isAgentToolName(value: string): value is QueryAnswerAgentToolName {
 	return TOOL_NAMES.includes(value as QueryAnswerAgentToolName);
 }
 
+function isDynamicAgentFinalWarningKind(value: unknown): value is DynamicAgentFinalWarningKind {
+	return (
+		typeof value === 'string' &&
+		['partial_data', 'capability_limit', 'artifact_sample', 'scope_assumption', 'diagnostic'].includes(value)
+	);
+}
+
+function containsInternalDiagnostic(message: string): boolean {
+	const normalized = message.toLowerCase();
+	return ['transport=', 'timeout_ms=', 'retry_count=', 'proxy_count=', 'error: http', 'cache_status='].some((token) =>
+		normalized.includes(token)
+	);
+}
+
 function isEndpointFetchFailure(toolName: QueryAnswerAgentToolName, data: unknown): boolean {
 	if (toolName === 'call_nba_stats_endpoint') {
 		return true;
 	}
 
 	return (
-		(toolName === 'aggregate_endpoint_rows' || toolName === 'find_video_clips') &&
+		(toolName === 'aggregate_endpoint_rows' || toolName === 'analyze_time_series' || toolName === 'find_video_clips') &&
 		isPlainObject(data) &&
 		typeof data.parserVersion === 'string' &&
 		Array.isArray(data.resultSets)
@@ -1939,6 +2557,18 @@ function isAggregationOperator(value: unknown): value is AggregationOperator {
 	return typeof value === 'string' && AGGREGATION_OPERATORS.includes(value as AggregationOperator);
 }
 
+function isClipEventType(value: unknown): value is ClipEventType {
+	return typeof value === 'string' && CLIP_EVENT_TYPES.includes(value as ClipEventType);
+}
+
+function isClipSeasonType(value: unknown): value is FindVideoClipsRequest['seasonType'] {
+	return value === 'Regular Season' || value === 'Playoffs' || value === 'Play In' || value === 'NBA Cup';
+}
+
+function isNonEmptyString(value: unknown): value is string {
+	return typeof value === 'string' && value.trim().length > 0;
+}
+
 function isStringOrNumber(value: unknown): value is string | number {
 	return typeof value === 'string' || typeof value === 'number';
 }
@@ -1969,10 +2599,7 @@ function isLineChartSeries(value: unknown): value is Extract<QueryAnswerArtifact
 		typeof value.name === 'string' &&
 		Array.isArray(value.points) &&
 		value.points.every(
-			(point) =>
-				isPlainObject(point) &&
-				(typeof point.x === 'string' || typeof point.x === 'number') &&
-				typeof point.y === 'number'
+			(point) => isPlainObject(point) && (typeof point.x === 'string' || typeof point.x === 'number') && typeof point.y === 'number'
 		)
 	);
 }

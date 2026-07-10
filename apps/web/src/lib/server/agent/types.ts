@@ -1,8 +1,4 @@
-import type {
-	QueryAnswerAgentToolName,
-	QueryAnswerArtifact,
-	QueryAnswerResponse
-} from '$lib/contracts/answer-response';
+import type { QueryAnswerAgentToolName, QueryAnswerArtifact, QueryAnswerResponse } from '$lib/contracts/answer-response';
 import type { StatsQueryWarning } from '$lib/contracts/semantic-query';
 import type { StatsEndpointFetcher } from '$lib/server/data/adapters/stats-endpoint-client';
 import type { PlayerDirectoryEntryRecord } from '$lib/server/data/store';
@@ -88,10 +84,17 @@ export type DynamicQueryAgent = {
 	answerQuestion(question: string): Promise<QueryAnswerResponse>;
 };
 
+export type DynamicAgentFinalWarningKind = 'partial_data' | 'capability_limit' | 'artifact_sample' | 'scope_assumption' | 'diagnostic';
+
+export type DynamicAgentFinalWarning = {
+	kind: DynamicAgentFinalWarningKind;
+	message: string;
+};
+
 export type DynamicAgentFinalOutput = {
 	answer: string;
 	artifacts: QueryAnswerArtifact[];
-	warnings: string[];
+	warnings: DynamicAgentFinalWarning[];
 };
 
 export class DynamicAgentError extends Error {

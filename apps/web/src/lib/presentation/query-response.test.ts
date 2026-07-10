@@ -253,4 +253,25 @@ describe('getVisibleWarningMessages', () => {
 			'The answer is based on the available offensive rating result only.'
 		]);
 	});
+
+	test('hides execution diagnostics and non-blocking model metadata', () => {
+		const payload = buildOkResponse({
+			warnings: [
+				{
+					code: 'nba_endpoint_unavailable',
+					message: 'transport=direct; timeout_ms=15000; retry_count=2; Error: HTTP 400'
+				},
+				{
+					code: 'dynamic_agent_scope_assumption',
+					message: 'Season scope assumed: 2025-26 Regular Season.'
+				},
+				{
+					code: 'dynamic_agent_partial_data',
+					message: 'Only seven of the requested ten games were available.'
+				}
+			]
+		});
+
+		assert.deepEqual(getVisibleWarningMessages(payload), ['Only seven of the requested ten games were available.']);
+	});
 });
