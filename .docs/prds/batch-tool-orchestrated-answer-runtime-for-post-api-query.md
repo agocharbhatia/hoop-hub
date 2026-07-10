@@ -1,11 +1,13 @@
 # PRD: Batch Tool-Orchestrated Answer Runtime For `POST /api/query`
 
-- Status: Published
+- Status: Completed, then superseded as the primary natural-language runtime
 - GitHub Issue: [#34](https://github.com/agocharbhatia/hoop-hub/issues/34)
 
-## Problem Statement
+> Historical implementation brief. Its batch planner/orchestrator, grounded answer renderer, partial-result policy, and trace contracts shipped and remain compatibility coverage. Product `/api/query` behavior now belongs to the dynamic tool-loop agent.
 
-Hoop Hub's current natural-language route is still built around a narrow single-query planner contract. From the user's perspective, that means the app can answer some supported asks, but it still behaves like a manually taught translator instead of a general stats-answering system. The structured stats tool may already know about a metric, entity, or query shape, but a normal user question can still fail because the planner has not been explicitly taught that exact phrasing or family.
+## Historical Problem Statement
+
+At the time of this PRD, the natural-language route used a narrow single-query planner and could not compose multiple grounded requests. The scoped batch execution, partial-result, trace, and answer-rendering work shipped. The dynamic agent later replaced this planner/orchestrator as the product route.
 
 That is not a scalable product boundary. As new endpoints, metrics, and stored data are added, the user expects the LLM to become more capable by discovering and using the expanded tool surface. The current architecture pushes too much repo-specific policy into handcrafted planner rules, ties `/api/query` to one structured query at a time, and returns the raw executor response instead of a user-facing answer artifact. The result is a system where capability growth requires recurring natural-language slice work instead of primarily coming from the structured tool contract and its published capabilities.
 

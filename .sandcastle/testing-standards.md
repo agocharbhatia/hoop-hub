@@ -16,11 +16,11 @@ For each slice, explicitly decide which of these boundaries changed:
 - structured contract validation
 - semantic execution
 - nightly/bootstrap materialization
-- planner normalization and validation
+- dynamic-agent tool selection and argument validation
 - `/api/query` route orchestration
 - answer rendering
 - query trace/provenance
-- real planner query acceptance smoke
+- deterministic agent eval and optional live canary
 
 If a boundary changed, there must be at least one behavior-first test for it.
 
@@ -29,7 +29,7 @@ If a boundary changed, there must be at least one behavior-first test for it.
 If the slice changes any of these surfaces, query-based tests are mandatory:
 
 - supported query families
-- planner prompt/schema/capabilities
+- agent prompt/tool schemas or structured capabilities
 - `/api/query`
 - answer rendering for query results
 - trace output for query execution
@@ -38,7 +38,7 @@ If the slice changes any of these surfaces, query-based tests are mandatory:
 For those slices, do both:
 
 - deterministic fixture-backed tests at module and route boundaries
-- real natural-language query smoke using the exact user phrasings the slice is meant to support
+- data-defined dynamic-agent eval cases using the exact user phrasings the slice is meant to support
 
 For query-facing slices, the spec should include both:
 
@@ -54,18 +54,18 @@ The answer-quality expectations should cover at least:
 
 ## What does not count as sufficient
 
-- planner service tests with mocked adapter outputs
+- isolated model-adapter tests with mocked outputs
 - `/api/query` route tests with injected fake planner decisions
 - module tests that never start from a real user question
 
 Those tests are still useful, but they do not prove that the real planner can turn supported user questions into correct grounded requests.
 
-## Real planner smoke policy
+## Dynamic-agent eval policy
 
-- Use fixture-backed semantic data and keep `HOOP_HUB_ENABLE_LIVE_NBA=0`.
-- Keep the corpus intentionally small: 1 to 2 canonical questions per changed shape, usually no more than 4 total.
+- Use fixture-backed endpoint data and keep deterministic eval free of OpenAI and NBA network calls.
+- Add prompt variants and invariant assertions to the shared eval corpus; use focused tags/cases during development.
 - Prefer explicit questions that are stable against the fixture clock unless the slice is specifically about relative-time semantics.
-- When the slice changes planner or `/api/query` behavior, update `apps/web/smoke/query-acceptance.smoke.test.ts` with the exact questions being shipped.
+- When the slice changes `/api/query` behavior, update `apps/web/src/lib/server/eval/cases.ts` or the relevant domain eval with the exact questions being shipped.
 - For answer-layer changes, include at least one assertion about answer quality, not just resolved query shape or status. Examples: avoids robotic fallback phrasing, answers supported sub-parts, avoids raw encoded values, mentions limitations naturally.
 
 ## Completion rule
@@ -73,7 +73,8 @@ Those tests are still useful, but they do not prove that the real planner can tu
 Do not finish a slice just because `bun run test` is green. A slice is only complete when:
 
 - the concrete test matrix is covered
-- the changed query shapes are exercised through real NL questions when applicable
+- the changed query shapes are exercised through exact NL prompt variants when applicable
 - the shipped answer examples are exercised for both factual grounding and answer quality when applicable
 - the repo verify commands are green
 - any new regression found during manual or smoke validation is captured by a permanent automated test
+- the applicable commands in `.docs/RELEASE_CHECKLIST.md` are green

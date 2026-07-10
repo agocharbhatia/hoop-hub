@@ -1,13 +1,15 @@
 # PRD: OpenAI Planner Runtime For `POST /api/query` In The Current Stats Domain
 
-- Status: Published
+- Status: Completed, then superseded by the dynamic-agent `/api/query` runtime
 - GitHub Issue: [#9](https://github.com/agocharbhatia/hoop-hub/issues/9)
 
-## Problem Statement
+> Historical implementation brief. It explains the transition away from the handwritten chat route, but its OpenAI planner is now compatibility-only. For current architecture and priorities, use `agents/current-state.md` and `.docs/PLAN.md`.
 
-Hoop Hub already has a strong structured stats executor, but the current natural-language entrypoint is still a handwritten translator attached to a legacy-shaped route. That leaves the product with the wrong long-term boundary: natural-language support is narrow, the route contract still carries fake session cues, and expanding the engine would require extending a brittle keyword mapper instead of proving the real planner-to-executor seam.
+## Historical Problem Statement
 
-From the user's perspective, this means the app can answer some NBA stats questions, but it is not yet using the real architecture it intends to grow. From the product and engineering perspective, it means there are still two different query mental models in play: a typed semantic executor that is worth keeping, and a thin natural-language wrapper that is not strong enough to serve as the foundation for future domain expansion.
+At the time of this PRD, Hoop Hub had a structured stats executor but its natural-language entrypoint was a handwritten translator attached to a legacy-shaped route. The slice replaced that boundary with `POST /api/query` and removed fake session cues. The later dynamic-agent runtime superseded the planner introduced here as the product path.
+
+This section is retained to explain why the planner migration happened; it is not a description of the current application.
 
 ## Solution
 

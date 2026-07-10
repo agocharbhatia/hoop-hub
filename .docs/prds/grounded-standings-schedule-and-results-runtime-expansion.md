@@ -1,13 +1,15 @@
 # PRD: Grounded Standings Schedule And Results Runtime Expansion
 
-- Status: Published
+- Status: Completed for the scoped structured and compatibility runtime
 - GitHub Issue: [#43](https://github.com/agocharbhatia/hoop-hub/issues/43)
 
-## Problem Statement
+> Historical implementation brief. Typed standings/game contracts, stored snapshots, bounded ranges, completeness metadata, planner compatibility, mixed answers, and trace coverage shipped. Broader data coverage remains roadmap work rather than an unfinished part of this slice.
 
-Hoop Hub can already answer a narrow set of grounded player and team season-stat questions, but it still cannot answer several of the most normal NBA questions a user expects from a factual basketball assistant. From the user's perspective, asks like "Who is first in the East?", "What seed are the Lakers?", "Who do the Celtics play next?", "Did Denver win last night?", or "What's Boston's record and who do they play next?" are all core product behavior. Today, those asks fail because the runtime has no first-class standings shape, no first-class grounded team game shape, no canonical materialization path for standings or scoreboard data, and no batch composition behavior tuned for this domain.
+## Historical Problem Statement
 
-That gap is not just about missing prompt examples. It is an architectural gap. The current semantic executor and capability registry are still biased toward season stats, rankings, comparisons, and trends. If Hoop Hub expands standings and team game support by adding more handwritten planner branches or one-off answer logic, the runtime will become brittle and hard to extend. The product needs a durable semantic substrate for standings and team-game questions so that future season expansion mostly becomes a data-range problem instead of a prompt-maintenance problem.
+At the time of this PRD, the structured runtime lacked first-class standings and team-game shapes, scoreboard materialization, completeness metadata, and mixed-question composition. Those scoped capabilities subsequently shipped.
+
+The lasting design decision is to keep standings and games as typed structured shapes whose coverage expands through data materialization rather than handwritten prompt branches.
 
 The runtime also needs to stay honest while becoming more dynamic. Users should not get generic coverage-gap failures when the system can still provide a grounded partial answer, but the tool layer also must not silently pretend missing data is complete. This slice therefore needs canonical completeness semantics, explicit grounding of date language, and traces that remain trustworthy when mixed questions fan out into multiple structured requests.
 

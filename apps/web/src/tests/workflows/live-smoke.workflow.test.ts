@@ -21,8 +21,10 @@ describe('live smoke workflow contract', () => {
 		assert.match(workflow, /^name:\s+Live Smoke$/m);
 		assert.match(workflow, /^\s+workflow_dispatch:\s*$/m);
 		assert.match(workflow, /^\s+schedule:\s*$/m);
-		assert.match(workflow, /bun run test:live-smoke/);
-		assert.equal(typeof pkg.scripts?.['test:live-smoke'], 'string');
-		assert.doesNotMatch(ciWorkflow, /test:live-smoke|Live Smoke/);
+		assert.match(workflow, /bun run eval:live -- --repetitions 1 --output eval-results\/live-canary/);
+		assert.match(workflow, /OPENAI_API_KEY:\s+\$\{\{ secrets\.OPENAI_API_KEY \}\}/);
+		assert.match(workflow, /actions\/upload-artifact@v4/);
+		assert.equal(typeof pkg.scripts?.['eval:live'], 'string');
+		assert.doesNotMatch(ciWorkflow, /eval:live|Live Smoke/);
 	});
 });

@@ -145,7 +145,7 @@ function buildTopAssistsPayload(): unknown {
 		resultSets: [
 			{
 				name: 'LeagueDashPlayerStats',
-				headers: ['PLAYER_ID', 'PLAYER_NAME', 'AST'],
+				headers: ['PLAYER_ID', 'PLAYER', 'AST'],
 				rowSet: [...leaders, ...remaining].map(([name, assists], index) => [String(1000 + index), name, assists])
 			}
 		]

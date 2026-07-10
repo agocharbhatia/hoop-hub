@@ -1,73 +1,49 @@
-# Hoop Hub Memory
+# Hoop Hub Engineering Memory
 
-## 2026-03-12
+This file contains durable engineering rules. It is not a roadmap or issue tracker. Read `agents/current-state.md` first, then `.docs/PLAN.md`.
 
-- Milestone 1 introduced `POST /api/stats/query` as the structured primary lookup contract for LLM tool use.
-- The current semantic route is a legacy adapter layer, not the final architecture. Future slices should extend the semantic executor and canonical data model instead of adding new top-level legacy intents.
-- Preferred product direction:
-  - structured-first tool contract
-  - nightly warehouse-style refresh as the default data path
-  - live fallback only for current-day or in-progress coverage gaps
-  - factual/statistical answers first, with event-level coverage before non-stats/media domains
+## Runtime boundaries
 
-## 2026-03-15
+- `POST /api/query` is the product natural-language route and uses the dynamic tool-loop agent.
+- `POST /api/stats/query` is the structured semantic contract and stored-data execution path.
+- The legacy planner, orchestrator, answer renderer, and mock query engine are compatibility-only. Do not add product behavior there.
+- The model may choose tools and presentation intent; server code owns identity resolution, endpoint validation, filtering, computation, chronology, joins, and artifact reconciliation.
 
-- The direct semantic executor now owns supported stats lookups end to end for player rankings, player trends, player comparisons, and team defensive rankings.
-- `/api/chat/query` should remain a raw natural-language wrapper over the semantic executor, while `/api/stats/query` stays the primary structured tool contract.
-- Structured responses need compact canonical rows first; prose summaries are secondary and should not be treated as the main execution artifact.
-- Fixture-backed extractor tests are the preferred way to stabilize semantic result shapes before moving to a warehouse-backed executor.
+## Grounding and contracts
 
-## 2026-03-25
+- Canonical `resolvedQuery` data and persisted trace tool calls must describe what actually executed, not raw caller or model text.
+- Conflicting IDs and names must fail before execution. Ambiguous aliases return typed clarification without pretending a canonical subject was resolved.
+- Player and team aliases are explicit overlays on canonical directories; never create local one-off identity maps.
+- Parser and validator errors returned to the model should be explicit enough to correct, while product presentation hides non-actionable transport diagnostics.
+- Structured rows and successful tool output are the grounding authority. Model-authored artifacts are reconciled or replaced before reaching the UI.
 
-- Structured player subject validation should reject conflicting `ids` plus `names` before execution so bad tool inputs fail as `400`s instead of becoming misleading trace data.
-- Canonical `resolvedQuery` data belongs at the plan boundary: resolve subject IDs/names and default filters before execution so both provenance and trace output reflect the exact query that ran.
-- Persisting a vendored player-directory snapshot in product state is a safer bridge than scattering hardcoded subject lists through semantic execution logic.
+## Data policy
 
-## 2026-03-26
+- Structured semantic execution reads stored materialized endpoint data and returns typed coverage gaps when it is unavailable.
+- The dynamic agent uses the cataloged endpoint client with caching and optional proxy support; it must not call NBA hosts through ad hoc code paths.
+- Nightly snapshots are keyed to their slate date and resumable request state. Freshness and completeness must remain explicit.
+- Fixture-backed setup and tests must share the same payload shapes as the materialization path.
+- Live-network checks stay outside default deterministic CI.
 
-- Name-based structured player resolution needs to canonicalize both identity fields, not just IDs. If provenance or traces echo caller casing, the execution record becomes less trustworthy than the underlying directory lookup.
-- When an issue is partly landed already, add missing behavior-first tests at the module and contract boundaries before assuming the remaining work is implementation. That keeps the branch scoped while still proving the acceptance criteria.
-- Natural-language player extraction should preserve subject order from the user message while still using the full seeded directory. Resolver breadth without stable ordering can silently skew comparison outputs and trace provenance.
-- Chat-route subject coverage should be guarded at the route boundary with arbitrary exact-name trend and comparison tests, so the natural-language wrapper cannot drift back to a smaller hardcoded player list than the structured executor.
-- Request-level `allowLiveFallback` needs to gate both endpoint retrieval and directory refresh. If either path has no stored snapshot/data and live fallback is blocked, return a typed `coverage_gap` instead of falling through to extraction failures or hidden snapshot seeding.
-- Structured request validation should not mutate persisted state unless the request policy allows refresh. If validation preloads the player directory, it can accidentally bypass `allowLiveFallback: false` before execution even starts.
-- Curated alias coverage should live as an explicit overlay on top of the canonical directory, not as alternate canonical names. That keeps source identity data stable while still allowing product-specific shorthand and explicit ambiguity rules.
-- Ambiguous alias inputs should return `clarification_needed` with the candidate canonical names and leave `resolvedQuery` unset. Once a resolver can no longer prove one canonical player, traces and provenance should stop short of pretending execution was grounded.
-- Keep live-network smoke coverage outside the default `bun run test` path. The safer contract is a separate `test:live-smoke` entrypoint plus a scheduled/manual workflow, so PR mergeability stays fixture-backed while the real integration seam is still exercised.
-- Sandcastle loop runs are easier to review when each cycle start and completion is framed as a prominent terminal banner instead of a plain inline log line.
-- Open implementation issue sequencing currently has one clear entry point: issue #2 is the only unblocked slice because the repo still lacks a shared persisted player resolver and still duplicates player knowledge inside `query-service`, `planner/query-plan`, and `mock/query-engine`.
-- Current dependency chain for issue work is `#2 -> (#3 and #5) -> #4 -> #6`, with `#7` depending on the live directory path from `#5` for a real non-blocking smoke workflow.
-- Among the still-open implementation issues visible locally, `#3` and `#5` are the parallel entry points: both touch `query-service` and `player-directory`, but neither requires the other's API shape first; `#4` depends on `#3`, `#6` depends on `#4`, and `#7` depends on `#5`.
-- Codex Sandcastle completion is commit-driven, not text-driven: a worker must create a branch commit before emitting `<promise>COMPLETE</promise>`, and the runner should fail fast if that token appears with zero commits ahead of base.
-- Legacy planner/mock regression coverage should pin player resolution to the shared player-directory helpers, not package-script env defaults or duplicated hardcoded name maps. That keeps direct test runs deterministic and prevents resolver drift from hiding behind `bun run test`.
-- Codex Sandcastle should treat Codex CLI usage-limit exits as transient orchestration state: wait through the reported reset window, then retry the same planner/worker/merger command instead of aborting the whole run.
-- After a Ralph/Sandcastle loop lands a tooling package, build QA from the real git diff plus the package test surface first; that separates already-covered unit behavior from the manual integration seams that still need deliberate validation.
-- When the user asks for a QA plan after a Ralph/Sandcastle run, default to a repo-local manual tester checklist they can execute themselves, not just an internal fake-harness integration matrix.
-- If the Ralph loop merged app features rather than tooling, the QA plan should be anchored to the merged product behavior and route contracts first: exact-name resolution, canonical traces, alias ambiguity, fallback policy, and any isolated smoke workflow changes.
+## Computation and artifacts
 
-## 2026-03-27
+- Derived statistics use full internal result sets. Public row display caps must never become computation caps.
+- Time-series analysis sorts by canonical date before window comparisons and artifacts.
+- Charts must represent the same filtered population and values quoted in the answer.
+- Standard clip events map to exact NBA video measures. Custom shots filter the full shot log, join only on `(GAME_ID, GAME_EVENT_ID)`, and apply the product cap after the join.
+- Missing or malformed video join keys remain missing; never admit unrelated clips to fill a playlist.
+- Named-defender requests must not silently degrade to opponent-team filtering.
 
-- Codex workspace ergonomics for this repo should live in dedicated root scripts: keep `run`, `setup`, and `teardown` separate so new workspaces can install dependencies, preserve existing `.env` files, and clean only generated artifacts on exit.
-- `.superset/config.json` should point its worktree lifecycle hooks at those same root scripts so new Git worktrees use one shared install/run/cleanup contract instead of drift between local tooling entrypoints.
-- Ignore rules need to stay artifact-specific. Ignoring a whole workspace root like `packages/` hides real source packages from normal Git flows and causes review regressions.
-- README file links must stay repo-relative so they work on GitHub and in other clones; never commit machine-local absolute paths.
+## Testing and release
 
-## 2026-03-28
+- Default verification is `bun run check`, `bun run check:endpoint-catalog-contracts`, `bun run test`, `bun run eval`, `bun run eval:custom-shots`, and `bun run build` from `apps/web`.
+- Query-facing changes require deterministic eval cases based on exact user questions, grounding invariants, artifact assertions, warning hygiene, and trace/tool assertions.
+- Live eval and browser playback checks are separate release gates because deterministic tests cannot prove model behavior, NBA availability, or browser autoplay.
+- A discovered correctness regression is not closed until a permanent automated test or eval captures it.
 
-- The current app already has a deterministic semantic executor, but the remaining core-engine gaps are architectural, not cosmetic: true NL planning, persisted traces/session state, nightly-first materialization, a compute layer for derived metrics, and answer/artifact composition still need to be built.
-- `sessionId` is currently validated at the chat boundary but not used to load or store conversational context. Until session grounding exists, follow-up UX is only a UI affordance, not a real engine capability.
-- The repo now has two parallel query paths: the active semantic executor and a legacy mock planner/query-engine path. Future engine work should consolidate around one production query-runtime boundary rather than extending both.
-- Planning context should now be read in this order: `agents/current-state.md` first for the concise engine snapshot, then `README.md` / `apps/web/README.md` for roadmap and operational details, and `agents/memory.md` for deeper historical breadcrumbs.
-- The old in-repo Codex Sandcastle package and `.sandcastle/` runner assets were removed. Future agent workflow tooling for this repo should come from the standalone external `codex-sandcastle` tool plus `.superset/`, not from reviving repo-local sandbox code.
+## Repository workflow
 
-## 2026-04-01
-
-- `options.allowLiveFallback` was removed from the structured semantic query contract. Callers should not decide request-time live fetch policy anymore.
-- The semantic executor now reads stored endpoint cache rows only and returns a typed `nightly_data_unavailable` coverage gap when the nightly-backed cache is empty.
-- Tests for the semantic executor and API routes should seed stored endpoint fixtures directly instead of stubbing live network fetch, so regressions in nightly-only behavior stay visible.
-
-## 2026-04-03
-
-- New workspaces should be bootstrapped with fixture-backed nightly data during setup so the supported local demo surface works immediately after install.
-- Fresh live validation should use a separate reset-and-bootstrap flow that deletes the current workspace DB first, rather than layering live ingest on top of fixture-seeded local state.
-- Workspace setup should prefer copying repo env files from `SUPERSET_ROOT_PATH` into the worktree, including app-local envs like `apps/web/.env`, while still preserving any env files that already exist in the workspace.
+- New worktrees preserve existing environment files and bootstrap fixture-backed nightly data through the root workspace scripts.
+- Persistent local databases live per worktree under `~/.hoop-hub/data/<hash>/hoop-hub.sqlite` unless `HOOP_HUB_DB_PATH` overrides the path.
+- Documentation links committed to the repository must be relative and portable.
+- `agents/project-log.md` is chronological history; `.docs/prds/` are historical approved requirements; neither overrides current-state documentation.

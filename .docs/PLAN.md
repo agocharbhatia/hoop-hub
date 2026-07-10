@@ -1,301 +1,120 @@
-# Hoop Hub Plan
+# Hoop Hub Roadmap
 
-This plan supersedes the older `QueryPlan`-first package-split draft. It reflects the current repo state and the next intended architectural moves.
+Last reconciled: 2026-07-10 at `cca7e38`.
 
-## Summary
+This is the current product and engineering roadmap. Historical implementation briefs live under `.docs/prds/`; completed slice history lives in `agents/project-log.md`.
 
-Hoop Hub is a stats-grounded NBA natural-language search engine built as a single Bun + SvelteKit app.
+## Product Goal
 
-Today, the app already has:
-- a structured semantic query API
-- a natural-language wrapper over the same semantic executor
-- retrieval against official NBA endpoints with SQLite-backed caching
-- canonical semantic traces with source-call and freshness details
-- compact structured result rows for the currently supported query families
+Hoop Hub is a grounded NBA research assistant. A user should be able to ask an unfamiliar basketball question, see how it was interpreted, trust every number and artifact, refine the question conversationally, and retrieve matching plays without silent scope changes.
 
-The main remaining work is not “finish the old legacy intent system.” The remaining work is:
-- broader semantic planning and entity resolution
-- nightly-first materialization and stored-data-first reads
-- computed/derived metric execution
-- persisted session grounding
-- richer answer and artifact composition on top of structured rows
+## Shipped Architecture
 
-## Current Shipped State
+- `POST /api/query` is the primary natural-language route. It runs the dynamic tool-loop agent in `apps/web/src/lib/server/agent/`.
+- `POST /api/stats/query` is the structured semantic route for typed stored-data queries.
+- `GET /api/stats/capabilities` publishes the structured route's supported surface.
+- `GET /api/query-trace/:traceId` returns canonical execution traces for dynamic-agent and structured runs.
+- Dynamic endpoint retrieval is live-first with SQLite caching. Structured semantic execution is stored-data-first and returns typed coverage gaps when required materialization is absent.
+- Player and team identity resolution use shared canonical directories plus explicit alias overlays.
+- Server-owned computation supports full-result filtering, grouping, aggregation, and chronological time-series analysis.
+- Tables, line charts, bar charts, shot charts, and video playlists are reconciled from grounded tool output.
+- Standard video events use direct NBA video measures. Custom shot searches filter `shotchartdetail` and join videos exactly on `(GAME_ID, GAME_EVENT_ID)`.
+- Deterministic and live dynamic-agent eval modes are available through `bun run eval` and `bun run eval:live`; custom-shot contract cases run through `bun run eval:custom-shots`.
 
-### Runtime
+The old planner, query orchestrator, answer renderer, and mock engine remain compatibility surfaces. New product behavior belongs in the dynamic agent or the structured semantic substrate, not in the legacy planner path.
 
-- Single Bun + SvelteKit app in `apps/web`
-- Primary structured route: `POST /api/stats/query`
-- Natural-language wrapper: `POST /api/chat/query`
-- Trace route: `GET /api/query-trace/:traceId`
+## Current Limitations
 
-### Query Execution
+- The eval corpus covers the highest-risk regressions but is not yet broad enough to characterize arbitrary-query reliability.
+- The scheduled live workflow needs to exercise the dynamic-agent eval rather than the legacy planner smoke.
+- Nightly materialization is resumable and useful locally, but it is not yet a production scheduler with freshness SLOs, historical breadth, and operational alerting.
+- Natural-language sessions are stateless. The product does not currently promise follow-up memory.
+- Named-defender video attribution is unavailable. Team-opponent filtering is exact; defender attribution requires an evidence and confidence model rather than silent substitution.
+- Playlists are sequential browser playback, not compiled single-file exports.
+- The production deployment, authentication, quota, observability, backup, and server-grade data-store story is not complete.
 
-- Supported semantic query families:
-  - player rankings
-  - player trends
-  - player comparisons
-  - team defensive rankings
-- Supported queries execute through the semantic executor in `apps/web/src/lib/server/semantic/query-service.ts`
-- Structured responses return compact canonical rows; summaries are secondary
-- Traces expose canonical `resolvedQuery` data, source calls, warnings, cache stats, and latency
+## Ordered Roadmap
 
-### Data and Resolution
+### Phase 0 — Repository reconciliation
 
-- Retrieval is still live-fetch-first against official NBA endpoints
-- SQLite stores cache and operational metadata
-- Finalized nightly-first materialization is not implemented yet
-- Player resolution uses the shared seeded player-directory snapshot and curated aliases
-- `allowLiveFallback` is a real execution policy input and should gate both endpoint retrieval and directory refresh behavior
+- Keep all current-state documentation aligned with the shipped routes and runtime.
+- Archive completed GitHub slices and leave only active work open.
+- Maintain one release checklist for deterministic, live, and browser verification.
+- Keep scheduled live smoke aligned with the dynamic-agent runtime.
 
-### UX and Session State
+Exit criteria: docs contain no obsolete public routes or request policies; completed issues are closed; CI and live-smoke commands target current code.
 
-- The UI shows structured results, citations, warnings, and trace details
-- `sessionId` is currently validated at the chat boundary but does not yet load or persist conversational context
-- Follow-up chips are a UI convenience, not real multi-turn engine memory
+### Phase 1 — Trust and evaluation
 
-### Legacy Boundary
+- Grow the eval corpus from the initial regression set to a representative matrix of metrics, filters, seasons, splits, compound asks, artifacts, clips, empty results, partial data, and adversarial prompts.
+- Track numeric correctness, artifact reconciliation, tool choice, warning hygiene, latency, tool count, token use, cost, and repeated-run stability.
+- Run a small scheduled live canary independently from deterministic PR CI.
+- Add browser-level playlist and artifact acceptance coverage.
 
-- The repo still contains the older planner/mock-engine path for compatibility tests
-- New product behavior should not be added there unless the task is explicitly about compatibility or migration
-- Future runtime work should consolidate around one semantic query boundary
+Exit criteria: every advertised query family has deterministic cases, prompt variants, failure cases, and a live canary; releases have explicit quality gates.
 
-## Current Public Contracts
+### Phase 2 — Canonical data reliability
 
-### `POST /api/stats/query`
+- Operate resumable scheduled ingestion with freshness states and alerts.
+- Distinguish finalized, provisional, stale, and unavailable data.
+- Refresh scheduled/live/final game states correctly instead of treating the first snapshot as permanently authoritative.
+- Add historical backfill and data-quality checks for schema drift, missing subjects, duplicates, and row-count anomalies.
+- Materialize common shot/event indexes so clip searches do not repeatedly scan full raw logs.
+- Move production state from local SQLite to a server-grade store when multi-user deployment begins.
 
-Purpose:
-- primary structured tool contract for LLM or programmatic callers
+Exit criteria: supported answers remain reproducible during upstream outages and expose accurate freshness and completeness.
 
-Current request shape:
-```ts
-type SemanticQueryRequest = {
-  question?: string;
-  query: {
-    operation: 'lookup' | 'rank' | 'compare' | 'trend' | 'split' | 'game' | 'event';
-    entity: 'player' | 'team' | 'game' | 'event' | 'league';
-    subject: {
-      names?: string[];
-      ids?: string[];
-    };
-    metrics: string[];
-    filters: {
-      season?: string | null;
-      seasonType?: string | null;
-      window?: { type: 'last_n_games'; n: number } | null;
-      dateFrom?: string | null;
-      dateTo?: string | null;
-    };
-    orderBy?: { metric: string; direction: 'asc' | 'desc' } | null;
-    limit?: number | null;
-    outputMode?: string | null;
-  };
-  options?: {
-    allowLiveFallback?: boolean;
-  };
-};
-```
+### Phase 3 — Query breadth and execution consolidation
 
-Current response shape:
-```ts
-type StatsQueryResponse = {
-  status: 'ok' | 'clarification_needed' | 'coverage_gap';
-  result: {
-    shape: 'ranking' | 'timeseries' | 'comparison';
-    columns: string[];
-    rows: Array<Record<string, string | number | null>>;
-    summary?: string;
-  } | null;
-  citations: Citation[];
-  provenance: {
-    executor: 'semantic_executor';
-    resolvedQuery: SemanticQuery | null;
-    dataFreshnessMode: DataFreshnessMode;
-    sourceCalls: TraceSourceCall[];
-  };
-  warnings: StatsQueryWarning[];
-  traceId: string;
-};
-```
+- Expand home/away, win/loss, starter/bench, playoffs, clutch, opponent, lineup, and on/off splits.
+- Support richer team, game, schedule, standings, and multi-part questions.
+- Introduce a typed intermediate query representation so equivalent phrasings compile to equivalent execution.
+- Keep filtering, calculation, ordering, joins, and artifact construction server-owned.
+- Retire legacy planner/orchestrator code after compatibility dependencies are removed.
 
-### `POST /api/chat/query`
+Exit criteria: capability growth is primarily typed data/execution work, not prompt-specific branches.
 
-Purpose:
-- raw natural-language wrapper over the semantic executor
+### Phase 4 — Grounded conversation
 
-Current request shape:
-```ts
-type ChatQueryRequest = {
-  sessionId: string;
-  message: string;
-  clientTs?: string;
-};
-```
+- Persist resolved entities, seasons, filters, prior query representation, grounded results, trace IDs, artifacts, and explicit user corrections.
+- Resolve follow-ups such as “in the playoffs,” “compare him to Scottie,” “chart that,” and “only show the makes.”
+- Compile every follow-up into a new standalone resolved query and trace.
 
-Current response shape:
-- same `StatsQueryResponse` structure as `POST /api/stats/query`
+Exit criteria: follow-ups are reproducible and do not rely on opaque transcript inference.
 
-Important note:
-- `sessionId` is currently validated but not yet used for persisted conversational grounding
+### Phase 5 — Product experience
 
-### `GET /api/query-trace/:traceId`
+- Add sortable/downloadable tables, chart interaction, drill-down, filter chips, saved searches, and shareable result URLs.
+- Allow chart/table selections to become clip searches.
+- Improve playlist buffering, retry, autoplay feedback, and unavailable-media states.
+- Add CSV/image export before optional ffmpeg playlist compilation.
 
-Purpose:
-- return semantic execution trace details for the UI and debugging
+Exit criteria: users can inspect, refine, save, share, and export grounded research flows.
 
-Current trace shape:
-```ts
-type QueryTraceResponse = {
-  traceId: string;
-  normalizedQuestion: string;
-  status: 'ok' | 'clarification_needed' | 'coverage_gap';
-  resolvedQuery: SemanticQuery | null;
-  dataFreshnessMode: DataFreshnessMode;
-  sourceCalls: TraceSourceCall[];
-  executedSources: Citation[];
-  warnings: StatsQueryWarning[];
-  computations: unknown[];
-  latencyMs: {
-    planning: number;
-    retrieval: number;
-    compute: number;
-    render: number;
-    total: number;
-  };
-  cache: {
-    hits: number;
-    misses: number;
-  };
-};
-```
+### Phase 6 — Advanced basketball intelligence
 
-## Repository Reality
+- Prototype defender attribution using play-by-play, substitutions, on-court lineups, shot events, and tracking/matchup data where legitimately available.
+- Label attribution as observed, inferred, or team-only and attach confidence/evidence.
+- Expand play-type and lineup analysis only after evaluation data supports trustworthy claims.
 
-Do not follow the old package-split assumptions from the previous draft unless the repo actually grows into them later.
+Exit criteria: the product never presents inferred defender attribution as exact observation.
 
-Relevant current paths:
-- `apps/web/src/lib/contracts`
-- `apps/web/src/lib/server/data`
-- `apps/web/src/lib/server/players`
-- `apps/web/src/lib/server/semantic`
-- `apps/web/src/routes`
-- `agents/current-state.md`
-- `agents/memory.md`
+### Phase 7 — Production readiness
 
-## Completed Milestones
+- Add authentication, quotas, rate limiting, secret management, request isolation, monitoring, backups, restore drills, and deployment/rollback runbooks.
+- Establish latency, availability, correctness, freshness, and cost SLOs.
+- Load-test the production-shaped system and scale ingestion/query workers independently.
 
-1. Foundation
-- SvelteKit app scaffold
-- health route
-- base contracts and tests
+Exit criteria: Hoop Hub can support real users with observable reliability and bounded cost.
 
-2. Planning and metric groundwork
-- deterministic normalization
-- metric resolution
-- planner invariants and validation
+## Release Gate
 
-3. Official endpoint adapters and cache
-- official NBA endpoint adapter
-- SQLite-backed cache
-- source-call persistence
+Use [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) for every merge or release candidate. Deterministic green checks alone do not certify live model behavior, upstream NBA retrieval, or browser media playback.
 
-4. Structured semantic execution for the initial vertical slice
-- `POST /api/stats/query` as the primary structured route
-- `POST /api/chat/query` as NL wrapper
-- semantic traces with canonical `resolvedQuery`
-- structured row extraction for the currently supported query families
+## Source-of-Truth Order
 
-5. Seeded player-directory and canonicalized subject resolution
-- shared seeded directory snapshot
-- curated aliases
-- canonical subject data reflected in provenance and traces
-- live-fallback gating tied to retrieval and directory refresh
-
-## Next Milestones
-
-### Milestone A: Consolidate on one semantic runtime
-
-Goals:
-- stop extending the legacy planner/mock-engine path for product behavior
-- make the semantic executor the only path future features target
-
-Exit criteria:
-- future engine slices land only on the semantic runtime path
-- legacy code is clearly compatibility-only or retired
-
-### Milestone B: Broader semantic planning and entity resolution
-
-Goals:
-- expand beyond the current narrow NL wrapper
-- handle more players, teams, seasons, and disambiguation cases
-- improve typed clarification responses for ambiguous user inputs
-
-Exit criteria:
-- broader exact-name and alias coverage
-- cleaner ambiguity handling
-- more natural-language stat questions map into supported semantic queries
-
-### Milestone C: Nightly-first materialization and stored-data-first reads
-
-Goals:
-- move from live-fetch-first to a materialized canonical read path where possible
-- preserve live fallback only for current-day or uncovered cases
-
-Exit criteria:
-- nightly ingest/finalization path exists
-- supported reads prefer stored canonical data over raw live fetches
-
-### Milestone D: Computed and derived metrics
-
-Goals:
-- support grounded derived metrics on top of canonical data
-- keep the execution model typed and auditable
-
-Exit criteria:
-- derived metric requests produce explainable computed outputs
-- provenance traces include source fields and computation details
-
-### Milestone E: Session grounding and answer/artifact composition
-
-Goals:
-- make `sessionId` meaningful
-- support follow-up resolution against prior context without losing grounding
-- improve answer composition and artifact rendering on top of structured rows
-
-Exit criteria:
-- persisted session context exists
-- follow-up queries can reuse prior grounded context
-- answer composition remains citation- and trace-backed
-
-## Constraints and Non-Goals
-
-### Constraints
-
-- Every supported answer must remain grounded in NBA data or a typed coverage/clarification response
-- Default CI should remain deterministic and fixture-backed
-- Live integration smoke coverage should stay isolated from default PR gating
-- New execution features should prefer extending semantic contracts rather than adding new legacy intent enums
-
-### Non-Goals Right Now
-
-- pretending `sessionId` is already full memory
-- adding new user-facing behavior to the legacy mock engine
-- treating summaries as the primary execution artifact
-- introducing a wide free-form compute engine before the canonical data path is ready
-
-## Verification
-
-Default verification:
-```bash
-cd apps/web
-bun run check
-bun run test
-bun run build
-```
-
-Planning context order for future agents:
-1. `agents/current-state.md`
-2. `README.md`
-3. `apps/web/README.md`
-4. `.docs/PLAN.md`
-5. `agents/memory.md`
+1. `agents/current-state.md` — concise shipped runtime state.
+2. This roadmap — current priorities and sequencing.
+3. `README.md` and `apps/web/README.md` — setup and operator commands.
+4. `agents/project-log.md` — chronological implementation history.
+5. `.docs/prds/` — historical approved slice requirements, not current-state documents.

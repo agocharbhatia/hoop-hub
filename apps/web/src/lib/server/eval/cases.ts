@@ -201,7 +201,7 @@ export const DYNAMIC_AGENT_EVAL_CASES: EvalCase[] = [
 			{
 				kind: 'bar_chart_grounded_in_rows',
 				toolName: 'call_nba_stats_endpoint',
-				labelColumn: 'PLAYER_NAME',
+				labelColumn: 'PLAYER',
 				valueColumn: 'AST'
 			}
 		],

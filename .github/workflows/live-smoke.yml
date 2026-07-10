@@ -11,8 +11,9 @@ concurrency:
 
 jobs:
   web-live-smoke:
-    name: Web Live Smoke
+    name: Dynamic Agent Live Eval
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: apps/web
@@ -31,9 +32,21 @@ jobs:
       - name: Install dependencies
         run: bun ci
 
-      - name: Run live player-resolution smoke
+      - name: Run dynamic-agent live canary
         env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_AGENT_MODEL: ${{ vars.OPENAI_AGENT_MODEL }}
           HOOP_HUB_DB_PATH: ':memory:'
           HOOP_HUB_ENABLE_LIVE_NBA: '1'
           HOOP_HUB_NBA_TIMEOUT_MS: '15000'
-        run: bun run test:live-smoke
+          HOOP_HUB_NBA_PROXY_URL: ${{ secrets.HOOP_HUB_NBA_PROXY_URL }}
+        run: bun run eval:live -- --repetitions 1 --output eval-results/live-canary
+
+      - name: Upload redacted eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dynamic-agent-live-eval-${{ github.run_id }}
+          path: apps/web/eval-results/live-canary/
+          if-no-files-found: warn
+          retention-days: 14

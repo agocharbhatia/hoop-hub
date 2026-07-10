@@ -1,13 +1,15 @@
 # PRD: Scalable Season Lookup Expansion
 
-- Status: Published
+- Status: Completed
 - GitHub Issue: [#25](https://github.com/agocharbhatia/hoop-hub/issues/25)
 
-## Problem Statement
+> Historical implementation brief. The shared capability registry, player/team lookup, directories, materialized lookup sources, planner compatibility coverage, and empty-DB/bootstrap tests described here shipped. The dynamic agent is now the primary natural-language runtime.
 
-Hoop Hub's current structured stats runtime can answer a narrow set of grounded NBA questions, but it cannot yet support broad season-level lookup asks across players and teams. From the user's perspective, that means many normal questions like "What is Jokic averaging this season?", "What's the Thunder record?", or "What is Boston's offensive rating?" either cannot be answered or require the LLM to bridge missing product behavior with prompt logic instead of using a grounded data tool.
+## Historical Problem Statement
 
-That is the wrong long-term boundary for the product. The user wants the LLM to use Hoop Hub as a factual tool and knowledge map, not as an incomplete sidecar that forces the model to guess what stats exist, what outputs are valid, or how to request them. If the LLM cannot discover the real tool surface and ask for supported season data safely, expansion becomes brittle and trust drops quickly. The current runtime also lacks a shared team resolver, a first-class lookup execution path, richer stored season payload coverage, and a machine-readable capability contract that tells the orchestration layer what the system can actually do.
+At the time of this PRD, the structured runtime lacked broad player/team season lookup, a team directory, and a shared capability contract. Those scoped gaps were subsequently implemented.
+
+The lasting design decision is that supported tool capabilities and executor validation share one contract, while canonical identity resolution and stored-data execution remain server-owned.
 
 ## Solution
 

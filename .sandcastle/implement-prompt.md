@@ -36,22 +36,22 @@ Rules:
 - Read `agents/current-state.md` before relying on older roadmap or legacy planner code.
 - Read `.sandcastle/testing-standards.md` before planning the slice test approach.
 - Use the linked GitHub issue, local mirrored PRDs under `.docs/prds/`, and `agents/current-state.md` as the main planning context for slice intent and boundaries.
-- Keep the semantic executor as the grounding and execution authority. Do not move canonical player resolution into the planner.
+- Keep server-owned tools and the semantic executor as grounding authorities. Do not move canonical identity resolution, computation, joins, or artifact truth into model-authored output.
 - Do not add new product behavior to the legacy mock planner/query-engine path unless the task explicitly requires compatibility coverage.
 - Keep `POST /api/stats/query` public as the direct structured executor route.
 - Follow TDD for non-trivial behavior: derive a concrete slice test matrix from the task acceptance criteria, then add or update behavior-first tests before broad implementation.
 - For query-facing slices, explicitly derive `query_acceptance_examples` and `answer_quality_expectations` from the task before broad implementation, even if the issue body did not spell them out cleanly.
 - Prefer deterministic tests with fakes over live-model assertions.
 - Planner service tests with mocked adapter outputs and `/api/query` tests with injected planner decisions are not sufficient on their own for query-facing slices.
-- If the slice changes planner behavior, `/api/query`, supported query shapes, answer rendering, or query traces, add or update real natural-language query smoke coverage in `apps/web/smoke/query-acceptance.smoke.test.ts` using the exact supported phrasings for the slice.
+- If the slice changes `/api/query`, supported query shapes, tool selection, answer/artifact composition, or query traces, add or update data-defined cases in `apps/web/src/lib/server/eval/` using the exact supported phrasings for the slice.
 - Query smoke is not complete unless at least one assertion checks answer quality, not just tool shape or status. Assert the answer sounds natural for the supported ask and handles limitations honestly when relevant.
-- Keep real planner smoke cheap: fixture-backed semantic data only, `HOOP_HUB_ENABLE_LIVE_NBA=0`, and a tiny acceptance corpus.
+- Keep deterministic agent evaluation fixture-backed and network-free. Use `bun run eval:live` only as a separate, explicit release gate.
 - For library or API integration details, use up-to-date official documentation rather than guessing.
 - Work only on this task.
 - Preserve existing behavior outside the task scope.
 - Prefer simple, modular, strictly typed code.
 - Add or update tests before broad implementation when the behavior is non-trivial.
-- Run the relevant checks before finishing.
+- Run the relevant checks before finishing. The default full gate is documented in `.docs/RELEASE_CHECKLIST.md`.
 - Update `agents/project-log.md` with a short note only if the task materially changes architecture, workflow assumptions, or introduces a lesson worth preserving.
 - Do not update the task file yourself.
 - Do not create a PR.

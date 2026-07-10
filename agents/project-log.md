@@ -1,5 +1,15 @@
 # Project Log
 
+This is chronological implementation history, not a current roadmap. For shipped runtime state read `agents/current-state.md`; for priorities read `.docs/PLAN.md`. Older entries intentionally preserve the architecture and terminology that existed when each slice landed.
+
+## 2026-07-10 — dynamic agent, artifacts, clips, and eval
+
+- `POST /api/query` now uses the dynamic tool-loop agent rather than the closed planner/orchestrator as its production runtime.
+- Full-result aggregation, chronological analysis, grounded table/chart/shot-chart composition, direct event playlists, and exact custom-shot video joins are shipped.
+- Custom-shot retrieval filters `shotchartdetail`, joins videos on `(GAME_ID, GAME_EVENT_ID)`, and caps only after joining.
+- Deterministic and live agent eval modes are shipped, with a separate deterministic custom-shot contract suite.
+- Product warnings now suppress successful-request transport diagnostics, and artifact reconciliation prevents displayed populations from diverging from quoted computations.
+
 ## 2026-04-01
 
 - PRD drafted: `OpenAI Planner Runtime For POST /api/query In The Current Stats Domain`.

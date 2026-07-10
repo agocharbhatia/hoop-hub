@@ -21,7 +21,7 @@ Hoop Hub is currently a single Bun + SvelteKit app that answers grounded NBA sta
 - Nightly reads reuse the latest stored snapshot at or before the query date, so prior-day materializations remain readable on later days.
 - The legacy closed planner and semantic executor modules remain in the tree for compatibility and direct tests, but they are no longer the default `/api/query` runtime.
 
-Detailed implementation context for future agents lives in [agents/current-state.md](agents/current-state.md), [agents/project-log.md](agents/project-log.md), and [`.docs/PLAN.md`](.docs/PLAN.md).
+Detailed implementation context for future agents lives in [agents/current-state.md](agents/current-state.md), [`.docs/PLAN.md`](.docs/PLAN.md), [`.docs/RELEASE_CHECKLIST.md`](.docs/RELEASE_CHECKLIST.md), and [agents/project-log.md](agents/project-log.md).
 
 ## TODO
 
@@ -33,13 +33,17 @@ Detailed implementation context for future agents lives in [agents/current-state
 - [x] Dynamic `/api/query` agent with cataloged NBA Stats tool calls and dynamic trace payloads
 - [ ] Consolidate legacy closed-planner compatibility once dynamic-agent coverage is broad enough
 - [ ] Broaden structured semantic planning and entity resolution beyond the current supported families
-- [ ] Implement nightly-first ingest/materialization and stored-data-first reads
+- [x] Add resumable nightly bootstrap/materialization and stored-data-first structured reads
+- [ ] Productionize scheduled ingestion, freshness SLOs, historical coverage, and data-quality monitoring
 - [x] Add grounded derived/computed metric execution (`aggregate_endpoint_rows` filters/groups/aggregates full result sets server-side)
 - [x] Add richer visualization artifacts (line, bar, and half-court shot chart components render agent artifacts in the UI)
 - [ ] Add persisted session grounding and stronger answer/artifact composition
 - [x] Add the dynamic-agent evaluation harness and performance gates
 - [x] Clip retrieval and playlist output (`find_video_clips` over `videodetailsasset` + sequential playlist player in the UI)
 - [x] Exact custom-shot playlists (`shotchartdetail` event filters joined to playable clips by game/event id)
+- [ ] Expand the eval corpus and scheduled dynamic-agent live canary
+- [ ] Retire legacy planner/orchestrator compatibility code
+- [ ] Add production deployment, observability, authentication, quotas, and server-grade storage
 
 ## Local Setup
 
@@ -95,6 +99,7 @@ bun run check
 bun run test
 bun run build
 bun run eval
+bun run eval:custom-shots
 ```
 
 ## Dynamic-Agent Evaluation
@@ -136,7 +141,9 @@ Custom playlists are ordered chronologically by game date, game id, and event id
 
 The action families cover the values observed in live shot logs, including pull-ups, step-backs, layups, dunks, hooks, floaters, fadeaways, turnarounds, putbacks, tips, alley-oops, cutting/running actions, bank shots, and finger rolls. Zone mappings cover the restricted area, non-restricted paint, mid-range, both corners, above-the-break threes, and backcourt. Unsupported terminology is rejected rather than broadened. Named-defender filtering remains unavailable: the agent must ask before substituting the defender's team. Browser autoplay policies can still require the user to press the native video play control; the playlist surfaces that fallback without treating it as missing NBA video.
 
-`bun run eval:custom-shots` runs deterministic custom-video contract cases, including paraphrases, empty combinations, and partial joins. Live model, NBA data, and playback checks remain non-gating because they require credentials and network/video availability.
+`bun run eval:custom-shots` runs deterministic custom-video contract cases, including paraphrases, empty combinations, and partial joins. Live model, NBA data, and playback checks remain separate release gates because they require credentials and network/video availability.
+
+The full deterministic, live, and browser release gate is documented in [`.docs/RELEASE_CHECKLIST.md`](.docs/RELEASE_CHECKLIST.md).
 
 ## CI
 

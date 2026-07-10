@@ -13,8 +13,10 @@ codex:
 verify:
   commands:
     - cd apps/web && bun run check
+    - cd apps/web && bun run check:endpoint-catalog-contracts
     - cd apps/web && bun run test
-    - cd apps/web && HOOP_HUB_REQUIRE_PLANNER_SMOKE=1 bun run test:planner-smoke
+    - cd apps/web && bun run eval
+    - cd apps/web && bun run eval:custom-shots
     - cd apps/web && bun run build
 logging:
   run_log: .sandcastle/logs/run.log
