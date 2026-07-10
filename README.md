@@ -37,7 +37,7 @@ Detailed implementation context for future agents lives in [agents/current-state
 - [x] Add grounded derived/computed metric execution (`aggregate_endpoint_rows` filters/groups/aggregates full result sets server-side)
 - [x] Add richer visualization artifacts (line, bar, and half-court shot chart components render agent artifacts in the UI)
 - [ ] Add persisted session grounding and stronger answer/artifact composition
-- [ ] Add the evaluation harness and performance gates
+- [x] Add the dynamic-agent evaluation harness and performance gates
 - [x] Clip retrieval and playlist output (`find_video_clips` over `videodetailsasset` + sequential playlist player in the UI)
 
 ## Local Setup
@@ -94,6 +94,34 @@ bun run check
 bun run test
 bun run build
 ```
+
+## Dynamic-Agent Evaluation
+
+The default evaluation suite is deterministic and offline. It replays explicit model tool decisions through the real dynamic-agent service and uses endpoint fixtures for numeric, artifact, warning, clip-intent, and response-hygiene assertions:
+
+```bash
+cd apps/web
+bun run eval
+```
+
+Live-model evaluation is a separate, explicit command. It uses the configured OpenAI model plus the normal NBA cache/live endpoint client and is never invoked by `bun run test` or the default CI workflow:
+
+```bash
+cd apps/web
+bun run eval:live
+```
+
+The made-three case defaults to 20 live repetitions because its intent broadening was nondeterministic. Use focused filters or a repetition override for smaller smoke runs:
+
+```bash
+bun run eval -- --case scottie-made-threes-vs-boston
+bun run eval:live -- --tag clips --repetitions 1
+bun run eval:live -- --case scottie-made-threes-vs-boston --repetitions 20
+```
+
+Each invocation exits nonzero when a required gate fails and writes redacted `results.jsonl` plus `summary.md` under `apps/web/eval-results/<timestamp>-<mode>/` by default. Use `--output <directory>` to choose another report location, and `--help` for all filters.
+
+Local evals certify the deterministic tool/parser/reconciliation path; only live evals exercise natural-language model decisions. Playlist contents are checked structurally here, while actual video playback and auto-advance still require browser QA.
 
 ## CI
 

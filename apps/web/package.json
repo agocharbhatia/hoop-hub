@@ -23,6 +23,8 @@
 		"dev": "bun --bun vite dev",
 		"build": "bun --bun vite build",
 		"preview": "bun --bun vite preview",
+		"eval": "bun ./scripts/run-evals.ts --mode local",
+		"eval:live": "bun ./scripts/run-evals.ts --mode live",
 		"nightly:bootstrap": "bun ./scripts/nightly-bootstrap.ts",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",

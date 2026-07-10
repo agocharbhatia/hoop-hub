@@ -56,3 +56,10 @@ Derived/computed metrics now run through the agent's `aggregate_endpoint_rows` t
   - `cd apps/web && bun run build`
 - Fixture-backed semantic tests are the main guardrail for default CI.
 - Live integration smoke coverage should stay isolated from default PR gating.
+- Dynamic-agent model evaluation now has two explicit modes:
+  - `cd apps/web && bun run eval` replays data-defined model turns against deterministic endpoint fixtures with no OpenAI or NBA network calls.
+  - `cd apps/web && bun run eval:live` uses the configured OpenAI model and normal NBA cache/live endpoint client; it is excluded from `bun run test` and ordinary CI.
+- Eval cases, invariants, fixture adapters, runner, and redacted JSONL/Markdown reports live in `apps/web/src/lib/server/eval/`; the thin CLI entry point is `apps/web/scripts/run-evals.ts`.
+- Focus runs accept `--case`, `--tag`, and `--repetitions`. The made-three stochastic gate defaults to 20 live repetitions, while `--repetitions 1` is suitable for a credential smoke.
+- Current required eval coverage includes pull-up mid-range grounding and shot-chart reconciliation, latest-ten trend chronology, top-five truncation hygiene, stable made-three clip intent/FG3M mapping, named-defender fallback rejection, and global product-response diagnostic hygiene.
+- The server eval validates playlist contents and contracts, not browser media playback or auto-advance; keep real-browser playlist QA as a separate merge-readiness check.
