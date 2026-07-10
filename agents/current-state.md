@@ -68,4 +68,5 @@ Derived/computed metrics now run through the agent's `aggregate_endpoint_rows` t
 - Focus runs accept `--case`, `--tag`, and `--repetitions`. The made-three stochastic gate defaults to 20 live repetitions, while `--repetitions 1` is suitable for a credential smoke.
 - Current required eval coverage includes pull-up mid-range grounding and shot-chart reconciliation, latest-ten trend chronology, top-five truncation hygiene, stable made-three clip intent/FG3M mapping, named-defender fallback rejection, and global product-response diagnostic hygiene.
 - The server eval validates playlist contents and contracts, not browser media playback or auto-advance; keep real-browser playlist QA as a separate merge-readiness check.
+- `.github/workflows/live-smoke.yml` runs the dynamic-agent live eval on a daily schedule and manual dispatch, with redacted reports uploaded as workflow artifacts.
 - The complete merge/release gate is documented in `.docs/RELEASE_CHECKLIST.md`.

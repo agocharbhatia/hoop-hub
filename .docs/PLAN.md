@@ -37,6 +37,8 @@ The old planner, query orchestrator, answer renderer, and mock engine remain com
 
 ### Phase 0 — Repository reconciliation
 
+Status: completed 2026-07-10. Keep these checks as ongoing repository hygiene.
+
 - Keep all current-state documentation aligned with the shipped routes and runtime.
 - Archive completed GitHub slices and leave only active work open.
 - Maintain one release checklist for deterministic, live, and browser verification.
