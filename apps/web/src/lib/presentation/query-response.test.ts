@@ -4,6 +4,7 @@ import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
 import type { ErrorResponse } from '$lib/contracts/chat';
 import {
 	getAssistantMessageContent,
+	getChartPlaceholderArtifacts,
 	getPrimaryTableArtifact,
 	getSupportingTableArtifacts,
 	getVisibleWarningMessages
@@ -173,6 +174,65 @@ describe('getSupportingTableArtifacts', () => {
 	});
 });
 
+describe('getChartPlaceholderArtifacts', () => {
+	test('returns placeholder metadata for chart artifacts', () => {
+		const payload = buildOkResponse({
+			artifacts: [
+				{
+					type: 'line_chart',
+					title: 'Scoring Trend',
+					xLabel: 'Game',
+					yLabel: 'Points',
+					series: [
+						{
+							name: 'Points',
+							points: [
+								{ x: 'Game 1', y: 24 },
+								{ x: 'Game 2', y: 31 }
+							]
+						}
+					]
+				},
+				{
+					type: 'shot_chart',
+					title: 'Shot Map',
+					shots: [
+						{ locX: 10, locY: 20, made: true },
+						{ locX: -4, locY: 12, made: false }
+					]
+				}
+			]
+		});
+
+		assert.deepEqual(
+			getChartPlaceholderArtifacts(payload).map((chart) => ({
+				title: chart.title,
+				dataPointCount: chart.dataPointCount
+			})),
+			[
+				{ title: 'Scoring Trend', dataPointCount: 2 },
+				{ title: 'Shot Map', dataPointCount: 2 }
+			]
+		);
+	});
+
+	test('ignores unknown artifact values without throwing', () => {
+		const payload = buildOkResponse({
+			artifacts: [
+				null,
+				{
+					type: 'unknown_chart',
+					title: 'Unsupported'
+				}
+			] as unknown as QueryAnswerResponse['artifacts']
+		});
+
+		assert.deepEqual(getChartPlaceholderArtifacts(payload), []);
+		assert.equal(getPrimaryTableArtifact(payload), null);
+		assert.deepEqual(getSupportingTableArtifacts(payload), []);
+	});
+});
+
 describe('getVisibleWarningMessages', () => {
 	test('returns warning messages in payload order for UI presentation', () => {
 		const payload = buildOkResponse({
@@ -192,5 +252,26 @@ describe('getVisibleWarningMessages', () => {
 			'Defensive rating was unavailable in the latest nightly snapshot.',
 			'The answer is based on the available offensive rating result only.'
 		]);
+	});
+
+	test('hides execution diagnostics and non-blocking model metadata', () => {
+		const payload = buildOkResponse({
+			warnings: [
+				{
+					code: 'nba_endpoint_unavailable',
+					message: 'transport=direct; timeout_ms=15000; retry_count=2; Error: HTTP 400'
+				},
+				{
+					code: 'dynamic_agent_scope_assumption',
+					message: 'Season scope assumed: 2025-26 Regular Season.'
+				},
+				{
+					code: 'dynamic_agent_partial_data',
+					message: 'Only seven of the requested ten games were available.'
+				}
+			]
+		});
+
+		assert.deepEqual(getVisibleWarningMessages(payload), ['Only seven of the requested ten games were available.']);
 	});
 });

@@ -1,6 +1,7 @@
 import type { QueryAnswerPlannedToolRequest } from '$lib/contracts/answer-response';
 import type { Citation, DataFreshnessMode, TraceSourceCall } from '$lib/contracts/chat';
 import type {
+	DynamicAgentQueryTraceResponse,
 	OrchestrationQueryTraceResponse,
 	QueryTraceResponse,
 	SemanticQueryTraceResponse
@@ -21,6 +22,7 @@ type StoredOrchestrationTrace = {
 
 const semanticTraceStore = new Map<string, SemanticQueryTraceResponse>();
 const orchestrationTraceStore = new Map<string, StoredOrchestrationTrace>();
+const dynamicAgentTraceStore = new Map<string, DynamicAgentQueryTraceResponse>();
 
 /* Helper functions */
 
@@ -43,6 +45,21 @@ function clonePlannedToolRequests(
 		toolName: plannedToolRequest.toolName,
 		request: JSON.parse(JSON.stringify(plannedToolRequest.request))
 	}));
+}
+
+function cloneDynamicAgentTrace(trace: DynamicAgentQueryTraceResponse): DynamicAgentQueryTraceResponse {
+	return {
+		...trace,
+		sourceCalls: cloneSourceCalls(trace.sourceCalls),
+		executedSources: cloneCitations(trace.executedSources),
+		warnings: cloneWarnings(trace.warnings),
+		computations: trace.computations.map((computation) => ({ ...computation, sourceFields: [...computation.sourceFields] })),
+		toolCalls: trace.toolCalls.map((toolCall) => ({
+			...toolCall,
+			request: JSON.parse(JSON.stringify(toolCall.request))
+		})),
+		artifacts: JSON.parse(JSON.stringify(trace.artifacts))
+	};
 }
 
 function saveTraceSourceCalls(traceId: string, dataFreshnessMode: DataFreshnessMode, sourceCalls: TraceSourceCall[]): void {
@@ -209,11 +226,30 @@ export function saveOrchestrationTrace(
 	saveOrchestrationTraceReferences(trace.traceId, trace.plannedToolRequests, trace.executedStructuredTraceIds);
 }
 
+export function saveDynamicAgentTrace(trace: DynamicAgentQueryTraceResponse): void {
+	dynamicAgentTraceStore.set(trace.traceId, cloneDynamicAgentTrace(trace));
+	saveTraceSourceCalls(trace.traceId, trace.dataFreshnessMode, trace.sourceCalls);
+}
+
 export function getSemanticTraceById(traceId: string): SemanticQueryTraceResponse | null {
 	return getStoredSemanticTraceById(traceId);
 }
 
 export function getQueryTraceById(traceId: string): QueryTraceResponse | null {
+	const dynamicAgentTrace = dynamicAgentTraceStore.get(traceId);
+	if (dynamicAgentTrace) {
+		const persistedSourceCalls = loadTraceSourceCalls(traceId);
+		return {
+			...cloneDynamicAgentTrace(dynamicAgentTrace),
+			...(persistedSourceCalls
+				? {
+						dataFreshnessMode: persistedSourceCalls.dataFreshnessMode,
+						sourceCalls: cloneSourceCalls(persistedSourceCalls.sourceCalls)
+					}
+				: {})
+		};
+	}
+
 	const orchestrationTrace = orchestrationTraceStore.get(traceId);
 	if (orchestrationTrace) {
 		const persistedReferences = loadOrchestrationTraceReferences(traceId);

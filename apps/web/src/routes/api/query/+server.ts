@@ -1,11 +1,9 @@
 import { json } from '@sveltejs/kit';
+import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
 import type { AnswerRendererService } from '$lib/server/answer-renderer/service';
-import {
-	createDefaultAnswerRendererService,
-	createDeterministicAnswerRendererService
-} from '$lib/server/answer-renderer/service';
+import { createDeterministicAnswerRendererService } from '$lib/server/answer-renderer/service';
+import type { DynamicQueryAgent } from '$lib/server/agent/types';
 import type { PlannerService } from '$lib/server/planner/service';
-import { createPlannerService } from '$lib/server/planner/service';
 import { createQueryOrchestratorService, type QueryOrchestratorService } from '$lib/server/query-orchestrator/service';
 import { createSemanticBatchExecutor } from '$lib/server/query-orchestrator/semantic-batch-executor';
 import {
@@ -15,57 +13,62 @@ import {
 } from '$lib/server/semantic/query-service';
 import type { RequestHandler } from './$types';
 
-type QueryRouteDependencies = {
-	orchestrator: QueryOrchestratorService;
+type QueryRouteRuntime = {
+	answerQuestion(question: string): Promise<QueryAnswerResponse>;
 };
 
-let testDependencies: QueryRouteDependencies | null = null;
-let defaultPlannerService: PlannerService | null = null;
-let defaultAnswerRendererService: AnswerRendererService | null = null;
+type DynamicQueryRouteDependencies = {
+	answerQuestion: DynamicQueryAgent['answerQuestion'];
+};
+
+type LegacyPlannerRouteDependencies = {
+	planQuestion: PlannerService['planQuestion'];
+	executeSemanticQuery: typeof executeSemanticQuery;
+	renderAnswer?: AnswerRendererService['renderAnswer'];
+};
+
+type QueryRouteTestDependencies = DynamicQueryRouteDependencies | LegacyPlannerRouteDependencies;
+
+let testDependencies: QueryRouteRuntime | null = null;
+let defaultDynamicAgent: DynamicQueryAgent | null = null;
+let testDefaultDynamicAgentFactory: (() => Promise<DynamicQueryAgent>) | null = null;
 let testDefaultPlannerFactory: (() => Promise<PlannerService>) | null = null;
 
 /**
- * Allows route tests to isolate planner and executor behavior without relying on live model calls.
+ * Allows route tests to isolate the dynamic query engine without relying on live model calls.
  */
-export function _setQueryRouteDependenciesForTests(
-	dependencies:
-		| {
-				planQuestion: PlannerService['planQuestion'];
-				executeSemanticQuery: typeof executeSemanticQuery;
-				renderAnswer?: AnswerRendererService['renderAnswer'];
-		  }
-		| null
-): void {
+export function _setQueryRouteDependenciesForTests(dependencies: QueryRouteTestDependencies | null): void {
 	if (!dependencies) {
 		testDependencies = null;
 		return;
 	}
 
+	if (isDynamicQueryRouteDependencies(dependencies)) {
+		testDependencies = {
+			answerQuestion: dependencies.answerQuestion
+		};
+		return;
+	}
+
 	testDependencies = {
-		orchestrator: createQueryOrchestratorService({
-			planner: {
-				planQuestion: dependencies.planQuestion
-			},
-			renderer: {
-				renderAnswer:
-					dependencies.renderAnswer ??
-					createDeterministicAnswerRendererService().renderAnswer
-			},
-			batchExecutor: createSemanticBatchExecutor({
-				validateSemanticQueryRequest,
-				executeSemanticQuery: dependencies.executeSemanticQuery
-			}),
-			buildSemanticNonOkResponse
-		})
+		answerQuestion: createLegacyOrchestratorForCompatibility(dependencies).answerQuestion
 	};
 }
 
 /**
- * Allows route tests to prove injected dependencies bypass default planner creation.
+ * Allows route tests to prove injected dependencies bypass default dynamic-agent creation.
+ */
+export function _setDefaultDynamicAgentFactoryForTests(factory: (() => Promise<DynamicQueryAgent>) | null): void {
+	testDefaultDynamicAgentFactory = factory;
+	defaultDynamicAgent = null;
+}
+
+/**
+ * Retained for older planner-route tests that still import the legacy helper.
  */
 export function _setDefaultPlannerFactoryForTests(factory: (() => Promise<PlannerService>) | null): void {
 	testDefaultPlannerFactory = factory;
-	defaultPlannerService = null;
+	defaultDynamicAgent = null;
 }
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -82,61 +85,79 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	try {
-		const dependencies = getDependencies();
-		const answer = await dependencies.orchestrator.answerQuestion(parsed.value.question);
+		const dependencies = await getDependencies();
+		const answer = await dependencies.answerQuestion(parsed.value.question);
 		return json(answer, { status: 200 });
 	} catch (error) {
-		console.error('Unexpected planner query handler error:', error);
+		console.error('Unexpected dynamic query handler error:', error);
 		return json({ error: 'Internal server error.' }, { status: 500 });
 	}
 };
 
 /* Helper functions */
 
-function getDependencies(): QueryRouteDependencies {
+async function getDependencies(): Promise<QueryRouteRuntime> {
 	if (testDependencies) {
 		return testDependencies;
 	}
 
+	const agent = await getDefaultDynamicAgent();
 	return {
-		orchestrator: createQueryOrchestratorService({
-			planner: {
-				planQuestion: async (question) => {
-					const planner = await getDefaultPlannerService();
-					return planner.planQuestion(question);
-				}
-			},
-			renderer: getDefaultAnswerRendererService(),
-			batchExecutor: createSemanticBatchExecutor({
-				validateSemanticQueryRequest,
-				executeSemanticQuery
-			}),
-			buildSemanticNonOkResponse
-		})
+		answerQuestion: agent.answerQuestion
 	};
 }
 
-async function getDefaultPlannerService(): Promise<PlannerService> {
-	if (defaultPlannerService) {
-		return defaultPlannerService;
+async function getDefaultDynamicAgent(): Promise<DynamicQueryAgent> {
+	if (defaultDynamicAgent) {
+		return defaultDynamicAgent;
 	}
 
-	if (testDefaultPlannerFactory) {
-		defaultPlannerService = await testDefaultPlannerFactory();
-		return defaultPlannerService;
+	if (testDefaultDynamicAgentFactory) {
+		defaultDynamicAgent = await testDefaultDynamicAgentFactory();
+		return defaultDynamicAgent;
 	}
 
-	const { createOpenAIPlannerAdapter } = await import('$lib/server/planner/openai-adapter');
-	defaultPlannerService = createPlannerService(createOpenAIPlannerAdapter());
-	return defaultPlannerService;
+	const [
+		{ createDynamicQueryAgent, createDefaultPlayerDirectoryAdapter, createDefaultTeamDirectoryAdapter },
+		{ createOpenAIDynamicAgentAdapter },
+		{ createStatsEndpointFetcher }
+	] = await Promise.all([
+		import('$lib/server/agent/service'),
+		import('$lib/server/agent/openai-adapter'),
+		import('$lib/server/data/adapters/stats-endpoint-client')
+	]);
+
+	defaultDynamicAgent = createDynamicQueryAgent({
+		model: createOpenAIDynamicAgentAdapter(),
+		endpointFetcher: createStatsEndpointFetcher(),
+		playerDirectory: createDefaultPlayerDirectoryAdapter(),
+		teamDirectory: createDefaultTeamDirectoryAdapter()
+	});
+	return defaultDynamicAgent;
 }
 
-function getDefaultAnswerRendererService(): AnswerRendererService {
-	if (!defaultAnswerRendererService) {
-		defaultAnswerRendererService = createDefaultAnswerRendererService();
-	}
+function createLegacyOrchestratorForCompatibility(dependencies: LegacyPlannerRouteDependencies): QueryOrchestratorService {
+	return createQueryOrchestratorService({
+		planner: {
+			planQuestion: dependencies.planQuestion
+		},
+		renderer: {
+			renderAnswer:
+				dependencies.renderAnswer ??
+				createDeterministicAnswerRendererService().renderAnswer
+		},
+		batchExecutor: createSemanticBatchExecutor({
+			validateSemanticQueryRequest,
+			executeSemanticQuery: dependencies.executeSemanticQuery
+		}),
+		buildSemanticNonOkResponse
+	});
+}
 
-	return defaultAnswerRendererService;
+function isDynamicQueryRouteDependencies(
+	dependencies: QueryRouteTestDependencies
+): dependencies is DynamicQueryRouteDependencies {
+	return 'answerQuestion' in dependencies;
 }
 
 function validateQueryQuestionRequest(input: unknown): { ok: true; value: { question: string } } | { ok: false; error: string } {

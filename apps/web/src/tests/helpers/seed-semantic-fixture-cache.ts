@@ -1,5 +1,6 @@
 import { getEndpointCatalogEntry } from '$lib/server/data/catalog';
-import { buildRawEndpointCacheKey, getDataStore, stableStringify } from '$lib/server/data/store';
+import { normalizeEndpointParams } from '$lib/server/data/adapters';
+import { buildRawEndpointCacheKey, getDataStore } from '$lib/server/data/store';
 import { listDeterministicFixtureEntries } from '$lib/server/nightly/deterministic-fixtures';
 
 type CachedFixtureInput = {
@@ -15,7 +16,7 @@ function putCachedFixture({ endpointId, params, payload, now }: CachedFixtureInp
 		throw new Error(`Missing endpoint catalog entry for '${endpointId}'.`);
 	}
 
-	const normalizedParams = JSON.parse(stableStringify(params)) as Record<string, string>;
+	const normalizedParams = normalizeEndpointParams(endpointId, params);
 	const snapshotDate = now.toISOString().slice(0, 10);
 	const cacheKey = buildRawEndpointCacheKey({
 		endpointId,

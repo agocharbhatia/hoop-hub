@@ -1237,6 +1237,18 @@ export class DataStore {
 		return statement.get()?.count ?? 0;
 	}
 
+	getPlayerDirectorySnapshotVersion(): string | null {
+		if (!this.sqlite) {
+			const first = this.playerDirectoryByIdMemory.values().next();
+			return first.done ? null : first.value.snapshotVersion;
+		}
+
+		const statement = this.sqlite.query<{ snapshot_version: string }, void>(
+			'SELECT snapshot_version FROM player_directory_entries LIMIT 1'
+		);
+		return statement.get()?.snapshot_version ?? null;
+	}
+
 	getPlayerDirectoryEntryById(playerId: string): PlayerDirectoryEntryRecord | null {
 		if (!this.sqlite) {
 			return this.playerDirectoryByIdMemory.get(playerId) ?? null;
