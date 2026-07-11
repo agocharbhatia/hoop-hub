@@ -11,6 +11,7 @@ Hoop Hub is currently a single Bun + SvelteKit app that answers grounded NBA sta
 - Trace route: `GET /api/query-trace/:traceId`
 - `/api/query` can iteratively resolve players/teams, call cataloged NBA Stats endpoints live-first, reuse SQLite raw endpoint cache rows, and return grounded prose plus artifact specs.
 - Named-player research questions such as “Tatum FG% when guarded by Scottie Barnes” use NBA Advanced Stats tracking-derived matchup data with role, evidence, and sample-size grounding.
+- Defender leaderboard questions such as “Who does Scottie defend best?” rank the full tracked matchup population server-side with explicit minimum attempts/possessions so tiny samples cannot win by default.
 - Supported semantic query families:
   - player and team season lookups
   - player rankings
@@ -47,6 +48,7 @@ Detailed implementation context for future agents lives in [agents/current-state
 - [x] Clip retrieval and playlist output (`find_video_clips` over `videodetailsasset` + sequential playlist player in the UI)
 - [x] Exact custom-shot playlists (`shotchartdetail` event filters joined to playable clips by game/event id)
 - [x] Tracking-derived offensive-player versus named-defender matchup stats with grounded tables and small-sample labeling
+- [x] Sample-qualified defender matchup leaderboards across shooting, volume, possession, scoring, assist, and turnover metrics
 - [x] Expand the deterministic eval matrix, track model usage/cost inputs, and run a scheduled dynamic-agent live canary
 - [ ] Retire legacy planner/orchestrator compatibility code
 - [ ] Add production deployment, observability, authentication, quotas, and server-grade storage

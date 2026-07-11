@@ -17,6 +17,7 @@ export type EvalFixtureId =
 	| 'endpoint_failure'
 	| 'semantic_only'
 	| 'tatum_scottie_matchup'
+	| 'scottie_defender_leaderboard'
 	| 'scottie_made_threes_boston'
 	| 'named_defender';
 

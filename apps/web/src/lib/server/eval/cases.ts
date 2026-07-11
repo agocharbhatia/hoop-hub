@@ -648,6 +648,77 @@ export const DYNAMIC_AGENT_EVAL_CASES: EvalCase[] = [
 		}
 	},
 	{
+		id: 'scottie-defender-lowest-fg-pct',
+		tags: ['matchup', 'defender', 'ranking', 'tracking', 'table', 'sample-floor'],
+		prompts: [
+			'Which players did Scottie Barnes hold to the lowest field-goal percentage this season? Require at least 10 FGA and 25 partial matchup possessions.',
+			'Who does Scottie defend best by tracked FG% in 2025-26? Show the top five with minimum 10 shots and 25 partial possessions.'
+		],
+		repetitions: { local: 1, live: 3 },
+		expectedStatus: 'ok',
+		requiredTools: ['resolve_players', 'rank_defender_matchups'],
+		forbiddenTools: ['aggregate_endpoint_rows', 'find_video_clips', 'analyze_player_matchup'],
+		artifactExpectations: [{ type: 'table', count: 1, minItems: 1, maxItems: 5 }],
+		warningExpectations: { maxCount: 0 },
+		assertions: [
+			{
+				kind: 'value', label: 'defender leaderboard metric',
+				source: { type: 'tool_request', toolName: 'rank_defender_matchups' },
+				path: 'metric', operator: 'equals', expected: 'fgPct'
+			},
+			{
+				kind: 'value', label: 'defender leaderboard direction',
+				source: { type: 'tool_request', toolName: 'rank_defender_matchups' },
+				path: 'direction', operator: 'equals', expected: 'asc'
+			},
+			{
+				kind: 'value', label: 'field-goal attempt floor',
+				source: { type: 'tool_request', toolName: 'rank_defender_matchups' },
+				path: 'minFga', operator: 'equals', expected: 10
+			},
+			{
+				kind: 'value', label: 'partial possession floor',
+				source: { type: 'tool_request', toolName: 'rank_defender_matchups' },
+				path: 'minPartialPossessions', operator: 'equals', expected: 25
+			},
+			{
+				kind: 'value', label: 'server-ranked lowest qualifying fg percentage',
+				source: { type: 'tool_result', toolName: 'rank_defender_matchups' },
+				path: 'data.rows.0.fgPct', operator: 'equals', expected: 0.286
+			},
+			{
+				kind: 'value', label: 'tiny sample excluded from artifact',
+				source: { type: 'artifact', artifactType: 'table' },
+				path: 'rows.0.offensivePlayer', operator: 'equals', expected: 'Nickeil Alexander-Walker'
+			},
+			{ kind: 'answer_includes', values: ['tracking', '10', '25'] }
+		],
+		limits: { maxToolCalls: 3, maxLatencyMs: 90_000 },
+		local: {
+			fixtureId: 'scottie_defender_leaderboard',
+			turns: [
+				{ kind: 'tools', calls: [{ name: 'resolve_players', arguments: { names: ['Scottie Barnes'] } }] },
+				{
+					kind: 'tools',
+					calls: [{
+						name: 'rank_defender_matchups',
+						arguments: {
+							defensivePlayerId: '1630567', season: '2025-26', seasonType: 'Regular Season',
+							metric: 'fgPct', direction: 'asc', limit: 5, minGames: 1, minFga: 10,
+							minFg3a: 0, minPartialPossessions: 25
+						}
+					}]
+				},
+				{ kind: 'stop' }
+			],
+			finalOutput: {
+				answer: 'NBA tracking matchup data ranks the qualifying opponents after minimums of 10 FGA and 25 partial possessions.',
+				artifacts: [{ type: 'table', shape: 'table', columns: ['wrong'], rows: [{ wrong: 999 }] }],
+				warnings: []
+			}
+		}
+	},
+	{
 		id: 'tatum-fg-pct-guarded-by-scottie',
 		tags: ['matchup', 'defender', 'tracking', 'table', 'grounding', 'small-sample'],
 		prompts: [

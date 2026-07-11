@@ -35,8 +35,13 @@ import {
 	type CustomShotZoneArea
 } from './custom-shot-clips';
 import {
+	buildDefenderMatchupLeaderboardEndpointRequest,
 	buildPlayerMatchupEndpointRequest,
+	parseDefenderMatchupLeaderboardPayload,
 	parsePlayerMatchupPayload,
+	type DefenderMatchupLeaderboardData,
+	type DefenderMatchupLeaderboardRequest,
+	type DefenderMatchupRankingMetric,
 	type PlayerMatchupData,
 	type PlayerMatchupRequest
 } from './player-matchups';
@@ -67,6 +72,7 @@ const TOOL_NAMES: QueryAnswerAgentToolName[] = [
 	'resolve_teams',
 	'execute_semantic_query',
 	'analyze_player_matchup',
+	'rank_defender_matchups',
 	'call_nba_stats_endpoint',
 	'aggregate_endpoint_rows',
 	'analyze_time_series',
@@ -274,6 +280,11 @@ type ParsedToolRequest =
 	  }
 	| {
 			ok: true;
+			toolName: 'rank_defender_matchups';
+			request: DefenderMatchupLeaderboardRequest;
+	  }
+	| {
+			ok: true;
 			toolName: 'call_nba_stats_endpoint';
 			request: {
 				endpointId: string;
@@ -391,8 +402,11 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			const groundedArtifacts = reconcileVideoPlaylists(
 				reconcileTimeSeriesLineCharts(
 					reconcileFilteredShotCharts(
-						reconcilePlayerMatchupTables(
-							reconcileSemanticTables(finalOutput.artifacts, executionContext.toolResults),
+						reconcileDefenderLeaderboardTables(
+							reconcilePlayerMatchupTables(
+								reconcileSemanticTables(finalOutput.artifacts, executionContext.toolResults),
+								executionContext.toolResults
+							),
 							executionContext.toolResults
 						),
 						executionContext.toolResults
@@ -408,7 +422,10 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			const traceWarnings = mergeWarnings(executionContext.warnings, modelWarnings);
 			const status = selectStatus(executionContext, traceWarnings);
 			const publicWarnings = selectPublicWarnings(status, modelWarnings, executionContext.toolResults);
-			const groundedAnswer = reconcilePlayerMatchupAnswer(finalOutput.answer, executionContext.toolResults);
+			const groundedAnswer = reconcileDefenderLeaderboardAnswer(
+				reconcilePlayerMatchupAnswer(finalOutput.answer, executionContext.toolResults),
+				executionContext.toolResults
+			);
 			const dataFreshnessMode = executionContext.sourceCalls.some((sourceCall) => sourceCall.isProvisional)
 				? 'provisional_live'
 				: 'nightly';
@@ -503,6 +520,11 @@ function buildSystemMessages(): DynamicAgentChatMessage[] {
 		{
 			role: 'system',
 			content:
+				'Use rank_defender_matchups for questions ranking all tracked offensive opponents against one named defender. Resolve the defender first. For “defended best”, rank fgPct ascending with the default minimum 10 FGA and 25 partial possessions. Use fg3Pct with at least 5 3PA for three-point defense; use partialPossessions descending for “guarded most”. Default to 5 results and never request more unless the user explicitly asks for a larger count. Pass explicit metric/direction/sample floors when the user specifies them. State the qualifying thresholds and tracking-derived attribution; never call a tiny unqualified matchup the best.'
+		},
+		{
+			role: 'system',
+			content:
 				'Use find_video_clips when the user asks to see or watch plays/clips. Use the efficient direct eventType for made_three, made_field_goal, assist, block, steal, rebound, or turnover. Never broaden made_three to made_field_goal. For exact shot descriptions such as pull-up, step-back, layup, shot zone, make/miss, distance, or period combinations, use eventType custom_shot and pass canonical customShot filters; never approximate them with a broader direct event. custom_shot joins the full shot log to videos by game and event id. opponentTeamId filters by the opposing TEAM only; there is no named-defender field. Do not silently replace a named defender with their team. Explain that limitation and ask whether the user wants team-level clips instead. When clips are found, emit a video_playlist artifact containing only the clips returned by the tool and keep prose short. Use matchingShotEventCount, joinedClipCount, missingVideoCount, and playlistCapped exactly. Do not add a warning when missingVideoCount is zero; when it is positive, state one concise video-availability limitation.'
 		},
 		{
@@ -546,6 +568,34 @@ function buildToolDefinitions(): DynamicAgentToolDefinition[] {
 				name: 'execute_semantic_query',
 				description: 'Execute one validated, stored-data-backed semantic NBA query with canonical identity, provenance, completeness, and warnings.',
 				parameters: buildSemanticQueryToolSchema()
+			}
+		},
+		{
+			type: 'function',
+			function: {
+				name: 'rank_defender_matchups',
+				description:
+					'Rank all qualifying NBA tracking-derived offensive matchups for one defender with explicit sample floors.',
+				parameters: {
+					type: 'object',
+					additionalProperties: false,
+					properties: {
+						defensivePlayerId: { type: 'string' },
+						season: { type: 'string', pattern: '^\\d{4}-\\d{2}$' },
+						seasonType: { type: 'string', enum: ['Regular Season', 'Playoffs'] },
+						metric: {
+							type: 'string',
+							enum: ['fgPct', 'fg3Pct', 'partialPossessions', 'points', 'fga', 'fg3a', 'assists', 'turnovers']
+						},
+						direction: { type: 'string', enum: ['asc', 'desc'] },
+						limit: { type: 'integer', minimum: 1, maximum: 25 },
+						minGames: { type: 'integer', minimum: 0 },
+						minFga: { type: 'integer', minimum: 0 },
+						minFg3a: { type: 'integer', minimum: 0 },
+						minPartialPossessions: { type: 'number', minimum: 0 }
+					},
+					required: ['defensivePlayerId', 'season', 'seasonType']
+				}
 			}
 		},
 		{
@@ -1058,6 +1108,11 @@ async function executeToolCall(
 				data = matchupData.data;
 				ok = matchupData.ok;
 				error = matchupData.ok ? undefined : matchupData.error;
+			} else if (parsed.toolName === 'rank_defender_matchups') {
+				const leaderboardData = await rankDefenderMatchups(parsed.request, dependencies, context);
+				data = leaderboardData.data;
+				ok = leaderboardData.ok;
+				error = leaderboardData.ok ? undefined : leaderboardData.error;
 			} else if (parsed.toolName === 'resolve_players') {
 				const resolvedPlayerData = resolvePlayers(parsed.request.names, dependencies.playerDirectory);
 				data = resolvedPlayerData;
@@ -1171,6 +1226,14 @@ function parseToolRequest(toolCall: DynamicAgentToolCall): ParsedToolRequest {
 			return { ok: false, toolName, request: rawArguments, error: matchupRequest.error };
 		}
 		return { ok: true, toolName, request: matchupRequest.request };
+	}
+
+	if (toolName === 'rank_defender_matchups') {
+		const leaderboardRequest = parseDefenderMatchupLeaderboardRequest(rawArguments);
+		if (!leaderboardRequest.ok) {
+			return { ok: false, toolName, request: rawArguments, error: leaderboardRequest.error };
+		}
+		return { ok: true, toolName, request: leaderboardRequest.request };
 	}
 
 	if (toolName === 'resolve_players' || toolName === 'resolve_teams') {
@@ -1353,6 +1416,88 @@ function parsePlayerMatchupRequest(
 			defensivePlayerId,
 			season,
 			seasonType
+		}
+	};
+}
+
+function parseDefenderMatchupLeaderboardRequest(
+	rawArguments: Record<string, unknown>
+): { ok: true; request: DefenderMatchupLeaderboardRequest } | { ok: false; error: string } {
+	const allowedKeys = [
+		'defensivePlayerId',
+		'season',
+		'seasonType',
+		'metric',
+		'direction',
+		'limit',
+		'minGames',
+		'minFga',
+		'minFg3a',
+		'minPartialPossessions'
+	];
+	const unsupportedKey = findUnsupportedKey(rawArguments, allowedKeys);
+	if (unsupportedKey) {
+		return { ok: false, error: `rank_defender_matchups received unsupported argument '${unsupportedKey}'.` };
+	}
+	const { defensivePlayerId, season, seasonType } = rawArguments;
+	if (!isNonEmptyString(defensivePlayerId) || !/^\d+$/.test(defensivePlayerId)) {
+		return { ok: false, error: 'rank_defender_matchups defensivePlayerId must be a numeric player id.' };
+	}
+	if (!isNonEmptyString(season) || !/^\d{4}-\d{2}$/.test(season)) {
+		return { ok: false, error: "rank_defender_matchups season must match 'YYYY-YY'." };
+	}
+	if (seasonType !== 'Regular Season' && seasonType !== 'Playoffs') {
+		return { ok: false, error: 'rank_defender_matchups seasonType must be Regular Season or Playoffs.' };
+	}
+	const supportedMetrics: DefenderMatchupRankingMetric[] = [
+		'fgPct',
+		'fg3Pct',
+		'partialPossessions',
+		'points',
+		'fga',
+		'fg3a',
+		'assists',
+		'turnovers'
+	];
+	const metric = rawArguments.metric ?? 'fgPct';
+	if (typeof metric !== 'string' || !supportedMetrics.includes(metric as DefenderMatchupRankingMetric)) {
+		return { ok: false, error: `rank_defender_matchups metric must be one of ${supportedMetrics.join(', ')}.` };
+	}
+	const typedMetric = metric as DefenderMatchupRankingMetric;
+	const defaultDirection = typedMetric === 'fgPct' || typedMetric === 'fg3Pct' ? 'asc' : 'desc';
+	const direction = rawArguments.direction ?? defaultDirection;
+	if (direction !== 'asc' && direction !== 'desc') {
+		return { ok: false, error: 'rank_defender_matchups direction must be asc or desc.' };
+	}
+	const limit = readBoundedInteger(rawArguments.limit, 5, 1, 25);
+	const minGames = readBoundedInteger(rawArguments.minGames, 1, 0, 100);
+	const minFga = readBoundedInteger(rawArguments.minFga, typedMetric === 'fgPct' ? 10 : 0, 0, 1000);
+	const minFg3a = readBoundedInteger(rawArguments.minFg3a, typedMetric === 'fg3Pct' ? 5 : 0, 0, 1000);
+	const minPartialPossessions = readBoundedNumber(
+		rawArguments.minPartialPossessions,
+		typedMetric === 'fgPct' || typedMetric === 'fg3Pct' ? 25 : 0,
+		0,
+		10000
+	);
+	if (limit === null || minGames === null || minFga === null || minFg3a === null || minPartialPossessions === null) {
+		return {
+			ok: false,
+			error: 'rank_defender_matchups limits and sample floors must be non-negative numbers within their supported ranges.'
+		};
+	}
+	return {
+		ok: true,
+		request: {
+			defensivePlayerId,
+			season,
+			seasonType,
+			metric: typedMetric,
+			direction,
+			limit,
+			minGames,
+			minFga,
+			minFg3a,
+			minPartialPossessions
 		}
 	};
 }
@@ -1803,6 +1948,31 @@ async function analyzePlayerMatchup(
 	}
 	try {
 		const data = parsePlayerMatchupPayload(result.payload, request);
+		context.successfulEndpointCalls += 1;
+		return { ok: true, data };
+	} catch (error) {
+		context.failedEndpointCalls += 1;
+		return { ok: false, error: error instanceof Error ? error.message : String(error) };
+	}
+}
+
+async function rankDefenderMatchups(
+	request: DefenderMatchupLeaderboardRequest,
+	dependencies: DynamicQueryAgentDependencies,
+	context: ToolExecutionContext
+): Promise<{ ok: true; data: DefenderMatchupLeaderboardData } | { ok: false; data?: unknown; error: string }> {
+	const endpointRequest = buildDefenderMatchupLeaderboardEndpointRequest(request);
+	const result = await fetchAndRecordEndpointResult(endpointRequest, dependencies, context);
+	if (!result.payload) {
+		context.failedEndpointCalls += 1;
+		return {
+			ok: false,
+			data: buildEndpointToolData(result),
+			error: result.errorDetail ?? 'NBA defender matchup ranking data is currently unavailable.'
+		};
+	}
+	try {
+		const data = parseDefenderMatchupLeaderboardPayload(result.payload, request);
 		context.successfulEndpointCalls += 1;
 		return { ok: true, data };
 	} catch (error) {
@@ -3049,6 +3219,28 @@ function reconcilePlayerMatchupTables(
 	);
 }
 
+function reconcileDefenderLeaderboardTables(
+	artifacts: QueryAnswerArtifact[],
+	toolResults: QueryAnswerAgentToolResult[]
+): QueryAnswerArtifact[] {
+	const leaderboard = [...toolResults]
+		.reverse()
+		.find((toolResult) => toolResult.toolName === 'rank_defender_matchups' && toolResult.response.ok)?.response.data;
+	if (!isDefenderMatchupLeaderboardData(leaderboard) || !leaderboard.found) return artifacts;
+	const tableIndex = artifacts.findIndex((artifact) => artifact.type === 'table');
+	if (tableIndex < 0) return artifacts;
+	return artifacts.map((artifact, index) =>
+		index === tableIndex
+			? {
+					type: 'table',
+					shape: 'ranking',
+					columns: [...leaderboard.columns],
+					rows: leaderboard.rows.map((row) => ({ ...row }))
+				}
+			: artifact
+	);
+}
+
 function reconcilePlayerMatchupAnswer(answer: string, toolResults: QueryAnswerAgentToolResult[]): string {
 	const matchup = [...toolResults]
 		.reverse()
@@ -3063,6 +3255,26 @@ function reconcilePlayerMatchupAnswer(answer: string, toolResults: QueryAnswerAg
 	}
 	if (matchup.sampleSize.level === 'small' && !/small sample/i.test(answer)) {
 		additions.push(matchup.sampleSize.description);
+	}
+	return additions.length > 0 ? `${answer.trim()} ${additions.join(' ')}` : answer;
+}
+
+function reconcileDefenderLeaderboardAnswer(answer: string, toolResults: QueryAnswerAgentToolResult[]): string {
+	const leaderboard = [...toolResults]
+		.reverse()
+		.find((toolResult) => toolResult.toolName === 'rank_defender_matchups' && toolResult.response.ok)?.response.data;
+	if (!isDefenderMatchupLeaderboardData(leaderboard)) return answer;
+	if (!leaderboard.found) {
+		return `${answer.trim()} No tracked matchups met the requested sample thresholds.`.trim();
+	}
+	const additions: string[] = [];
+	if (!/tracking/i.test(answer)) {
+		additions.push('Attribution comes from NBA Advanced Stats Player Tracking matchup analysis.');
+	}
+	if (!/minimum|at least|threshold/i.test(answer)) {
+		additions.push(
+			`Qualifying thresholds: at least ${leaderboard.filters.minGames} game(s), ${leaderboard.filters.minFga} FGA, ${leaderboard.filters.minFg3a} 3PA, and ${leaderboard.filters.minPartialPossessions} partial matchup possessions.`
+		);
 	}
 	return additions.length > 0 ? `${answer.trim()} ${additions.join(' ')}` : answer;
 }
@@ -3189,6 +3401,18 @@ function isPlayerMatchupData(value: unknown): value is PlayerMatchupData {
 		isPlainObject(value) &&
 		value.endpointId === 'leagueseasonmatchups' &&
 		typeof value.found === 'boolean' &&
+		Array.isArray(value.columns) &&
+		Array.isArray(value.rows)
+	);
+}
+
+function isDefenderMatchupLeaderboardData(value: unknown): value is DefenderMatchupLeaderboardData {
+	return (
+		isPlainObject(value) &&
+		value.endpointId === 'leagueseasonmatchups' &&
+		typeof value.found === 'boolean' &&
+		isPlainObject(value.filters) &&
+		isPlainObject(value.ranking) &&
 		Array.isArray(value.columns) &&
 		Array.isArray(value.rows)
 	);
@@ -3403,6 +3627,16 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isStringOrNumber(value: unknown): value is string | number {
 	return typeof value === 'string' || typeof value === 'number';
+}
+
+function readBoundedInteger(value: unknown, fallback: number, minimum: number, maximum: number): number | null {
+	if (value === undefined) return fallback;
+	return typeof value === 'number' && Number.isInteger(value) && value >= minimum && value <= maximum ? value : null;
+}
+
+function readBoundedNumber(value: unknown, fallback: number, minimum: number, maximum: number): number | null {
+	if (value === undefined) return fallback;
+	return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum ? value : null;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

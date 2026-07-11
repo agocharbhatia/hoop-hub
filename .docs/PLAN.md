@@ -28,7 +28,7 @@ The old planner, query orchestrator, answer renderer, and mock engine remain com
 
 ## Current Limitations
 
-- The eval corpus covers 22 deterministic prompt variants across core regression families plus seven custom-shot cases, but it is not yet broad enough to characterize arbitrary-query reliability.
+- The eval corpus covers 24 deterministic prompt variants across core regression families plus seven custom-shot cases, but it is not yet broad enough to characterize arbitrary-query reliability.
 - Scheduled nightly materialization and live dynamic-agent canaries exist, but production alert routing, freshness SLO dashboards, and broad historical backfill do not.
 - Natural-language sessions are stateless. The product does not currently promise follow-up memory.
 - Named-player matchup stats use NBA Advanced Stats Player Tracking attribution with explicit evidence and sample-size context. Named-defender clip attribution remains unavailable because the aggregate matchup feed has no event IDs.
@@ -95,12 +95,13 @@ Shipped in the foundation pass: a capability-derived `execute_semantic_query` ag
 Status: first high-confidence vertical slice shipped 2026-07-10; event-level and inferred attribution remain R&D.
 
 - Support arbitrary offensive-player versus defensive-player season matchups through NBA's tracking-derived `leagueseasonmatchups` feed.
+- Rank all qualifying offensive matchups for one defender by FG%, 3P%, partial possessions, points, attempts, assists, or turnovers with explicit direction, result limit, and sample floors.
 - Preserve offensive and defensive roles, expose games/minutes/partial possessions/shooting/playmaking fields, and label thin samples.
 - Keep tracking-derived official matchup attribution distinct from manual event observation and from lineup/PBP inference.
 - Add event-level evidence and defender-attributed clips only when a trustworthy join to shot events exists.
 - Prototype lineup/PBP inference for gaps in tracking coverage with evaluated confidence thresholds; never promote inferred attribution to observed.
 
-Exit criteria: arbitrary player-pair matchup questions are grounded and evidence-labeled; inferred results remain visibly distinct; clips never silently use team-level substitution.
+Exit criteria: arbitrary player-pair and defender-leaderboard questions are grounded and evidence-labeled; inferred results remain visibly distinct; clips never silently use team-level substitution.
 
 ### Phase 5 — Grounded conversation
 

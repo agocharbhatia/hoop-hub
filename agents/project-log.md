@@ -372,4 +372,7 @@ This is chronological implementation history, not a current roadmap. For shipped
 - Preserved player roles and grounded games, minutes, partial possessions, points, shooting, assists, and turnovers into a server-reconciled comparison table.
 - Labeled the evidence `tracking_derived` with high confidence and enforced deterministic small-sample context. This is stronger than lineup inference but is still described as NBA tracking analysis, not a manual event label.
 - Kept named-defender clips blocked: aggregate season matchups do not provide shot event IDs, so event video cannot yet be joined honestly.
+- Added `rank_defender_matchups` for full-population defender leaderboards. Ranking and sample qualification are server-owned rather than model-computed.
+- “Defended best” defaults to lowest FG% with at least 10 attempts and 25 partial possessions; 3P% uses a 5-attempt floor. Users can explicitly change the metric, direction, thresholds, and result count up to 25.
+- Live and browser acceptance confirmed Scottie Barnes's five lowest qualifying 2025-26 FG% matchups and a five-row grounded table.
 - Slice specs should now carry explicit query examples and answer-quality expectations. If the task says a query is supported, the loop should prove both that it resolves correctly and that the returned answer sounds natural, answers supported sub-parts, and handles limitations honestly.

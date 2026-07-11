@@ -259,6 +259,27 @@ function createFakeTeamDirectory(): DynamicAgentTeamDirectory {
 	};
 }
 
+function buildDefenderLeaderboardPayload(): unknown {
+	return {
+		resultSets: [
+			{
+				name: 'SeasonMatchups',
+				headers: [
+					'OFF_PLAYER_ID', 'OFF_PLAYER_NAME', 'DEF_PLAYER_ID', 'DEF_PLAYER_NAME', 'GP', 'MATCHUP_MIN',
+					'PARTIAL_POSS', 'PLAYER_PTS', 'MATCHUP_AST', 'MATCHUP_TOV', 'MATCHUP_FGM', 'MATCHUP_FGA',
+					'MATCHUP_FG_PCT', 'MATCHUP_FG3M', 'MATCHUP_FG3A', 'MATCHUP_FG3_PCT'
+				],
+				rowSet: [
+					[1, 'Tiny Sample', 1630173, 'Scottie Barnes', 1, '0:20', 4, 0, 0, 0, 0, 1, 0, 0, 1, 0],
+					[2, 'Player A', 1630173, 'Scottie Barnes', 2, '4:00', 40, 12, 1, 2, 6, 12, 0.5, 2, 4, 0.5],
+					[3, 'Player B', 1630173, 'Scottie Barnes', 2, '5:00', 35, 10, 2, 1, 4, 10, 0.4, 3, 5, 0.6],
+					[4, 'Player C', 1630173, 'Scottie Barnes', 3, '6:00', 50, 15, 3, 2, 7, 20, 0.35, 2, 8, 0.25]
+				]
+			}
+		]
+	};
+}
+
 describe('createDynamicQueryAgent', () => {
 	test('executes typed semantic queries and replaces model tables with grounded rows', async () => {
 		const semanticRequest = {
@@ -395,6 +416,62 @@ describe('createDynamicQueryAgent', () => {
 				}
 			]
 		});
+	});
+
+	test('ranks a defender\'s qualifying matchups with server-owned sample floors', async () => {
+		const model = createScriptedModel([
+			toolCall('resolve-defender', 'resolve_players', { names: ['Scottie Barnes'] }),
+			toolCall('leaderboard-1', 'rank_defender_matchups', {
+				defensivePlayerId: '1630173',
+				season: '2025-26',
+				seasonType: 'Regular Season'
+			}),
+			emptyAssistantTurn(),
+			finalResponse({
+				answer: 'Scottie Barnes held Player C to the lowest field-goal percentage among the qualifying matchups.',
+				artifacts: [{ type: 'table', shape: 'table', columns: ['wrong'], rows: [{ wrong: 999 }] }],
+				warnings: []
+			})
+		]);
+		const endpointRequests: Array<{ endpointId: string; params: Record<string, string> }> = [];
+		const agent = createDynamicQueryAgent({
+			model,
+			endpointFetcher: async (request) => {
+				endpointRequests.push(request);
+				return buildEndpointResult({
+					endpointId: 'leagueseasonmatchups',
+					payload: buildDefenderLeaderboardPayload(),
+					isProvisional: false
+				});
+			},
+			playerDirectory: createFakePlayerDirectory(),
+			teamDirectory: createFakeTeamDirectory()
+		});
+
+		const response = await agent.answerQuestion('Who does Scottie Barnes defend best?');
+
+		assert.equal(endpointRequests[0]?.params.DefPlayerID, '1630173');
+		assert.equal(endpointRequests[0]?.params.OffPlayerID, '');
+		assert.match(response.answer, /tracking/i);
+		assert.match(response.answer, /qualifying thresholds/i);
+		assert.equal(response.artifacts[0]?.type, 'table');
+		if (response.artifacts[0]?.type !== 'table') assert.fail('Expected a defender leaderboard table.');
+		assert.equal(response.artifacts[0].shape, 'ranking');
+		assert.deepEqual(
+			response.artifacts[0].rows.map((row) => [row.rank, row.offensivePlayer, row.fgPct]),
+			[
+				[1, 'Player C', 0.35],
+				[2, 'Player B', 0.4],
+				[3, 'Player A', 0.5]
+			]
+		);
+		const toolResult = response.toolResults.find(
+			(result) => 'toolName' in result && result.toolName === 'rank_defender_matchups'
+		);
+		assert.ok(toolResult && 'ok' in toolResult.response && toolResult.response.ok);
+		assert.equal((toolResult.request as Record<string, unknown>).limit, 5);
+		assert.equal((toolResult.request as Record<string, unknown>).minFga, 10);
+		assert.equal((toolResult.request as Record<string, unknown>).minPartialPossessions, 25);
 	});
 
 	test('runs a multi-step tool sequence and returns a structured final answer', async () => {
