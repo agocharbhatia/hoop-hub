@@ -80,5 +80,6 @@ describe('endpoint-catalog', () => {
 		assert.equal(dynamicEndpointIds.has('shotchartdetail'), true);
 		assert.equal(dynamicEndpointIds.has('leaguegamefinder'), true);
 		assert.equal(dynamicEndpointIds.has('playergamelogs'), true);
+		assert.equal(dynamicEndpointIds.has('leagueseasonmatchups'), true);
 	});
 });

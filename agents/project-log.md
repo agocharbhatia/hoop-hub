@@ -364,4 +364,12 @@ This is chronological implementation history, not a current roadmap. For shipped
 - Exposed the semantic executor to the dynamic agent through a capability-derived typed tool and reconciled model-authored tables with canonical executor rows.
 - Added first-class `split/player` execution for win/loss and home/away per-game averages over stored player game logs. New split dimensions must add real source support and capability coverage instead of prompt-only branching.
 - Real-browser acceptance confirmed the Scottie Barnes 29/73 pull-up mid-range result and matching 73-shot chart, exact one-clip made-three filtering against Boston, loaded playable media, and explicit autoplay-policy fallback.
+
+## 2026-07-10 — Tracking-derived named-player matchup research
+
+- Reprioritized defender research ahead of conversation and product-polish phases.
+- Added the official `leagueseasonmatchups` endpoint used by NBA.com's player head-to-head page and a typed `analyze_player_matchup` agent tool for arbitrary offensive-player/defensive-player pairs.
+- Preserved player roles and grounded games, minutes, partial possessions, points, shooting, assists, and turnovers into a server-reconciled comparison table.
+- Labeled the evidence `tracking_derived` with high confidence and enforced deterministic small-sample context. This is stronger than lineup inference but is still described as NBA tracking analysis, not a manual event label.
+- Kept named-defender clips blocked: aggregate season matchups do not provide shot event IDs, so event video cannot yet be joined honestly.
 - Slice specs should now carry explicit query examples and answer-quality expectations. If the task says a query is supported, the loop should prove both that it resolves correctly and that the returned answer sounds natural, answers supported sub-parts, and handles limitations honestly.

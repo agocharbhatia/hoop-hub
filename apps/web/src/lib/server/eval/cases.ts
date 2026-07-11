@@ -648,6 +648,71 @@ export const DYNAMIC_AGENT_EVAL_CASES: EvalCase[] = [
 		}
 	},
 	{
+		id: 'tatum-fg-pct-guarded-by-scottie',
+		tags: ['matchup', 'defender', 'tracking', 'table', 'grounding', 'small-sample'],
+		prompts: [
+			'What is Jayson Tatum’s field-goal percentage when guarded by Scottie Barnes this season? Show the matchup sample.',
+			'Tatum FG% against Scottie Barnes as his defender in 2025-26, with the tracked matchup row.'
+		],
+		repetitions: { local: 1, live: 3 },
+		expectedStatus: 'ok',
+		requiredTools: ['resolve_players', 'analyze_player_matchup'],
+		forbiddenTools: ['aggregate_endpoint_rows', 'find_video_clips'],
+		artifactExpectations: [{ type: 'table', count: 1, minItems: 1, maxItems: 1 }],
+		warningExpectations: { maxCount: 0 },
+		assertions: [
+			{
+				kind: 'value', label: 'offensive player role',
+				source: { type: 'tool_request', toolName: 'analyze_player_matchup' },
+				path: 'offensivePlayerId', operator: 'equals', expected: '1628369'
+			},
+			{
+				kind: 'value', label: 'defensive player role',
+				source: { type: 'tool_request', toolName: 'analyze_player_matchup' },
+				path: 'defensivePlayerId', operator: 'equals', expected: '1630567'
+			},
+			{
+				kind: 'value', label: 'tracking evidence level',
+				source: { type: 'tool_result', toolName: 'analyze_player_matchup' },
+				path: 'data.attribution.level', operator: 'equals', expected: 'tracking_derived'
+			},
+			{
+				kind: 'value', label: 'grounded matchup fg percentage',
+				source: { type: 'tool_result', toolName: 'analyze_player_matchup' },
+				path: 'data.rows.0.fgPct', operator: 'equals', expected: 1
+			},
+			{
+				kind: 'value', label: 'server-reconciled matchup attempts',
+				source: { type: 'artifact', artifactType: 'table' },
+				path: 'rows.0.fga', operator: 'equals', expected: 3
+			},
+			{ kind: 'answer_includes', values: ['tracking', '3-for-3', 'small sample'] }
+		],
+		limits: { maxToolCalls: 3, maxLatencyMs: 90_000 },
+		local: {
+			fixtureId: 'tatum_scottie_matchup',
+			turns: [
+				{ kind: 'tools', calls: [{ name: 'resolve_players', arguments: { names: ['Jayson Tatum', 'Scottie Barnes'] } }] },
+				{
+					kind: 'tools',
+					calls: [{
+						name: 'analyze_player_matchup',
+						arguments: {
+							offensivePlayerId: '1628369', defensivePlayerId: '1630567',
+							season: '2025-26', seasonType: 'Regular Season'
+						}
+					}]
+				},
+				{ kind: 'stop' }
+			],
+			finalOutput: {
+				answer: 'NBA Advanced Stats Player Tracking credits Scottie Barnes as Tatum’s matchup for 3-for-3 shooting (100%). It is a one-game small sample with 15.1 partial matchup possessions.',
+				artifacts: [{ type: 'table', shape: 'table', columns: ['wrong'], rows: [{ wrong: 999 }] }],
+				warnings: []
+			}
+		}
+	},
+	{
 		id: 'named-defender-no-team-fallback',
 		tags: ['clips', 'named-defender', 'capability', 'safety', 'hygiene'],
 		prompts: [

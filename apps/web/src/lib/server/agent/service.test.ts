@@ -196,6 +196,18 @@ function createFakePlayerDirectory(): DynamicAgentPlayerDirectory {
 			return { ok: true };
 		},
 		findByNameOrAlias(name) {
+			if (name === 'Jayson Tatum') {
+				return [
+					{
+						playerId: '1628369',
+						canonicalName: 'Jayson Tatum',
+						normalizedName: 'jayson tatum',
+						teamId: '1610612738',
+						snapshotVersion: 'test',
+						importedAt: '2026-01-01T00:00:00.000Z'
+					}
+				];
+			}
 			if (name === 'Bam Adebayo') {
 				return [
 					{
@@ -311,6 +323,78 @@ describe('createDynamicQueryAgent', () => {
 			}
 		]);
 		assert.equal(response.toolResults[0]?.toolName, 'execute_semantic_query');
+	});
+
+	test('returns and reconciles tracking-derived named-player matchup stats', async () => {
+		const model = createScriptedModel([
+			toolCall('resolve-matchup', 'resolve_players', { names: ['Jayson Tatum', 'Scottie Barnes'] }),
+			toolCall('matchup-1', 'analyze_player_matchup', {
+				offensivePlayerId: '1628369',
+				defensivePlayerId: '1630173',
+				season: '2025-26',
+				seasonType: 'Regular Season'
+			}),
+			emptyAssistantTurn(),
+			finalResponse({
+				answer:
+					'NBA tracking credits Scottie Barnes with guarding Jayson Tatum for 3 FGA; Tatum shot 3-for-3 (100%).',
+				artifacts: [{ type: 'table', shape: 'table', columns: ['wrong'], rows: [{ wrong: 999 }] }],
+				warnings: []
+			})
+		]);
+		const endpointRequests: Array<{ endpointId: string; params: Record<string, string> }> = [];
+		const endpointFetcher: StatsEndpointFetcher = async (request) => {
+			endpointRequests.push(request);
+			return buildEndpointResult({
+				endpointId: 'leagueseasonmatchups',
+				payload: {
+					resultSets: [
+						{
+							name: 'SeasonMatchups',
+							headers: [
+								'OFF_PLAYER_ID', 'OFF_PLAYER_NAME', 'DEF_PLAYER_ID', 'DEF_PLAYER_NAME', 'GP', 'MATCHUP_MIN',
+								'PARTIAL_POSS', 'PLAYER_PTS', 'MATCHUP_AST', 'MATCHUP_TOV', 'MATCHUP_FGM', 'MATCHUP_FGA',
+								'MATCHUP_FG_PCT', 'MATCHUP_FG3M', 'MATCHUP_FG3A', 'MATCHUP_FG3_PCT'
+							],
+							rowSet: [[
+								1628369, 'Jayson Tatum', 1630173, 'Scottie Barnes', 1, '2:27', 15.1, 7, 2, 1, 3, 3, 1, 1, 1, 1
+							]]
+						}
+					]
+				},
+				isProvisional: false
+			});
+		};
+		const agent = createDynamicQueryAgent({
+			model,
+			endpointFetcher,
+			playerDirectory: createFakePlayerDirectory(),
+			teamDirectory: createFakeTeamDirectory()
+		});
+
+		const response = await agent.answerQuestion('What is Tatum FG% when guarded by Scottie Barnes?');
+
+		assert.equal(endpointRequests[0]?.endpointId, 'leagueseasonmatchups');
+		assert.equal(endpointRequests[0]?.params.OffPlayerID, '1628369');
+		assert.equal(endpointRequests[0]?.params.DefPlayerID, '1630173');
+		assert.equal(response.status, 'ok');
+		assert.match(response.answer, /tracking/i);
+		assert.match(response.answer, /small sample/i);
+		assert.deepEqual(response.artifacts[0], {
+			type: 'table',
+			shape: 'comparison',
+			columns: [
+				'offensivePlayer', 'defensivePlayer', 'games', 'matchupMinutes', 'partialPossessions', 'points',
+				'fgm', 'fga', 'fgPct', 'fg3m', 'fg3a', 'fg3Pct', 'assists', 'turnovers'
+			],
+			rows: [
+				{
+					offensivePlayer: 'Jayson Tatum', defensivePlayer: 'Scottie Barnes', games: 1, matchupMinutes: '2:27',
+					partialPossessions: 15.1, points: 7, fgm: 3, fga: 3, fgPct: 1, fg3m: 1, fg3a: 1,
+					fg3Pct: 1, assists: 2, turnovers: 1
+				}
+			]
+		});
 	});
 
 	test('runs a multi-step tool sequence and returns a structured final answer', async () => {

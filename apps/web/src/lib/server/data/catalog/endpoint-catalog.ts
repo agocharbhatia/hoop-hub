@@ -910,6 +910,26 @@ function buildEndpointCatalog(now = new Date()): EndpointCatalogEntry[] {
 			supportedIntents: ['dynamic']
 		},
 		{
+			endpointId: 'leagueseasonmatchups',
+			path: '/stats/leagueseasonmatchups',
+			requiredParams: ['LeagueID', 'PerMode', 'Season', 'SeasonType'],
+			optionalParams: ['DefPlayerID', 'DefTeamID', 'OffPlayerID', 'OffTeamID'],
+			defaults: {
+				DefPlayerID: '',
+				DefTeamID: '',
+				LeagueID: '00',
+				OffPlayerID: '',
+				OffTeamID: '',
+				PerMode: 'Totals',
+				Season: currentSeason,
+				SeasonType: 'Regular Season'
+			},
+			volatilityTier: 'high',
+			ttlMinutes: TTL_MINUTES_BY_TIER.high,
+			parserVersion: 'v1',
+			supportedIntents: ['dynamic']
+		},
+		{
 			endpointId: 'playbyplayv2',
 			path: '/stats/playbyplayv2',
 			requiredParams: ['EndPeriod', 'GameID', 'StartPeriod'],

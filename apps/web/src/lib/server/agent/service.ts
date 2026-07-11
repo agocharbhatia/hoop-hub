@@ -34,6 +34,12 @@ import {
 	type CustomShotZone,
 	type CustomShotZoneArea
 } from './custom-shot-clips';
+import {
+	buildPlayerMatchupEndpointRequest,
+	parsePlayerMatchupPayload,
+	type PlayerMatchupData,
+	type PlayerMatchupRequest
+} from './player-matchups';
 import { parseVideoDetailsAssetClips } from './video-clips';
 import type {
 	DynamicAgentChatMessage,
@@ -60,6 +66,7 @@ const TOOL_NAMES: QueryAnswerAgentToolName[] = [
 	'resolve_players',
 	'resolve_teams',
 	'execute_semantic_query',
+	'analyze_player_matchup',
 	'call_nba_stats_endpoint',
 	'aggregate_endpoint_rows',
 	'analyze_time_series',
@@ -262,6 +269,11 @@ type ParsedToolRequest =
 	  }
 	| {
 			ok: true;
+			toolName: 'analyze_player_matchup';
+			request: PlayerMatchupRequest;
+	  }
+	| {
+			ok: true;
 			toolName: 'call_nba_stats_endpoint';
 			request: {
 				endpointId: string;
@@ -379,7 +391,10 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			const groundedArtifacts = reconcileVideoPlaylists(
 				reconcileTimeSeriesLineCharts(
 					reconcileFilteredShotCharts(
-						reconcileSemanticTables(finalOutput.artifacts, executionContext.toolResults),
+						reconcilePlayerMatchupTables(
+							reconcileSemanticTables(finalOutput.artifacts, executionContext.toolResults),
+							executionContext.toolResults
+						),
 						executionContext.toolResults
 					),
 					executionContext.toolResults
@@ -393,6 +408,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			const traceWarnings = mergeWarnings(executionContext.warnings, modelWarnings);
 			const status = selectStatus(executionContext, traceWarnings);
 			const publicWarnings = selectPublicWarnings(status, modelWarnings, executionContext.toolResults);
+			const groundedAnswer = reconcilePlayerMatchupAnswer(finalOutput.answer, executionContext.toolResults);
 			const dataFreshnessMode = executionContext.sourceCalls.some((sourceCall) => sourceCall.isProvisional)
 				? 'provisional_live'
 				: 'nightly';
@@ -428,7 +444,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 
 			return {
 				status,
-				answer: buildFinalAnswerText(finalOutput.answer, status, publicWarnings),
+				answer: buildFinalAnswerText(groundedAnswer, status, publicWarnings),
 				artifacts: groundedArtifacts,
 				toolResults: executionContext.toolResults,
 				citations,
@@ -478,6 +494,11 @@ function buildSystemMessages(): DynamicAgentChatMessage[] {
 		{
 			role: 'system',
 			content: `Use execute_semantic_query for supported stored-data questions before assembling raw endpoints manually. It is the canonical typed query representation for player/team lookups, rankings, trends, player splits, comparisons, standings, and team games. Its capabilities are: ${JSON.stringify(getPublicSemanticCapabilities())}`
+		},
+		{
+			role: 'system',
+			content:
+				'Use analyze_player_matchup for questions about one offensive player when guarded by one named defensive player. Resolve both players first, preserve their offensive/defensive roles, and use the returned tracking-derived matchup row exactly. Describe it as NBA Advanced Stats Player Tracking matchup attribution, not a manually observed event label. Always state the games, FGA, and partial matchup possessions when the sample is small. Do not derive named defenders from opponent teams.'
 		},
 		{
 			role: 'system',
@@ -543,6 +564,25 @@ function buildToolDefinitions(): DynamicAgentToolDefinition[] {
 						}
 					},
 					required: ['names']
+				}
+			}
+		},
+		{
+			type: 'function',
+			function: {
+				name: 'analyze_player_matchup',
+				description:
+					'Return official NBA tracking-derived head-to-head matchup stats for one offensive player guarded by one defensive player.',
+				parameters: {
+					type: 'object',
+					additionalProperties: false,
+					properties: {
+						offensivePlayerId: { type: 'string' },
+						defensivePlayerId: { type: 'string' },
+						season: { type: 'string', pattern: '^\\d{4}-\\d{2}$' },
+						seasonType: { type: 'string', enum: ['Regular Season', 'Playoffs'] }
+					},
+					required: ['offensivePlayerId', 'defensivePlayerId', 'season', 'seasonType']
 				}
 			}
 		},
@@ -1013,6 +1053,11 @@ async function executeToolCall(
 				const semanticData = await executeSemanticQueryTool(parsed.request, semanticExecutor, context);
 				data = semanticData.data;
 				ok = true;
+			} else if (parsed.toolName === 'analyze_player_matchup') {
+				const matchupData = await analyzePlayerMatchup(parsed.request, dependencies, context);
+				data = matchupData.data;
+				ok = matchupData.ok;
+				error = matchupData.ok ? undefined : matchupData.error;
 			} else if (parsed.toolName === 'resolve_players') {
 				const resolvedPlayerData = resolvePlayers(parsed.request.names, dependencies.playerDirectory);
 				data = resolvedPlayerData;
@@ -1118,6 +1163,14 @@ function parseToolRequest(toolCall: DynamicAgentToolCall): ParsedToolRequest {
 			return { ok: false, toolName, request: rawArguments, error: validation.error };
 		}
 		return { ok: true, toolName, request: validation.value };
+	}
+
+	if (toolName === 'analyze_player_matchup') {
+		const matchupRequest = parsePlayerMatchupRequest(rawArguments);
+		if (!matchupRequest.ok) {
+			return { ok: false, toolName, request: rawArguments, error: matchupRequest.error };
+		}
+		return { ok: true, toolName, request: matchupRequest.request };
 	}
 
 	if (toolName === 'resolve_players' || toolName === 'resolve_teams') {
@@ -1265,6 +1318,41 @@ function parseFindVideoClipsRequest(
 			...(isNonEmptyString(rawArguments.dateFrom) ? { dateFrom: rawArguments.dateFrom.trim() } : {}),
 			...(isNonEmptyString(rawArguments.dateTo) ? { dateTo: rawArguments.dateTo.trim() } : {}),
 			...(customShot.filters ? { customShot: customShot.filters } : {})
+		}
+	};
+}
+
+function parsePlayerMatchupRequest(
+	rawArguments: Record<string, unknown>
+): { ok: true; request: PlayerMatchupRequest } | { ok: false; error: string } {
+	const allowedKeys = ['offensivePlayerId', 'defensivePlayerId', 'season', 'seasonType'];
+	const unsupportedKey = findUnsupportedKey(rawArguments, allowedKeys);
+	if (unsupportedKey) {
+		return { ok: false, error: `analyze_player_matchup received unsupported argument '${unsupportedKey}'.` };
+	}
+	const { offensivePlayerId, defensivePlayerId, season, seasonType } = rawArguments;
+	if (!isNonEmptyString(offensivePlayerId) || !/^\d+$/.test(offensivePlayerId)) {
+		return { ok: false, error: 'analyze_player_matchup offensivePlayerId must be a numeric player id.' };
+	}
+	if (!isNonEmptyString(defensivePlayerId) || !/^\d+$/.test(defensivePlayerId)) {
+		return { ok: false, error: 'analyze_player_matchup defensivePlayerId must be a numeric player id.' };
+	}
+	if (offensivePlayerId === defensivePlayerId) {
+		return { ok: false, error: 'analyze_player_matchup requires two different players.' };
+	}
+	if (!isNonEmptyString(season) || !/^\d{4}-\d{2}$/.test(season)) {
+		return { ok: false, error: "analyze_player_matchup season must match 'YYYY-YY'." };
+	}
+	if (seasonType !== 'Regular Season' && seasonType !== 'Playoffs') {
+		return { ok: false, error: 'analyze_player_matchup seasonType must be Regular Season or Playoffs.' };
+	}
+	return {
+		ok: true,
+		request: {
+			offensivePlayerId,
+			defensivePlayerId,
+			season,
+			seasonType
 		}
 	};
 }
@@ -1696,6 +1784,31 @@ async function executeSemanticQueryTool(
 		context.failedEndpointCalls += 1;
 	}
 	return { ok: true, data: response };
+}
+
+async function analyzePlayerMatchup(
+	request: PlayerMatchupRequest,
+	dependencies: DynamicQueryAgentDependencies,
+	context: ToolExecutionContext
+): Promise<{ ok: true; data: PlayerMatchupData } | { ok: false; data?: unknown; error: string }> {
+	const endpointRequest = buildPlayerMatchupEndpointRequest(request);
+	const result = await fetchAndRecordEndpointResult(endpointRequest, dependencies, context);
+	if (!result.payload) {
+		context.failedEndpointCalls += 1;
+		return {
+			ok: false,
+			data: buildEndpointToolData(result),
+			error: result.errorDetail ?? 'NBA player matchup data is currently unavailable.'
+		};
+	}
+	try {
+		const data = parsePlayerMatchupPayload(result.payload, request);
+		context.successfulEndpointCalls += 1;
+		return { ok: true, data };
+	} catch (error) {
+		context.failedEndpointCalls += 1;
+		return { ok: false, error: error instanceof Error ? error.message : String(error) };
+	}
 }
 
 async function callNbaStatsEndpoint(
@@ -2919,6 +3032,41 @@ function reconcileSemanticTables(
 	});
 }
 
+function reconcilePlayerMatchupTables(
+	artifacts: QueryAnswerArtifact[],
+	toolResults: QueryAnswerAgentToolResult[]
+): QueryAnswerArtifact[] {
+	const matchup = [...toolResults]
+		.reverse()
+		.find((toolResult) => toolResult.toolName === 'analyze_player_matchup' && toolResult.response.ok)?.response.data;
+	if (!isPlayerMatchupData(matchup) || !matchup.found || matchup.rows.length === 0) return artifacts;
+	const tableIndex = artifacts.findIndex((artifact) => artifact.type === 'table');
+	if (tableIndex < 0) return artifacts;
+	return artifacts.map((artifact, index) =>
+		index === tableIndex
+			? { type: 'table', shape: 'comparison', columns: [...matchup.columns], rows: matchup.rows.map((row) => ({ ...row })) }
+			: artifact
+	);
+}
+
+function reconcilePlayerMatchupAnswer(answer: string, toolResults: QueryAnswerAgentToolResult[]): string {
+	const matchup = [...toolResults]
+		.reverse()
+		.find((toolResult) => toolResult.toolName === 'analyze_player_matchup' && toolResult.response.ok)?.response.data;
+	if (!isPlayerMatchupData(matchup)) return answer;
+	if (!matchup.found) {
+		return `${answer.trim()} No tracked matchup possessions were returned for this player pair and scope.`.trim();
+	}
+	const additions: string[] = [];
+	if (!/tracking/i.test(answer)) {
+		additions.push('Attribution comes from NBA Advanced Stats Player Tracking matchup analysis.');
+	}
+	if (matchup.sampleSize.level === 'small' && !/small sample/i.test(answer)) {
+		additions.push(matchup.sampleSize.description);
+	}
+	return additions.length > 0 ? `${answer.trim()} ${additions.join(' ')}` : answer;
+}
+
 function reconcileTimeSeriesLineCharts(artifacts: QueryAnswerArtifact[], toolResults: QueryAnswerAgentToolResult[]): QueryAnswerArtifact[] {
 	const timeSeries = findLatestTimeSeriesData(toolResults);
 	if (!timeSeries) {
@@ -3033,6 +3181,16 @@ function isStatsQueryResponseWithResult(value: unknown): value is StatsQueryResp
 		isPlainObject(value.result) &&
 		Array.isArray(value.result.columns) &&
 		Array.isArray(value.result.rows)
+	);
+}
+
+function isPlayerMatchupData(value: unknown): value is PlayerMatchupData {
+	return (
+		isPlainObject(value) &&
+		value.endpointId === 'leagueseasonmatchups' &&
+		typeof value.found === 'boolean' &&
+		Array.isArray(value.columns) &&
+		Array.isArray(value.rows)
 	);
 }
 

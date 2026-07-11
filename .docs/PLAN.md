@@ -28,10 +28,10 @@ The old planner, query orchestrator, answer renderer, and mock engine remain com
 
 ## Current Limitations
 
-- The eval corpus covers 20 deterministic prompt variants across core regression families plus seven custom-shot cases, but it is not yet broad enough to characterize arbitrary-query reliability.
+- The eval corpus covers 22 deterministic prompt variants across core regression families plus seven custom-shot cases, but it is not yet broad enough to characterize arbitrary-query reliability.
 - Scheduled nightly materialization and live dynamic-agent canaries exist, but production alert routing, freshness SLO dashboards, and broad historical backfill do not.
 - Natural-language sessions are stateless. The product does not currently promise follow-up memory.
-- Named-defender video attribution is unavailable. Team-opponent filtering is exact; defender attribution requires an evidence and confidence model rather than silent substitution.
+- Named-player matchup stats use NBA Advanced Stats Player Tracking attribution with explicit evidence and sample-size context. Named-defender clip attribution remains unavailable because the aggregate matchup feed has no event IDs.
 - Playlists are sequential browser playback, not compiled single-file exports.
 - The production deployment, authentication, quota, observability, backup, and server-grade data-store story is not complete.
 
@@ -90,7 +90,19 @@ Exit criteria: capability growth is primarily typed data/execution work, not pro
 
 Shipped in the foundation pass: a capability-derived `execute_semantic_query` agent tool, canonical semantic status/provenance propagation, server-grounded table reconciliation, and first-class `split/player` execution for win/loss and home/away averages. Starter/bench, playoffs, clutch, opponent, lineup, and on/off require honest source/materialization support before being advertised. Legacy compatibility code remains until its direct consumers are migrated.
 
-### Phase 4 — Grounded conversation
+### Phase 4 — Defender and advanced basketball context
+
+Status: first high-confidence vertical slice shipped 2026-07-10; event-level and inferred attribution remain R&D.
+
+- Support arbitrary offensive-player versus defensive-player season matchups through NBA's tracking-derived `leagueseasonmatchups` feed.
+- Preserve offensive and defensive roles, expose games/minutes/partial possessions/shooting/playmaking fields, and label thin samples.
+- Keep tracking-derived official matchup attribution distinct from manual event observation and from lineup/PBP inference.
+- Add event-level evidence and defender-attributed clips only when a trustworthy join to shot events exists.
+- Prototype lineup/PBP inference for gaps in tracking coverage with evaluated confidence thresholds; never promote inferred attribution to observed.
+
+Exit criteria: arbitrary player-pair matchup questions are grounded and evidence-labeled; inferred results remain visibly distinct; clips never silently use team-level substitution.
+
+### Phase 5 — Grounded conversation
 
 - Persist resolved entities, seasons, filters, prior query representation, grounded results, trace IDs, artifacts, and explicit user corrections.
 - Resolve follow-ups such as “in the playoffs,” “compare him to Scottie,” “chart that,” and “only show the makes.”
@@ -98,7 +110,7 @@ Shipped in the foundation pass: a capability-derived `execute_semantic_query` ag
 
 Exit criteria: follow-ups are reproducible and do not rely on opaque transcript inference.
 
-### Phase 5 — Product experience
+### Phase 6 — Product experience
 
 - Add sortable/downloadable tables, chart interaction, drill-down, filter chips, saved searches, and shareable result URLs.
 - Allow chart/table selections to become clip searches.
@@ -106,14 +118,6 @@ Exit criteria: follow-ups are reproducible and do not rely on opaque transcript 
 - Add CSV/image export before optional ffmpeg playlist compilation.
 
 Exit criteria: users can inspect, refine, save, share, and export grounded research flows.
-
-### Phase 6 — Advanced basketball intelligence
-
-- Prototype defender attribution using play-by-play, substitutions, on-court lineups, shot events, and tracking/matchup data where legitimately available.
-- Label attribution as observed, inferred, or team-only and attach confidence/evidence.
-- Expand play-type and lineup analysis only after evaluation data supports trustworthy claims.
-
-Exit criteria: the product never presents inferred defender attribution as exact observation.
 
 ### Phase 7 — Production readiness
 

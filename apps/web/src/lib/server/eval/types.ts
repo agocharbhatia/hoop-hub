@@ -16,6 +16,7 @@ export type EvalFixtureId =
 	| 'wemby_blocks_split'
 	| 'endpoint_failure'
 	| 'semantic_only'
+	| 'tatum_scottie_matchup'
 	| 'scottie_made_threes_boston'
 	| 'named_defender';
 

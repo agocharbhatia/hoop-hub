@@ -68,6 +68,22 @@ const FIXTURES: Record<EvalFixtureId, FixtureDefinition> = {
 		endpointId: null,
 		payload: null
 	},
+	tatum_scottie_matchup: {
+		endpointId: 'leagueseasonmatchups',
+		payload: {
+			resultSets: [
+				{
+					name: 'SeasonMatchups',
+					headers: [
+						'OFF_PLAYER_ID', 'OFF_PLAYER_NAME', 'DEF_PLAYER_ID', 'DEF_PLAYER_NAME', 'GP', 'MATCHUP_MIN',
+						'PARTIAL_POSS', 'PLAYER_PTS', 'MATCHUP_AST', 'MATCHUP_TOV', 'MATCHUP_FGM', 'MATCHUP_FGA',
+						'MATCHUP_FG_PCT', 'MATCHUP_FG3M', 'MATCHUP_FG3A', 'MATCHUP_FG3_PCT'
+					],
+					rowSet: [[1628369, 'Jayson Tatum', 1630567, 'Scottie Barnes', 1, '2:27', 15.1, 7, 2, 1, 3, 3, 1, 1, 1, 1]]
+				}
+			]
+		}
+	},
 	scottie_made_threes_boston: {
 		endpointId: 'videodetailsasset',
 		payload: {

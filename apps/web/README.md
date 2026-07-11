@@ -40,7 +40,7 @@ Default tests and local evals are deterministic. Live eval requires configured O
 
 ## Runtime map
 
-- `src/lib/server/agent/` owns the dynamic tool loop, exact custom-shot joins, endpoint aggregation, time-series analysis, and video retrieval.
+- `src/lib/server/agent/` owns the dynamic tool loop, tracking-derived player matchups, exact custom-shot joins, endpoint aggregation, time-series analysis, and video retrieval.
 - `src/lib/server/semantic/` owns the structured stored-data runtime and capabilities, including player win/loss and home/away splits.
 - `src/lib/server/data/` owns cataloged NBA retrieval, caching, storage, and source-call metadata.
 - `src/lib/server/nightly/` owns resumable bootstrap/materialization.
@@ -50,6 +50,6 @@ Default tests and local evals are deterministic. Live eval requires configured O
 - `src/lib/components/charts/` and `src/lib/components/video/` render grounded artifacts.
 - Planner, query-orchestrator, answer-renderer, and mock modules are compatibility surfaces; new product behavior should not be added there.
 
-Structured semantic execution reads stored materialized payloads. The dynamic agent uses the typed semantic tool for supported shapes and reconciles returned tables from canonical executor rows. Other dynamic-agent endpoint calls use the cataloged NBA client live-first with cache reuse. Custom-shot video searches filter the shot log and join exact game/event IDs before applying the playlist cap.
+Structured semantic execution reads stored materialized payloads. The dynamic agent uses the typed semantic tool for supported shapes and reconciles returned tables from canonical executor rows. Named-player matchup stats use the official tracking-derived season-matchup feed and reconcile the table plus evidence/sample caveats server-side. Other dynamic-agent endpoint calls use the cataloged NBA client live-first with cache reuse. Custom-shot video searches filter the shot log and join exact game/event IDs before applying the playlist cap.
 
 See [../../agents/current-state.md](../../agents/current-state.md) for current architecture, [../../.docs/PLAN.md](../../.docs/PLAN.md) for priorities, and [../../.docs/RELEASE_CHECKLIST.md](../../.docs/RELEASE_CHECKLIST.md) for release gates.

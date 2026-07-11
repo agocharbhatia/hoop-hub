@@ -10,6 +10,7 @@ Hoop Hub is currently a single Bun + SvelteKit app that answers grounded NBA sta
 - Primary natural-language route: `POST /api/query`, now backed by a dynamic OpenAI tool-loop agent.
 - Trace route: `GET /api/query-trace/:traceId`
 - `/api/query` can iteratively resolve players/teams, call cataloged NBA Stats endpoints live-first, reuse SQLite raw endpoint cache rows, and return grounded prose plus artifact specs.
+- Named-player research questions such as “Tatum FG% when guarded by Scottie Barnes” use NBA Advanced Stats tracking-derived matchup data with role, evidence, and sample-size grounding.
 - Supported semantic query families:
   - player and team season lookups
   - player rankings
@@ -45,6 +46,7 @@ Detailed implementation context for future agents lives in [agents/current-state
 - [x] Add the dynamic-agent evaluation harness and performance gates
 - [x] Clip retrieval and playlist output (`find_video_clips` over `videodetailsasset` + sequential playlist player in the UI)
 - [x] Exact custom-shot playlists (`shotchartdetail` event filters joined to playable clips by game/event id)
+- [x] Tracking-derived offensive-player versus named-defender matchup stats with grounded tables and small-sample labeling
 - [x] Expand the deterministic eval matrix, track model usage/cost inputs, and run a scheduled dynamic-agent live canary
 - [ ] Retire legacy planner/orchestrator compatibility code
 - [ ] Add production deployment, observability, authentication, quotas, and server-grade storage
@@ -143,7 +145,7 @@ Local evals certify the deterministic tool/parser/reconciliation path; only live
 
 Custom playlists are ordered chronologically by game date, game id, and event id. The 40-clip product cap is applied only after the exact join. Tool grounding reports matching shot events, joined clips, missing videos, invalid join keys, whether the playlist was capped, joined event ids, and canonical applied filters. A partial join produces one concise video-availability warning; a complete join produces none. An explicit-cue guard rejects a tool call before retrieval when it drops or contradicts an unambiguous requested filter (for example, mid-range, left/right corner, pull-up, step-back, driving layup, make/miss, 2/3-point value, or quarter), allowing the model to retry instead of silently broadening the playlist.
 
-The action families cover the values observed in live shot logs, including pull-ups, step-backs, layups, dunks, hooks, floaters, fadeaways, turnarounds, putbacks, tips, alley-oops, cutting/running actions, bank shots, and finger rolls. Zone mappings cover the restricted area, non-restricted paint, mid-range, both corners, above-the-break threes, and backcourt. Unsupported terminology is rejected rather than broadened. Named-defender filtering remains unavailable: the agent must ask before substituting the defender's team. Browser autoplay policies can still require the user to press the native video play control; the playlist surfaces that fallback without treating it as missing NBA video.
+The action families cover the values observed in live shot logs, including pull-ups, step-backs, layups, dunks, hooks, floaters, fadeaways, turnarounds, putbacks, tips, alley-oops, cutting/running actions, bank shots, and finger rolls. Zone mappings cover the restricted area, non-restricted paint, mid-range, both corners, above-the-break threes, and backcourt. Unsupported terminology is rejected rather than broadened. Named-defender clip filtering remains unavailable: the agent must ask before substituting the defender's team. Named-player matchup statistics are supported separately through tracking-derived aggregate data. Browser autoplay policies can still require the user to press the native video play control; the playlist surfaces that fallback without treating it as missing NBA video.
 
 `bun run eval:custom-shots` runs deterministic custom-video contract cases, including paraphrases, empty combinations, and partial joins. Live model, NBA data, and playback checks remain separate release gates because they require credentials and network/video availability.
 
