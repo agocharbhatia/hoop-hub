@@ -17,6 +17,7 @@ import type {
 import { fetchStatsEndpointWithCache, type EndpointFetchRequest, type EndpointFetchResult } from '$lib/server/data/adapters';
 import { getEndpointCatalogEntry } from '$lib/server/data';
 import { normalizeMetricQuery, resolveMetrics, validateMetricsForIntent } from '$lib/server/metrics/resolve-metrics';
+import { resolveLatestStartedNbaSeason } from '$lib/server/season-intent';
 import {
 	buildLeagueStandingsRequest,
 	buildLeagueWidePlayerRankingRequest,
@@ -403,11 +404,7 @@ function buildLatency(input: Omit<QueryTraceResponse['latencyMs'], 'total'>): Qu
 }
 
 function resolveCurrentSeason(now: Date = new Date()): string {
-	const year = now.getUTCFullYear();
-	const month = now.getUTCMonth() + 1;
-	const startYear = month >= 10 ? year : year - 1;
-	const endYear = (startYear + 1).toString().slice(-2);
-	return `${startYear}-${endYear}`;
+	return resolveLatestStartedNbaSeason(now);
 }
 
 function normalizeQuestion(message: string): string {

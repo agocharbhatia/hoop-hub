@@ -1,4 +1,5 @@
 import type { EndpointFetchRequest } from '$lib/server/data';
+import { resolveLatestStartedNbaSeason } from '$lib/server/season-intent';
 import { buildCurrentScoreboardHorizonDates, buildScoreboardRequest } from '$lib/server/semantic/team-game';
 
 export const CURRENT_SEASON_LEAGUE_WIDE_ENDPOINT_IDS = ['leaguedashplayerstats', 'leaguedashteamstats', 'scoreboardv2'] as const;
@@ -34,10 +35,6 @@ type ResultSet = {
 };
 
 /* Helper functions */
-
-function padSeasonYear(year: number): string {
-	return String(year + 1).slice(-2);
-}
 
 function extractLeagueDashPlayerStatsResultSet(payload: unknown): { headers: string[]; rowSet: unknown[][] } {
 	if (!payload || typeof payload !== 'object') {
@@ -86,12 +83,13 @@ function normalizeSortableNumber(value: unknown): number {
 
 export function resolveSeasonForSlateDate(slateDate: string): string {
 	const parsed = new Date(`${slateDate}T00:00:00.000Z`);
-	if (Number.isNaN(parsed.getTime())) {
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(slateDate) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== slateDate) {
 		throw new Error(`Invalid slate date '${slateDate}'. Expected YYYY-MM-DD.`);
 	}
 
-	const year = parsed.getUTCMonth() >= 9 ? parsed.getUTCFullYear() : parsed.getUTCFullYear() - 1;
-	return `${year}-${padSeasonYear(year)}`;
+	// A slate covers the entire published game day, including an opening tip later that evening.
+	parsed.setUTCHours(23, 59, 59, 999);
+	return resolveLatestStartedNbaSeason(parsed);
 }
 
 export function buildLeagueWidePlayerRankingRequest(season: string, seasonType = 'Regular Season'): EndpointFetchRequest {

@@ -1,3 +1,5 @@
+import { resolveLatestStartedNbaSeason } from '$lib/server/season-intent';
+
 export type SupportedQueryIntent =
 	| 'league_leaders'
 	| 'player_trend'
@@ -29,10 +31,6 @@ const TTL_MINUTES_BY_TIER: Record<EndpointVolatilityTier, number> = {
 };
 
 /* Helper functions */
-
-function padSeasonYear(year: number): string {
-	return String(year + 1).slice(-2);
-}
 
 function createBaseLeagueDefaults(season: string): Record<string, string> {
 	return {
@@ -1065,8 +1063,7 @@ function buildEndpointCatalog(now = new Date()): EndpointCatalogEntry[] {
 /* Public catalog API */
 
 export function resolveCurrentNbaSeason(now = new Date()): string {
-	const year = now.getUTCMonth() >= 9 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
-	return `${year}-${padSeasonYear(year)}`;
+	return resolveLatestStartedNbaSeason(now);
 }
 
 export function listEndpointCatalog(): EndpointCatalogEntry[] {

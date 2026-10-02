@@ -2,6 +2,7 @@ import type { QueryAnswerAgentToolResult, QueryAnswerArtifact } from '$lib/contr
 import { listMetricDefinitions } from '$lib/server/metrics/registry';
 import { normalizeMetricQuery } from '$lib/server/metrics/resolve-metrics';
 import { findSeededPlayerDirectoryEntriesByNameOrAlias } from '$lib/server/players/player-directory';
+import { resolveLatestStartedNbaSeason } from '$lib/server/season-intent';
 
 export type WinLossSplitRepair = { column: string; label: string; season: string; seasonType: string; names: string[]; ids: string[]; question: string };
 export type VerifiedWinLossSplit = Array<{ outcome: 'W' | 'L'; games: number; average: number | null }>;
@@ -25,8 +26,7 @@ export function findWinLossSplitRepair(question: string, results: QueryAnswerAge
 		if (!metric || !metric.cue.test(question)) continue;
 		const names = readStrings(query.subject.names); const ids = readStrings(query.subject.ids);
 		if (names.length > 1 || ids.length > 1 || names.length + ids.length === 0) continue;
-		const start = now.getUTCFullYear() - (now.getUTCMonth() < 9 ? 1 : 0);
-		const season = requestedSeason ?? (typeof query.filters.season === 'string' && /^\d{4}-\d{2}$/.test(query.filters.season) ? query.filters.season : `${start}-${String((start + 1) % 100).padStart(2, '0')}`);
+		const season = requestedSeason ?? (typeof query.filters.season === 'string' && /^\d{4}-\d{2}$/.test(query.filters.season) ? query.filters.season : resolveLatestStartedNbaSeason(now));
 		const seasonType = query.filters.seasonType ?? 'Regular Season';
 		if (seasonType !== 'Regular Season' && seasonType !== 'Playoffs') continue;
 		return { ...metric, season, seasonType, names, ids, question };
