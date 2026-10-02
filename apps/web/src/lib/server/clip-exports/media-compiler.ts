@@ -12,8 +12,9 @@ export function isCanonicalExportClip(clip: { url: string; gameId?: string | nul
 	try {
 		const url = new URL(clip.url);
 		const parts = url.pathname.match(/^\/nba\/pbp\/media\/\d{4}\/\d{2}\/\d{2}\/(\d{10})\/(\d+)\/[^/]+\.mp4$/i);
+		if (!parts || typeof clip.gameId !== 'string' || typeof clip.eventId !== 'string') return false;
 		return url.protocol === 'https:' && url.hostname === 'videos.nba.com' && !url.username && !url.password && (!url.port || url.port === '443') &&
-			parts?.[1] === clip.gameId && parts?.[2] === clip.eventId;
+			parts[1] === clip.gameId && parts[2] === clip.eventId;
 	} catch { return false; }
 }
 

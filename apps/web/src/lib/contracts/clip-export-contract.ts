@@ -19,4 +19,3 @@ export type ClipExportJob = {
 export type ClipExportResponse = { job: ClipExportJob };
 export const MAX_EXPORT_CLIPS = 40;
 export const CLIP_EXPORT_RETENTION_HOURS = 24;
-

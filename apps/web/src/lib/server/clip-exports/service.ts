@@ -62,7 +62,8 @@ export function createClipExportService(options: { repository?: ResearchReposito
 				onOmission(clip, reason) { (record.job.omissions ??= []).push({ gameId: clip.gameId, eventId: clip.eventId, reason }); record.job.updatedAt = timestamp(); write(record); }
 			});
 			if (controller.signal.aborted) throw new Error('Export was cancelled.');
-			if (!existsSync(record.outputPath) || statSync(record.outputPath).size > 536_870_912) throw new Error('The compiled export exceeds its size limit.');
+			const outputSize = statSync(record.outputPath, { throwIfNoEntry: false })?.size ?? 0;
+			if (outputSize === 0 || outputSize > 536_870_912) throw new Error('The compiled export is empty or exceeds its size limit.');
 			record.job.status = 'completed'; record.job.downloadUrl = `/api/clip-exports/${record.job.id}/download`;
 			record.job.expiresAt = new Date(nowMs() + CLIP_EXPORT_RETENTION_HOURS * 3_600_000).toISOString();
 		} catch (error) {

@@ -8,4 +8,3 @@ export type SavedResearchList = { sessions: SavedResearchSummary[]; nextCursor?:
 export type SavedResearchDetail = { session: SavedResearchSummary; turns: SavedResearchTurn[] };
 
 export const RESEARCH_RETENTION_DAYS = 90;
-

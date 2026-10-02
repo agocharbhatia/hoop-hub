@@ -66,11 +66,40 @@ test('partial exports report omitted source clips and cancellation stops an acti
 	} finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
+test('empty compiled output fails the job and never exposes a download', async () => {
+	const directory = mkdtempSync(join(tmpdir(), 'hoop-empty-export-')); const store = new DataStore({ dbPath: ':memory:' });
+	try {
+		const repository = createResearchRepository({ store });
+		const service = createClipExportService({ repository, store, outputDir: directory, compile: async (input) => {
+			input.onClipCompleted(); await writeFile(input.outputPath, new Uint8Array());
+		} });
+		const created = service.create(savePlaylist(repository));
+		const result = await finish(service, created.id);
+		assert.equal(result.status, 'failed'); assert.match(result.error ?? '', /empty/);
+		assert.equal(result.downloadUrl, undefined); assert.equal(service.getDownload(created.id), null);
+		assert.equal(existsSync(join(directory, created.id)), false);
+	} finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('request and URL provenance validation excludes arbitrary server fetches', () => {
 	for (const url of ['http://videos.nba.com/nba/pbp/media/2024/12/31/0022400449/34/clip.mp4', 'https://example.com/clip.mp4', 'https://videos.nba.com@127.0.0.1/clip.mp4', clips[1].url]) assert.equal(isCanonicalExportClip({ ...clips[0], url }), false);
 	assert.equal(isCanonicalExportClip(clips[0]), true);
+	assert.equal(isCanonicalExportClip({ url: 'https://videos.nba.com/clip.mp4' }), false);
 	assert.throws(() => validateClipExportRequest({ sessionId: crypto.randomUUID(), turnId: crypto.randomUUID(), artifactIndex: 0, url: clips[0].url }), /valid saved/);
 	assert.throws(() => validateClipExportRequest({ sessionId: crypto.randomUUID(), turnId: crypto.randomUUID(), artifactIndex: 0, eventIds: [{ gameId: 'x', eventId: '1' }] }), /canonical/);
+});
+
+test('clip download rejects redirects outside NBA provenance and oversized media before decoding', async () => {
+	const directory = mkdtempSync(join(tmpdir(), 'hoop-media-')); const signal = AbortSignal.timeout(10_000);
+	try {
+		for (const mode of ['redirect', 'oversized']) {
+			const omissions: string[] = [];
+			await assert.rejects(() => compilePlaylist({ clips: [clips[0]], outputPath: join(directory, 'result.mp4'), signal,
+				onClipCompleted: () => assert.fail('Unverified media was compiled'), onOmission: (_clip, reason) => omissions.push(reason)
+			}, { fetchImpl: (async () => mode === 'redirect' ? new Response(null, { status: 302, headers: { location: 'http://127.0.0.1/private' } }) : new Response('media', { headers: { 'content-length': String(67_108_865) } })) as typeof fetch }), /None of the selected/);
+			assert.match(omissions[0], mode === 'redirect' ? /outside verified/ : /download limit/);
+		}
+	} finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('FFmpeg compiles normalized audio and silent clips into one playable MP4', { skip: spawnSync('ffmpeg', ['-version']).status !== 0 || spawnSync('ffprobe', ['-version']).status !== 0 }, async () => {
