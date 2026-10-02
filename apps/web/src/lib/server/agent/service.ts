@@ -461,7 +461,8 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			const renderLatencyMs = Math.round(clock.nowMs() - finalStartedAt);
 			const finalOutput = parseFinalOutput(finalResponse);
 			const trendRequested = requiresVerifiedTrend(question);
-			const trendMissing = trendRequested && collectVerifiedTrendPopulations(executionContext.toolResults, executionContext.resolvedPlayers).length === 0;
+			const trendPopulations = collectVerifiedTrendPopulations(executionContext.toolResults, executionContext.resolvedPlayers);
+			const trendMissing = trendRequested && trendPopulations.length === 0;
 			const unverifiedTrendScopes = countUnverifiedTrendScopes(executionContext.toolResults);
 			const trendUnavailable = trendMissing;
 			const splitScope = requestedSplitRepair ?? findWinLossSplitRepair(question, executionContext.toolResults, executionContext.requestedSeason, referenceDate);
@@ -499,7 +500,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				: trendMissing ? [{ code: 'trend_not_computed', message: 'A verified trend comparison could not be calculated for this scope.' }] : selectPublicWarnings(status, verifiedSplit ? modelWarnings.filter((warning) => !['dynamic_agent_capability_limit', 'dynamic_agent_partial_data'].includes(warning.code)) : modelWarnings, executionContext.toolResults);
 			const groundedAnswer = splitMissing ? 'I could not verify these win/loss averages from complete game logs for the requested scope.'
 				: splitScope && verifiedSplit ? buildVerifiedWinLossAnswer(splitScope, verifiedSplit)
-				: trendMissing ? 'I could not verify the trend for this scope.' : trendRequested
+				: trendMissing ? 'I could not verify the trend for this scope.' : trendRequested || trendPopulations.length > 0
 				? buildVerifiedTrendAnswer(executionContext.toolResults, executionContext.resolvedPlayers)
 				: refinement?.kind === 'season_comparison' ? finalOutput.answer : reconcileDefenderLeaderboardAnswer(
 				reconcilePlayerMatchupAnswer(finalOutput.answer, executionContext.toolResults),
