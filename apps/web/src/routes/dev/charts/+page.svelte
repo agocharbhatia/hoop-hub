@@ -3,7 +3,10 @@
 	import BarChart from '$lib/components/charts/BarChart.svelte';
 	import LineChart from '$lib/components/charts/LineChart.svelte';
 	import ShotChart from '$lib/components/charts/ShotChart.svelte';
-	import type { QueryAnswerArtifact } from '$lib/contracts/answer-response';
+	import ResearchResult from '$lib/components/research/ResearchResult.svelte';
+	import ResearchProgress from '$lib/components/research/ResearchProgress.svelte';
+	import type { QueryAnswerArtifact, QueryAnswerResponse } from '$lib/contracts/answer-response';
+	import type { QueryProgress } from '$lib/contracts/query-progress';
 
 	// Design QA page for chart artifacts. Not linked from the app UI.
 	const lineChart: Extract<QueryAnswerArtifact, { type: 'line_chart' }> = {
@@ -125,10 +128,25 @@
 	};
 	let selectedEvent = $state<{ gameId: string; eventId: string } | null>(null);
 	let selectedRow = $state<string | null>(null);
+	let pendingDemo = $state(false);
+	let longWaitDemo = $state(false);
+	let demoFeedback = $state('');
+	const composite: QueryAnswerResponse = {
+		status: 'ok', answer: 'Synthetic research demonstrates a shared desktop evidence grid. On narrow screens, artifacts stack in their reading order.',
+		artifacts: [lineChart, signedBars, table], toolResults: [], citations: [], warnings: [], traceId: 'synthetic-layout',
+		followUpSuggestions: [{ label: 'Compare another season', question: 'Synthetic follow-up: compare another season.' }, { label: 'Inspect the film', question: 'Synthetic follow-up: inspect the film.' }]
+	};
+	const demoProgress: QueryProgress = { stage: 'fetching', message: 'Fetching the requested NBA game data…', completedTools: 2, elapsedMs: 8_000 };
 </script>
 
-<main class="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-10">
+<main class="mx-auto flex w-full max-w-[1440px] flex-col gap-6 px-4 py-10">
 	<header><p class="text-xs uppercase tracking-[0.2em] text-muted-foreground">Hoop Hub · Artifact lab</p><h1 class="mt-2 text-2xl font-semibold">Explore the evidence</h1><p class="mt-2 text-sm text-muted-foreground">Synthetic fixtures for interaction QA. These values are not NBA research results.</p></header>
+	<section class="space-y-4 rounded-2xl border border-border p-4 sm:p-6">
+		<div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-sm font-medium">Research layout and activity</h2><div class="flex gap-2"><button type="button" aria-pressed={pendingDemo} onclick={() => pendingDemo = !pendingDemo} class="rounded-md border border-border px-3 py-1.5 text-xs">{pendingDemo ? 'Show final result' : 'Show partial evidence'}</button><button type="button" aria-pressed={longWaitDemo} onclick={() => longWaitDemo = !longWaitDemo} class="rounded-md border border-border px-3 py-1.5 text-xs">{longWaitDemo ? 'Normal wait' : 'Long wait'}</button></div></div>
+		{#if pendingDemo}<ResearchProgress progress={demoProgress} elapsedMs={longWaitDemo ? 38_000 : 8_000} lastUpdateAgeMs={1_000} stageAgeMs={longWaitDemo ? 35_000 : 4_000} oncancel={() => { pendingDemo = false; demoFeedback = 'Synthetic request canceled; no query was sent.'; }} />{/if}
+		<ResearchResult result={pendingDemo ? { ...composite, answer: '' } : composite} pending={pendingDemo} onfollowup={(question) => demoFeedback = question} />
+		{#if demoFeedback}<p role="status" class="text-xs text-muted-foreground">{demoFeedback}</p>{/if}
+	</section>
 
 	<section class="rounded-2xl border border-border bg-card px-4 py-4"><LineChart artifact={lineChart} /></section>
 	<section class="rounded-2xl border border-border bg-card px-4 py-4"><LineChart artifact={singleSeriesLine} /></section>
