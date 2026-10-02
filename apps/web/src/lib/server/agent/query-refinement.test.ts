@@ -63,7 +63,7 @@ describe('grounded research refinements', () => {
 		assert.deepEqual(shots.map((artifact) => [artifact.source?.population?.season, artifact.shots.filter((shot) => shot.made).length]), [['2025-26', 1], ['2023-24', 2]]);
 		assert.equal(shots.every((artifact) => artifact.title.includes(String(artifact.source?.population?.season))), true);
 		assert.equal(inputs.length, 6, 'Each deterministic refinement needs only a final rendering model call');
-		assert.match(inputs[0].messages[0].content ?? '', /2026-04-15/);
+		assert.ok(inputs[0].messages.some((message) => message.role === 'system' && /2026-04-15/.test(message.content ?? '')));
 	});
 
 	test('keeps the prior successful scope after an unavailable question', async () => {

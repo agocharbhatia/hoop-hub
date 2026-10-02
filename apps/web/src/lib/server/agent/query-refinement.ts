@@ -17,6 +17,12 @@ export function deriveResearchRefinement(question: string, previous: GroundedRes
 		if (requests.some((request) => request === null)) return null;
 		return requests.length ? { kind: 'shot_result', requests: requests as GroundedResearchRequest[] } : null;
 	}
+	const outcome = text.match(/^(?:show(?: only)?|only|just)(?: the)? (misses|makes|missed shots|made shots)(?: instead| only)?(?:,? keeping the same filters)?$/);
+	if (outcome) {
+		const result = outcome[1].startsWith('miss') ? 'missed' : 'made';
+		const requests = previous.map((entry) => withShotResult(entry, result));
+		return requests.length && requests.every((entry) => entry !== null) ? { kind: 'shot_result', requests: requests as GroundedResearchRequest[] } : null;
+	}
 	if (/^(?:only|just)(?: the)? (?:fourth quarters?|4th quarters?|fourth|4th|q4)(?: only)?$/.test(text)) {
 		const requests = previous.map(fourthQuarter);
 		if (requests.some((request) => request === null)) return null;
@@ -119,18 +125,25 @@ export function summarizeResearchScope(entries: GroundedResearchRequest[], resol
 /* Helper functions */
 
 function includeMisses(entry: GroundedResearchRequest): GroundedResearchRequest | null {
+	return withShotResult(entry, 'any');
+}
+
+function withShotResult(entry: GroundedResearchRequest, result: 'made' | 'missed' | 'any'): GroundedResearchRequest | null {
 	const next = structuredClone(entry);
 	if (next.toolName === 'find_video_clips') {
 		if (!['custom_shot', 'made_field_goal', 'made_three'].includes(next.request.eventType)) return null;
 		const shotValue = next.request.eventType === 'made_three' ? 3 : next.request.customShot?.shotValue;
 		next.request.eventType = 'custom_shot';
-		next.request.customShot = { ...next.request.customShot, ...(shotValue ? { shotValue } : {}), result: 'any' };
+		next.request.customShot = { ...next.request.customShot, ...(shotValue ? { shotValue } : {}), result };
 		return next;
 	}
 	if ('endpointId' in next.request && next.request.endpointId === 'shotchartdetail') {
 		next.request.params.ContextMeasure = 'FGA';
 		if (next.toolName === 'aggregate_endpoint_rows') {
 			next.request.filters = next.request.filters?.filter((filter) => filter.column.toUpperCase() !== 'SHOT_MADE_FLAG');
+			if (result !== 'any') (next.request.filters ??= []).push({ column: 'SHOT_MADE_FLAG', op: 'eq', value: result === 'made' ? 1 : 0 });
+		} else if (result !== 'any') {
+			return null;
 		}
 		return next;
 	}

@@ -4,6 +4,7 @@ import type { StatsEndpointFetcher } from '$lib/server/data/adapters/stats-endpo
 import type { PlayerDirectoryEntryRecord } from '$lib/server/data/store';
 import type { TeamDirectoryEntryRecord } from '$lib/server/teams/team-directory';
 import type { QuerySessionStore } from './query-session-store';
+import type { QueryProgress } from '$lib/contracts/query-progress';
 
 export type DynamicAgentToolCall = {
 	id: string;
@@ -47,6 +48,7 @@ export type DynamicAgentCompletionInput = {
 	messages: DynamicAgentChatMessage[];
 	tools?: DynamicAgentToolDefinition[];
 	responseFormat?: DynamicAgentJsonSchema;
+	signal?: AbortSignal;
 };
 
 export type DynamicAgentModelResponse = {
@@ -62,6 +64,7 @@ export type DynamicAgentModelResponse = {
 };
 
 export type DynamicAgentAdapter = {
+	supportsDirectFinalAnswer?: boolean;
 	complete(input: DynamicAgentCompletionInput): Promise<DynamicAgentModelResponse>;
 };
 
@@ -92,7 +95,12 @@ export type DynamicQueryAgentDependencies = {
 };
 
 export type DynamicQueryAgent = {
-	answerQuestion(question: string, options?: { sessionId?: string }): Promise<QueryAnswerResponse>;
+	answerQuestion(question: string, options?: {
+		sessionId?: string;
+		signal?: AbortSignal;
+		onProgress?: (progress: QueryProgress) => void;
+		onArtifacts?: (artifacts: QueryAnswerArtifact[]) => void;
+	}): Promise<QueryAnswerResponse>;
 };
 
 export type DynamicAgentFinalWarningKind = 'partial_data' | 'capability_limit' | 'artifact_sample' | 'scope_assumption' | 'diagnostic';

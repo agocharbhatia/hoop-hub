@@ -500,7 +500,7 @@ describe('createDynamicQueryAgent', () => {
 		]);
 		let endpointRequest: Parameters<StatsEndpointFetcher>[0] | null = null;
 		const endpointFetcher: StatsEndpointFetcher = async (request) => {
-			endpointRequest = request;
+			endpointRequest = { endpointId: request.endpointId, params: request.params };
 			return buildEndpointResult();
 		};
 
@@ -568,7 +568,7 @@ describe('createDynamicQueryAgent', () => {
 		]);
 		let endpointRequest: Parameters<StatsEndpointFetcher>[0] | null = null;
 		const endpointFetcher: StatsEndpointFetcher = async (request) => {
-			endpointRequest = request;
+			endpointRequest = { endpointId: request.endpointId, params: request.params };
 			return buildEndpointResult({
 				endpointId: 'videodetailsasset',
 				payload: {
@@ -658,7 +658,7 @@ describe('createDynamicQueryAgent', () => {
 		const agent = createDynamicQueryAgent({
 			model,
 			endpointFetcher: async (request) => {
-				endpointRequest = request;
+				endpointRequest = { endpointId: request.endpointId, params: request.params };
 				return buildEndpointResult({
 					endpointId: 'videodetailsasset',
 					payload: {
@@ -1116,7 +1116,7 @@ describe('createDynamicQueryAgent', () => {
 		);
 		let endpointRequest: Parameters<StatsEndpointFetcher>[0] | null = null;
 		const endpointFetcher: StatsEndpointFetcher = async (request) => {
-			endpointRequest = request;
+			endpointRequest = { endpointId: request.endpointId, params: request.params };
 			return buildShotChartEndpointResult(buildShotChartRows());
 		};
 		const agent = createDynamicQueryAgent({

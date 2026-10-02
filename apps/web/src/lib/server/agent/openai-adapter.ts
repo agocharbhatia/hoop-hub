@@ -28,13 +28,14 @@ export function createOpenAIDynamicAgentAdapter(options: { maxCompletionTokens?:
 		throw new Error('OPENAI_AGENT_MODEL or OPENAI_PLANNER_MODEL is required for dynamic agent runtime.');
 	}
 
-	const client = new OpenAI({ apiKey, timeout: options.timeoutMs, maxRetries: options.maxRetries });
+	const client = new OpenAI({ apiKey, timeout: options.timeoutMs ?? 45_000, maxRetries: options.maxRetries ?? 0 });
 
 	return {
+		supportsDirectFinalAnswer: true,
 		async complete(input: DynamicAgentCompletionInput) {
 			const completion = await client.chat.completions.create({
 				model,
-				...(options.maxCompletionTokens ? { max_completion_tokens: options.maxCompletionTokens } : {}),
+				max_completion_tokens: options.maxCompletionTokens ?? 4096,
 				...(model === 'gpt-6-luna' ? { reasoning_effort: 'none' as const } : {}),
 				temperature: input.responseFormat ? 0.1 : 0,
 				messages: input.messages.map(toOpenAIMessage),
@@ -52,7 +53,7 @@ export function createOpenAIDynamicAgentAdapter(options: { maxCompletionTokens?:
 							}
 						}
 					: {})
-			});
+			}, { signal: input.signal });
 			const message = completion.choices[0]?.message;
 			if (!message) {
 				throw new Error('Dynamic agent model returned no message.');

@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
 import type { QueryAnswerRequest } from '$lib/contracts/query-context';
+import type { QueryProgress, QueryStreamEvent } from '$lib/contracts/query-progress';
 import { QuerySessionExpiredError } from '$lib/server/agent/query-session-store';
 import type { AnswerRendererService } from '$lib/server/answer-renderer/service';
 import { createDeterministicAnswerRendererService } from '$lib/server/answer-renderer/service';
@@ -92,16 +93,60 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	try {
 		const dependencies = await getDependencies();
-		const answer = await dependencies.answerQuestion(parsed.value.question, { sessionId: parsed.value.sessionId });
+		if (request.headers.get('accept')?.includes('text/event-stream')) return streamResearchAnswer(dependencies, parsed.value, request.signal);
+		const answer = await dependencies.answerQuestion(parsed.value.question, { sessionId: parsed.value.sessionId, signal: request.signal });
 		return json(answer, { status: 200 });
 	} catch (error) {
 		if (error instanceof QuerySessionExpiredError) return json({ error: error.message, code: 'session_expired' }, { status: 409 });
-		console.error('Unexpected dynamic query handler error:', error);
+		console.error('Unexpected dynamic query handler error:', describeQueryError(error));
 		return json({ error: 'Internal server error.' }, { status: 500 });
 	}
 };
 
 /* Helper functions */
+
+/** One request carries source progress, verified artifact snapshots, and the final answer. */
+function streamResearchAnswer(runtime: QueryRouteRuntime, input: QueryAnswerRequest, requestSignal: AbortSignal): Response {
+	const cancellation = new AbortController();
+	const signal = AbortSignal.any([requestSignal, cancellation.signal]);
+	const encoder = new TextEncoder();
+	let closed = false;
+	let heartbeat: ReturnType<typeof setInterval> | undefined;
+	const stream = new ReadableStream<Uint8Array>({
+		start(controller) {
+			let progress: QueryProgress = { stage: 'planning', message: 'Understanding your question', completedTools: 0, elapsedMs: 0 };
+			let updatedAt = Date.now();
+			const send = (event: QueryStreamEvent) => {
+				if (!closed && !signal.aborted) controller.enqueue(encoder.encode(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`));
+			};
+			send({ event: 'progress', data: progress });
+			heartbeat = setInterval(() => send({ event: 'progress', data: { ...progress, elapsedMs: progress.elapsedMs + Date.now() - updatedAt } }), 5_000);
+			void runtime.answerQuestion(input.question, {
+				sessionId: input.sessionId, signal,
+				onProgress(next) { progress = next; updatedAt = Date.now(); send({ event: 'progress', data: next }); },
+				onArtifacts(artifacts) { send({ event: 'artifacts', data: { artifacts } }); }
+			}).then((answer) => send({ event: 'result', data: answer })).catch((error: unknown) => {
+				if (signal.aborted) return;
+				if (error instanceof QuerySessionExpiredError) send({ event: 'error', data: { message: error.message, code: 'session_expired' } });
+				else if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'APIConnectionTimeoutError')) send({ event: 'error', data: { message: 'This research reached its time limit. Try a narrower question or retry.', code: 'query_timeout' } });
+				else if (error && typeof error === 'object' && 'status' in error && error.status === 429) send({ event: 'error', data: { message: 'The answer service is temporarily busy. Please retry shortly.', code: 'model_busy' } });
+				else {
+					console.error('Unexpected streaming query error:', describeQueryError(error));
+					send({ event: 'error', data: { message: 'The research could not finish. Please retry.', code: 'query_failed' } });
+				}
+			}).finally(() => {
+				clearInterval(heartbeat);
+				if (!closed) { closed = true; controller.close(); }
+			});
+		},
+		cancel() { closed = true; clearInterval(heartbeat); cancellation.abort(new DOMException('Research cancelled', 'AbortError')); }
+	});
+	return new Response(stream, { headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' } });
+}
+
+function describeQueryError(error: unknown): { name: string; message: string } {
+	return error instanceof Error ? { name: error.name, message: error.message } : { name: 'UnknownError', message: 'Unknown query error' };
+}
 
 async function getDependencies(): Promise<QueryRouteRuntime> {
 	if (testDependencies) {

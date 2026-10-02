@@ -24,6 +24,7 @@ export function createBudgetedEvalModel(
 	usage: ObservedModelUsage
 ): DynamicAgentAdapter {
 	return {
+		supportsDirectFinalAnswer: model.supportsDirectFinalAnswer,
 		async complete(input) {
 			// UTF-8 bytes bound text tokens conservatively, including serialized tool/schema definitions.
 			const inputBound = new TextEncoder().encode(JSON.stringify(input)).length + 2048;

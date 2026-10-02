@@ -10,7 +10,8 @@ describe('query context route boundaries', () => {
 		const sessionId = crypto.randomUUID();
 		let received: unknown;
 		_setQueryRouteDependenciesForTests({ async answerQuestion(question, options) {
-			received = { question, options };
+			assert.ok(options?.signal instanceof AbortSignal);
+			received = { question, options: { sessionId: options?.sessionId } };
 			return { sessionId, status: 'ok', answer: 'Answer', artifacts: [], toolResults: [], citations: [], warnings: [], traceId: 'trace' };
 		} });
 		const response = await post({ question: '  Now include misses.  ', sessionId });

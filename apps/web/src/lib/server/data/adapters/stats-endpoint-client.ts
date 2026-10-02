@@ -158,15 +158,18 @@ async function requestLiveStatsWithRetries(
 	url: URL,
 	diagnostics: LiveStatsDiagnostics,
 	proxyUrls: string[],
-	liveTransport: LiveStatsTransport
+	liveTransport: LiveStatsTransport,
+	signal?: AbortSignal
 ): Promise<LiveStatsTextResponse> {
 	let lastError: unknown = null;
 	const maxAttempts = diagnostics.retryCount + 1;
 
 	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		signal?.throwIfAborted();
 		try {
-			return await liveTransport(url, diagnostics.timeoutMs, proxyUrls);
+			return await liveTransport(url, diagnostics.timeoutMs, proxyUrls, signal);
 		} catch (error) {
+			signal?.throwIfAborted();
 			lastError = error;
 			if (attempt >= maxAttempts || !isRetryableLiveFetchError(error)) {
 				break;
@@ -212,6 +215,7 @@ export type EndpointFetchRequest = {
 	params: Record<string, string>;
 	now?: Date;
 	allowLiveFetch?: boolean;
+	signal?: AbortSignal;
 };
 
 export type EndpointFetchResult = {
@@ -226,7 +230,7 @@ export type EndpointFetchResult = {
 	errorDetail?: string;
 };
 
-type LiveStatsTransport = (url: URL, timeoutMs: number, proxyUrls?: string[]) => Promise<LiveStatsTextResponse>;
+type LiveStatsTransport = (url: URL, timeoutMs: number, proxyUrls?: string[], signal?: AbortSignal) => Promise<LiveStatsTextResponse>;
 
 export type StatsEndpointFetcher = (request: EndpointFetchRequest) => Promise<EndpointFetchResult>;
 
@@ -287,7 +291,8 @@ function parseCachedPayload(payloadJson: string): unknown | null {
 async function requestStatsTextViaNodeSubprocess(
 	url: URL,
 	timeoutMs: number,
-	proxyUrl?: string
+	proxyUrl?: string,
+	signal?: AbortSignal
 ): Promise<LiveStatsTextResponse> {
 	return new Promise((resolve, reject) => {
 		const args = [NODE_STATS_FETCH_SCRIPT, url.toString(), String(timeoutMs), JSON.stringify(NBA_HEADERS)];
@@ -300,6 +305,7 @@ async function requestStatsTextViaNodeSubprocess(
 			args,
 			{
 				timeout: timeoutMs + 1000,
+				signal,
 				maxBuffer: 10 * 1024 * 1024
 			},
 			(error, stdout, stderr) => {
@@ -326,14 +332,16 @@ function getLiveStatsTransport(): LiveStatsTransport {
 		return liveStatsTransportOverride;
 	}
 
-	return async (url, timeoutMs, proxyUrls) => {
+	return async (url, timeoutMs, proxyUrls, signal) => {
 		if (proxyUrls && proxyUrls.length > 0) {
 			let lastError: unknown = null;
 
 			for (const proxyUrl of proxyUrls) {
+				signal?.throwIfAborted();
 				try {
-					return await requestStatsTextViaNodeSubprocess(url, timeoutMs, proxyUrl);
+					return await requestStatsTextViaNodeSubprocess(url, timeoutMs, proxyUrl, signal);
 				} catch (error) {
+					signal?.throwIfAborted();
 					lastError = error;
 				}
 			}
@@ -341,7 +349,7 @@ function getLiveStatsTransport(): LiveStatsTransport {
 			throw lastError ?? new Error('No usable proxy URL was available for live NBA fetch.');
 		}
 
-		return requestStatsTextViaNodeSubprocess(url, timeoutMs);
+		return requestStatsTextViaNodeSubprocess(url, timeoutMs, undefined, signal);
 	};
 }
 
@@ -384,6 +392,7 @@ export function createBootstrapLiveFetcherSession(): { fetcher: StatsEndpointFet
 
 export function createStatsEndpointFetcher(options?: { liveTransport?: LiveStatsTransport }): StatsEndpointFetcher {
 	return async (request: EndpointFetchRequest): Promise<EndpointFetchResult> => {
+		request.signal?.throwIfAborted();
 		const entry = getEndpointCatalogEntry(request.endpointId);
 		if (!entry) {
 			throw new Error(`Unknown endpoint id '${request.endpointId}'.`);
@@ -486,7 +495,7 @@ export function createStatsEndpointFetcher(options?: { liveTransport?: LiveStats
 		const liveTransport = options?.liveTransport ?? getLiveStatsTransport();
 
 		try {
-			const response = await requestLiveStatsWithRetries(url, diagnostics, proxyUrls, liveTransport);
+			const response = await requestLiveStatsWithRetries(url, diagnostics, proxyUrls, liveTransport, request.signal);
 			const latencyMs = Math.round(performance.now() - startedAt);
 			if (response.statusCode < 200 || response.statusCode >= 300) {
 				const sourceStatus: TraceSourceStatus = response.statusCode === 429 ? 'rate_limited' : 'error';
@@ -518,6 +527,7 @@ export function createStatsEndpointFetcher(options?: { liveTransport?: LiveStats
 				parserVersion: entry.parserVersion
 			};
 		} catch (error) {
+			request.signal?.throwIfAborted();
 			const latencyMs = Math.round(performance.now() - startedAt);
 			const errorDetail = `${formatLiveStatsDiagnostics(diagnostics)}; ${String(error)}`;
 			const sourceStatusFromCause =

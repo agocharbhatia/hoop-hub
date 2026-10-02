@@ -145,7 +145,7 @@ const endpoint = { endpointId: 'playergamelogs', params: { PlayerID: '1641705', 
 function createAgent(turns: DynamicAgentModelResponse[]) {
 	const inputs: DynamicAgentCompletionInput[] = []; const fetched: Array<Record<string, string>> = [];
 	const agent = createDynamicQueryAgent({
-		model: { async complete(input) { inputs.push(structuredClone(input)); return turns.shift() ?? assert.fail('Unexpected model call'); } },
+		model: { async complete(input) { const { signal: _signal, ...recorded } = input; inputs.push(structuredClone(recorded)); return turns.shift() ?? assert.fail('Unexpected model call'); } },
 		endpointFetcher: async (request) => {
 			fetched.push(request.params);
 			return { endpointId: request.endpointId, payload: { resultSets: [{ name: 'PlayerGameLogs', headers: ['WL', 'BLK'], rowSet: [['W', 5], ['L', 3], ['W', 4], ['L', 2], ['W', 3], ['L', 1]] }] },

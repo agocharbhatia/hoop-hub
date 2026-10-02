@@ -329,7 +329,7 @@ describe('POST /api/query', () => {
 		]);
 		let endpointRequest: Parameters<StatsEndpointFetcher>[0] | null = null;
 		const endpointFetcher: StatsEndpointFetcher = async (request) => {
-			endpointRequest = request;
+			endpointRequest = { endpointId: request.endpointId, params: request.params };
 			return buildEndpointResult();
 		};
 		const agent = createAgentWithModel(model, endpointFetcher);
