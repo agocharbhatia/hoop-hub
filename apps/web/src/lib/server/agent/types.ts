@@ -3,6 +3,7 @@ import type { SemanticQueryRequest, StatsQueryResponse, StatsQueryWarning } from
 import type { StatsEndpointFetcher } from '$lib/server/data/adapters/stats-endpoint-client';
 import type { PlayerDirectoryEntryRecord } from '$lib/server/data/store';
 import type { TeamDirectoryEntryRecord } from '$lib/server/teams/team-directory';
+import type { QuerySessionStore } from './query-session-store';
 
 export type DynamicAgentToolCall = {
 	id: string;
@@ -53,6 +54,8 @@ export type DynamicAgentModelResponse = {
 	toolCalls: DynamicAgentToolCall[];
 	usage?: {
 		inputTokens: number;
+		cachedInputTokens?: number;
+		cacheWriteInputTokens?: number;
 		outputTokens: number;
 		totalTokens: number;
 	};
@@ -84,10 +87,12 @@ export type DynamicQueryAgentDependencies = {
 	maxToolIterations?: number;
 	wallClockMs?: number;
 	clock?: DynamicAgentClock;
+	now?: () => Date;
+	sessionStore?: QuerySessionStore;
 };
 
 export type DynamicQueryAgent = {
-	answerQuestion(question: string): Promise<QueryAnswerResponse>;
+	answerQuestion(question: string, options?: { sessionId?: string }): Promise<QueryAnswerResponse>;
 };
 
 export type DynamicAgentFinalWarningKind = 'partial_data' | 'capability_limit' | 'artifact_sample' | 'scope_assumption' | 'diagnostic';

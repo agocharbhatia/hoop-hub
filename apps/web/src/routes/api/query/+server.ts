@@ -1,5 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
+import type { QueryAnswerRequest } from '$lib/contracts/query-context';
+import { QuerySessionExpiredError } from '$lib/server/agent/query-session-store';
 import type { AnswerRendererService } from '$lib/server/answer-renderer/service';
 import { createDeterministicAnswerRendererService } from '$lib/server/answer-renderer/service';
 import type { DynamicQueryAgent } from '$lib/server/agent/types';
@@ -14,7 +16,7 @@ import {
 import type { RequestHandler } from './$types';
 
 type QueryRouteRuntime = {
-	answerQuestion(question: string): Promise<QueryAnswerResponse>;
+	answerQuestion: DynamicQueryAgent['answerQuestion'];
 };
 
 type DynamicQueryRouteDependencies = {
@@ -72,9 +74,13 @@ export function _setDefaultPlannerFactoryForTests(factory: (() => Promise<Planne
 }
 
 export const POST: RequestHandler = async ({ request }) => {
+	const contentLength = Number(request.headers.get('content-length') ?? 0);
+	if (contentLength > 16_384) return json({ error: 'Request body is too large.' }, { status: 413 });
 	let body: unknown;
 	try {
-		body = await request.json();
+		const source = await request.text();
+		if (new TextEncoder().encode(source).byteLength > 16_384) return json({ error: 'Request body is too large.' }, { status: 413 });
+		body = JSON.parse(source);
 	} catch {
 		return json({ error: 'Invalid JSON body.' }, { status: 400 });
 	}
@@ -86,9 +92,10 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	try {
 		const dependencies = await getDependencies();
-		const answer = await dependencies.answerQuestion(parsed.value.question);
+		const answer = await dependencies.answerQuestion(parsed.value.question, { sessionId: parsed.value.sessionId });
 		return json(answer, { status: 200 });
 	} catch (error) {
+		if (error instanceof QuerySessionExpiredError) return json({ error: error.message, code: 'session_expired' }, { status: 409 });
 		console.error('Unexpected dynamic query handler error:', error);
 		return json({ error: 'Internal server error.' }, { status: 500 });
 	}
@@ -160,20 +167,28 @@ function isDynamicQueryRouteDependencies(
 	return 'answerQuestion' in dependencies;
 }
 
-function validateQueryQuestionRequest(input: unknown): { ok: true; value: { question: string } } | { ok: false; error: string } {
+function validateQueryQuestionRequest(input: unknown): { ok: true; value: QueryAnswerRequest } | { ok: false; error: string } {
 	if (!input || typeof input !== 'object' || Array.isArray(input)) {
 		return { ok: false, error: 'Request body must be a JSON object.' };
 	}
 
-	const { question } = input as { question?: unknown };
+	const { question, sessionId } = input as { question?: unknown; sessionId?: unknown };
+	if (Object.keys(input).some((key) => key !== 'question' && key !== 'sessionId')) {
+		return { ok: false, error: 'Only question and optional sessionId are accepted.' };
+	}
 	if (typeof question !== 'string' || question.trim().length === 0) {
 		return { ok: false, error: 'question is required.' };
+	}
+	if (question.trim().length > 4_000) return { ok: false, error: 'question must be at most 4000 characters.' };
+	if (sessionId !== undefined && (typeof sessionId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId))) {
+		return { ok: false, error: 'sessionId must be a server-generated research session ID.' };
 	}
 
 	return {
 		ok: true,
 		value: {
-			question: question.trim()
+			question: question.trim(),
+			...(typeof sessionId === 'string' ? { sessionId } : {})
 		}
 	};
 }

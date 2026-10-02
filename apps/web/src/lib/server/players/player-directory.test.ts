@@ -6,6 +6,7 @@ import {
 	ensurePlayerDirectoryAvailable,
 	findPlayerDirectoryEntriesByExactName,
 	findPlayerDirectoryEntriesByNameOrAlias,
+	findSeededPlayerDirectoryEntriesByNameOrAlias,
 	findPlayerDirectoryEntryById,
 	refreshPlayerDirectorySnapshot,
 	setPlayerDirectoryRefreshLoaderForTests,
@@ -66,6 +67,15 @@ describe('player-directory', () => {
 			matches.map((match) => ({ playerId: match.playerId, canonicalName: match.canonicalName })),
 			[{ playerId: '201939', canonicalName: 'Stephen Curry' }]
 		);
+	});
+
+	test('resolves Wemby through the seeded alias overlay without requiring persistent directory state', () => {
+		const seeded = findSeededPlayerDirectoryEntriesByNameOrAlias('Wemby');
+		assert.deepEqual(seeded.map((entry) => [entry.playerId, entry.canonicalName]), [['1641705', 'Victor Wembanyama']]);
+		seeded[0].canonicalName = 'Changed copy';
+		assert.equal(findSeededPlayerDirectoryEntriesByNameOrAlias('Wemby')[0].canonicalName, 'Victor Wembanyama');
+		assert.equal(ensurePlayerDirectoryAvailable().ok, true);
+		assert.deepEqual(findPlayerDirectoryEntriesByNameOrAlias('Wemby').map((entry) => entry.playerId), ['1641705']);
 	});
 
 	test('surfaces ambiguous curated aliases without guessing a canonical player', () => {

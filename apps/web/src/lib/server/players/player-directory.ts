@@ -35,6 +35,7 @@ const CURATED_PLAYER_ALIASES: CuratedPlayerAliasDefinition[] = [
 	{ alias: 'Curry', playerIds: ['201939'] },
 	{ alias: 'Dame', playerIds: ['203081'] },
 	{ alias: 'Jokic', playerIds: ['203999'] },
+	{ alias: 'Wemby', playerIds: ['1641705'] },
 	{ alias: 'Williams', playerIds: ['1629684', '1629026', '101150', '1630172'] }
 ];
 
@@ -67,6 +68,11 @@ function loadPlayerDirectorySnapshot(): ReplacePlayerDirectoryEntryInput[] {
 
 const PLAYER_DIRECTORY_SNAPSHOT = loadPlayerDirectorySnapshot();
 const PLAYER_DIRECTORY_SNAPSHOT_BY_ID = new Map(PLAYER_DIRECTORY_SNAPSHOT.map((entry) => [entry.playerId, entry]));
+const PLAYER_DIRECTORY_SNAPSHOT_BY_NAME = new Map<string, ReplacePlayerDirectoryEntryInput[]>();
+for (const entry of PLAYER_DIRECTORY_SNAPSHOT) {
+	const name = normalizeMetricQuery(entry.canonicalName);
+	PLAYER_DIRECTORY_SNAPSHOT_BY_NAME.set(name, [...PLAYER_DIRECTORY_SNAPSHOT_BY_NAME.get(name) ?? [], entry]);
+}
 const PLAYER_DIRECTORY_NAMES_BY_LENGTH = Array.from(
 	new Set(PLAYER_DIRECTORY_SNAPSHOT.map((entry) => entry.canonicalName))
 ).sort((left, right) => right.length - left.length);
@@ -192,6 +198,14 @@ function filterOverlappingMentions(matches: PlayerDirectoryMentionMatch[]): Play
 }
 
 /* Public lookup API */
+
+/** Lets grounding checks verify seeded identity without mutating the persistent directory or trusting model aliases. */
+export function findSeededPlayerDirectoryEntriesByNameOrAlias(name: string): ReplacePlayerDirectoryEntryInput[] {
+	const normalized = normalizeMetricQuery(name);
+	const exact = PLAYER_DIRECTORY_SNAPSHOT_BY_NAME.get(normalized);
+	const entries = exact ?? getSnapshotPlayersByIds(CURATED_PLAYER_ALIAS_IDS.get(normalized) ?? []);
+	return entries.map((entry) => ({ ...entry }));
+}
 
 export function findPlayerDirectoryEntryById(playerId: string): PlayerDirectoryEntryRecord | null {
 	return getDataStore().getPlayerDirectoryEntryById(playerId);

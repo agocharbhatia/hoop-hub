@@ -1,12 +1,22 @@
 import type { Citation } from './chat';
+import type { QueryEffectiveScope } from './query-context';
 import type { SemanticQueryRequest, StatsQueryResponse, StatsQueryRow, StatsQueryStatus, StatsQueryWarning } from './semantic-query';
 
+export type QueryArtifactSource = {
+	toolName: 'aggregate_endpoint_rows' | 'find_video_clips';
+	endpointId: string;
+	resultSetName: string;
+	request: Record<string, unknown>;
+	population?: Record<string, unknown>;
+	sampled?: boolean;
+};
 export type QueryAnswerArtifact =
 	| {
 			type: 'table';
 			shape: NonNullable<StatsQueryResponse['result']>['shape'];
 			columns: string[];
 			rows: StatsQueryRow[];
+			source?: QueryArtifactSource;
 	  }
 	| {
 			type: 'text_block';
@@ -34,21 +44,36 @@ export type QueryAnswerArtifact =
 				label: string;
 				value: number;
 			}>;
+			source?: QueryArtifactSource;
 	  }
 	| {
 			type: 'shot_chart';
 			title: string;
+			source?: QueryArtifactSource;
 			shots: Array<{
 				locX: number;
 				locY: number;
 				made: boolean;
 				value?: 2 | 3;
 				label?: string;
+				gameId?: string;
+				eventId?: string;
+				gameDate?: string;
+				period?: number;
 			}>;
 	  }
 	| {
 			type: 'video_playlist';
 			title: string;
+			source?: QueryArtifactSource;
+			coverage?: {
+				matchingShotEventCount: number;
+				joinedClipCount: number;
+				returnedClipCount: number;
+				missingVideoCount: number;
+				invalidJoinKeyCount?: number;
+				playlistCapped: boolean;
+			};
 			clips: Array<{
 				url: string;
 				description: string;
@@ -92,6 +117,8 @@ export type QueryAnswerAgentToolResult = {
 export type QueryAnswerAnyToolResult = QueryAnswerToolResult | QueryAnswerAgentToolResult;
 
 export type QueryAnswerResponse = {
+	sessionId?: string;
+	effectiveScope?: QueryEffectiveScope;
 	status: StatsQueryStatus;
 	answer: string;
 	artifacts: QueryAnswerArtifact[];

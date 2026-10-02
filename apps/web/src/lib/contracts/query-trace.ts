@@ -51,6 +51,8 @@ export type DynamicAgentQueryTraceResponse = QueryTraceShared & {
 	modelUsage: {
 		calls: number;
 		inputTokens: number;
+		cachedInputTokens?: number;
+		cacheWriteInputTokens?: number;
 		outputTokens: number;
 		totalTokens: number;
 	};

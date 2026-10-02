@@ -238,4 +238,33 @@ describe('custom shot clip joins', () => {
 			distanceFeetMax: 24
 		});
 	});
+
+	test('grounds all-attempt shooting research alongside a made-only playlist in the same scope', () => {
+		const payload = { resultSets: [{ name: 'Shot_Chart_Detail', headers: [...HEADERS, 'LOC_X', 'LOC_Y', 'PLAYER_ID'], rowSet: [
+			['0022500001', '1', 4, 'Made Shot', 'Pullup Jump Shot', '2PT Field Goal', 'Mid-Range', 'Center(C)', '16-24 ft.', 18, 1, '20251022', 20, 150, '1630173'],
+			['0022500001', '2', 4, 'Missed Shot', 'Pullup Jump Shot', '2PT Field Goal', 'Mid-Range', 'Center(C)', '16-24 ft.', 18, 0, '20251022', -20, 160, '1630173'],
+			['0022500001', '3', 1, 'Made Shot', 'Pullup Jump Shot', '2PT Field Goal', 'Mid-Range', 'Center(C)', '16-24 ft.', 18, 1, '20251022', 30, 170, '1630173'],
+			['0022500001', '4', 4, 'Made Shot', 'Pullup Jump Shot', '2PT Field Goal', 'Mid-Range', 'Center(C)', '16-24 ft.', 18, 1, '20251022', 30, 170, 'different-player']
+		] }] };
+		const filtered = filterCustomShotEvents(payload, { result: 'made', zone: 'mid_range', period: 4 }, SCOPE);
+		if (!filtered.ok) assert.fail(filtered.error);
+		assert.equal(filtered.data.matchingShotEventCount, 1);
+		assert.deepEqual(filtered.data.shootingSummary, { attempts: 2, makes: 1, fgPct: 0.5 });
+		assert.deepEqual(filtered.data.researchRows?.map((row) => row.GAME_EVENT_ID), ['1', '2']);
+		const joined = joinCustomShotEventsToVideos(filtered.data, buildVideoPayload([{ gameId: '0022500001', eventId: '1' }]), 40);
+		if (!joined.ok) assert.fail(joined.error);
+		assert.equal(joined.data.clips.length, 1);
+		assert.equal(joined.data.researchRows?.length, 2);
+	});
+
+	test('applies inclusive date and game scope before video joining', () => {
+		const filtered = filterCustomShotEvents(buildShotPayload([
+			{ gameId: '0022500001', eventId: '1', gameDate: '20251021' },
+			{ gameId: '0022500001', eventId: '2', gameDate: '20251022' },
+			{ gameId: '0022500002', eventId: '3', gameDate: '20251022' },
+			{ gameId: '0022500001', eventId: '4', gameDate: '20251023' }
+		]), { result: 'any' }, { ...SCOPE, gameId: '0022500001', dateFrom: '2025-10-22', dateTo: '2025-10-22' });
+		if (!filtered.ok) assert.fail(filtered.error);
+		assert.deepEqual(filtered.data.events.map((event) => event.eventId), ['2']);
+	});
 });

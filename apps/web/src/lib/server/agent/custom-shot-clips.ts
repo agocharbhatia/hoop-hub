@@ -76,6 +76,8 @@ export type FilteredCustomShotEvents = {
 	matchingShotEventCount: number;
 	invalidJoinKeyCount: number;
 	appliedFilters: CanonicalCustomShotFilters;
+	researchRows?: Array<Record<string, string | number | boolean | null>>;
+	shootingSummary?: { attempts: number; makes: number; fgPct: number | null };
 };
 
 export type CustomShotClipJoinData = {
@@ -88,10 +90,16 @@ export type CustomShotClipJoinData = {
 	playlistCapped: boolean;
 	joinedEventIds: Array<{ gameId: string; eventId: string }>;
 	appliedFilters: CanonicalCustomShotFilters;
+	researchRows?: FilteredCustomShotEvents['researchRows'];
+	shootingSummary?: FilteredCustomShotEvents['shootingSummary'];
 };
 
 const SHOT_RESULT_SET_KEY = 'shotchartdetail';
 const REQUIRED_JOIN_HEADERS = ['GAME_ID', 'GAME_EVENT_ID'] as const;
+const RESEARCH_HEADERS = [
+	'GAME_ID', 'GAME_EVENT_ID', 'GAME_DATE', 'PERIOD', 'LOC_X', 'LOC_Y',
+	'SHOT_MADE_FLAG', 'SHOT_TYPE', 'ACTION_TYPE', 'SHOT_ZONE_BASIC', 'SHOT_DISTANCE'
+];
 
 const ZONE_VALUES: Record<CustomShotZone, string[]> = {
 	restricted_area: ['restricted area'],
@@ -114,7 +122,7 @@ const ZONE_AREA_VALUES: Record<CustomShotZoneArea, string[]> = {
 };
 
 /**
- * Reduces the uncapped shot log to canonical event keys before any video cap can discard a valid match.
+ * Keeps the shooting denominator and clip subset in one scope before a playlist cap discards valid matches.
  */
 export function filterCustomShotEvents(
 	payload: unknown,
@@ -137,14 +145,27 @@ export function filterCustomShotEvents(
 	}
 
 	const events = new Map<string, FilteredCustomShotEvent>();
+	const researchRows = new Map<string, Record<string, string | number | boolean | null>>();
+	const hasCoordinates = ['LOC_X', 'LOC_Y', 'SHOT_MADE_FLAG'].every((header) => headerIndexes.has(header));
+	const availableResearchHeaders = RESEARCH_HEADERS.filter((header) => headerIndexes.has(header));
+	const populationFilters: CustomShotFilters = { ...filters, result: 'any' };
 	let invalidJoinKeyCount = 0;
-	for (const row of resultSet.rows) {
-		if (!rowMatchesCustomFilters(row, headerIndexes, filters, scope)) {
-			continue;
-		}
-
+	for (const [index, row] of resultSet.rows.entries()) {
+		if (!rowMatchesCustomFilters(row, headerIndexes, populationFilters, scope)) continue;
 		const gameId = normalizeGameId(readColumn(row, headerIndexes, 'GAME_ID'));
 		const eventId = normalizeEventId(readColumn(row, headerIndexes, 'GAME_EVENT_ID'));
+		if (hasCoordinates) {
+			const key = gameId && eventId ? buildEventKey(gameId, eventId) : `invalid:${index}`;
+			if (!researchRows.has(key)) {
+				researchRows.set(key, Object.fromEntries(availableResearchHeaders.map((header) => [
+					header,
+					toResearchValue(readColumn(row, headerIndexes, header))
+				])));
+			}
+		}
+		if (!matchesResult(readColumn(row, headerIndexes, 'SHOT_MADE_FLAG'), filters.result)) {
+			continue;
+		}
 		if (!gameId || !eventId) {
 			invalidJoinKeyCount += 1;
 			continue;
@@ -161,12 +182,17 @@ export function filterCustomShotEvents(
 	}
 
 	const orderedEvents = [...events.values()].sort(compareShotEvents);
+	const populationRows = [...researchRows.values()];
 	return {
 		ok: true,
 		data: {
 			events: orderedEvents,
 			matchingShotEventCount: orderedEvents.length + invalidJoinKeyCount,
 			invalidJoinKeyCount,
+			...(hasCoordinates ? {
+				researchRows: populationRows,
+				shootingSummary: buildShootingSummary(populationRows)
+			} : {}),
 			appliedFilters: {
 				eventType: 'custom_shot',
 				...scope,
@@ -219,7 +245,8 @@ export function joinCustomShotEventsToVideos(
 			invalidJoinKeyCount: filtered.invalidJoinKeyCount,
 			playlistCapped: joinedClips.length > clips.length,
 			joinedEventIds: clips.map((clip) => ({ gameId: clip.gameId!, eventId: clip.eventId! })),
-			appliedFilters: filtered.appliedFilters
+			appliedFilters: filtered.appliedFilters,
+			...(filtered.researchRows ? { researchRows: filtered.researchRows, shootingSummary: filtered.shootingSummary } : {})
 		}
 	};
 }
@@ -234,11 +261,22 @@ export function buildEmptyCustomShotJoinData(filtered: FilteredCustomShotEvents)
 		invalidJoinKeyCount: filtered.invalidJoinKeyCount,
 		playlistCapped: false,
 		joinedEventIds: [],
-		appliedFilters: filtered.appliedFilters
+		appliedFilters: filtered.appliedFilters,
+		...(filtered.researchRows ? { researchRows: filtered.researchRows, shootingSummary: filtered.shootingSummary } : {})
 	};
 }
 
 /* Helper functions */
+
+function toResearchValue(value: unknown): string | number | boolean | null {
+	return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : null;
+}
+
+function buildShootingSummary(rows: NonNullable<FilteredCustomShotEvents['researchRows']>) {
+	const attempts = rows.length;
+	const makes = rows.filter((row) => matchesResult(row.SHOT_MADE_FLAG, 'made')).length;
+	return { attempts, makes, fgPct: attempts > 0 ? makes / attempts : null };
+}
 
 function readShotResultSet(
 	payload: unknown
@@ -289,6 +327,13 @@ function rowMatchesCustomFilters(
 	filters: CustomShotFilters,
 	scope: CustomShotScope
 ): boolean {
+	// Verify identity when the feed supplies it, alongside the upstream request scope.
+	if (headerIndexes.has('PLAYER_ID') && normalizeId(readColumn(row, headerIndexes, 'PLAYER_ID')) !== scope.playerId) {
+		return false;
+	}
+	if (scope.teamId && headerIndexes.has('TEAM_ID') && normalizeId(readColumn(row, headerIndexes, 'TEAM_ID')) !== scope.teamId) {
+		return false;
+	}
 	if (!matchesResult(readColumn(row, headerIndexes, 'SHOT_MADE_FLAG'), filters.result)) {
 		return false;
 	}
@@ -424,11 +469,13 @@ function normalizeGameDate(value: unknown): string | null {
 	if (typeof value !== 'string' && typeof value !== 'number') {
 		return null;
 	}
-	const digits = String(value).replaceAll(/\D/g, '');
+	const digits = String(value).trim().replaceAll('-', '');
 	if (!/^\d{8}$/.test(digits)) {
 		return null;
 	}
-	return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+	const canonical = `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+	const parsed = new Date(`${canonical}T00:00:00Z`);
+	return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === canonical ? canonical : null;
 }
 
 function compareShotEvents(left: FilteredCustomShotEvent, right: FilteredCustomShotEvent): number {
@@ -472,3 +519,5 @@ function coerceInteger(value: unknown): number | null {
 function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
+
+/* End helper functions */

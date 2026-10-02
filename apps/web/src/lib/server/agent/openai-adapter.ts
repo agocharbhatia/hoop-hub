@@ -16,7 +16,7 @@ import type {
 /**
  * Keeps OpenAI's chat-completions wire format outside the agent service so tests can script model turns.
  */
-export function createOpenAIDynamicAgentAdapter(): DynamicAgentAdapter {
+export function createOpenAIDynamicAgentAdapter(options: { maxCompletionTokens?: number; timeoutMs?: number; maxRetries?: number } = {}): DynamicAgentAdapter {
 	const apiKey = readAgentEnv('OPENAI_API_KEY');
 	const model = readAgentEnv('OPENAI_AGENT_MODEL') ?? readAgentEnv('OPENAI_PLANNER_MODEL');
 
@@ -28,12 +28,14 @@ export function createOpenAIDynamicAgentAdapter(): DynamicAgentAdapter {
 		throw new Error('OPENAI_AGENT_MODEL or OPENAI_PLANNER_MODEL is required for dynamic agent runtime.');
 	}
 
-	const client = new OpenAI({ apiKey });
+	const client = new OpenAI({ apiKey, timeout: options.timeoutMs, maxRetries: options.maxRetries });
 
 	return {
 		async complete(input: DynamicAgentCompletionInput) {
 			const completion = await client.chat.completions.create({
 				model,
+				...(options.maxCompletionTokens ? { max_completion_tokens: options.maxCompletionTokens } : {}),
+				...(model === 'gpt-6-luna' ? { reasoning_effort: 'none' as const } : {}),
 				temperature: input.responseFormat ? 0.1 : 0,
 				messages: input.messages.map(toOpenAIMessage),
 				...(input.tools && input.tools.length > 0
@@ -61,6 +63,8 @@ export function createOpenAIDynamicAgentAdapter(): DynamicAgentAdapter {
 				usage: completion.usage
 					? {
 							inputTokens: completion.usage.prompt_tokens,
+							cachedInputTokens: completion.usage.prompt_tokens_details?.cached_tokens ?? 0,
+							cacheWriteInputTokens: (completion.usage.prompt_tokens_details as { cache_write_tokens?: number } | undefined)?.cache_write_tokens ?? 0,
 							outputTokens: completion.usage.completion_tokens,
 							totalTokens: completion.usage.total_tokens
 						}
