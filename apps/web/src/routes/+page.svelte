@@ -1,313 +1,88 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { browser } from '$app/environment';
-	import { Button } from '$lib/components/ui/button';
-	import { Input } from '$lib/components/ui/input';
-	import { ScrollArea } from '$lib/components/ui/scroll-area';
-	import { IconSend2, IconBallBasketball } from '@tabler/icons-svelte';
-	import BarChart from '$lib/components/charts/BarChart.svelte';
-	import LineChart from '$lib/components/charts/LineChart.svelte';
-	import ShotChart from '$lib/components/charts/ShotChart.svelte';
-	import VideoPlaylist from '$lib/components/video/VideoPlaylist.svelte';
+	import { IconArrowUp, IconBallBasketball, IconPlus, IconChartDots } from '@tabler/icons-svelte';
+	import ResearchResult from '$lib/components/research/ResearchResult.svelte';
 	import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
 	import type { ErrorResponse } from '$lib/contracts/chat';
-	import {
-		getAssistantMessageContent,
-		getChartPlaceholderArtifacts,
-		getPrimaryTableArtifact,
-		getSupportingTableArtifacts,
-		getTextBlockArtifacts,
-		getVideoPlaylistArtifacts,
-		getVisibleWarningMessages
-	} from '$lib/presentation/query-response';
+	import { getAssistantMessageContent } from '$lib/presentation/query-response';
 
-	interface Message {
-		id: string;
-		role: 'user' | 'assistant';
-		content: string;
-		data?: QueryAnswerResponse;
-		timestamp: Date;
-	}
-
+	type Message = { id: string; role: 'user' | 'assistant'; content: string; data?: QueryAnswerResponse };
 	let messages = $state<Message[]>([]);
 	let input = $state('');
+	let sessionId = $state<string | undefined>();
 	let isLoading = $state(false);
-	let scrollContainer = $state<HTMLDivElement | null>(null);
-
+	let bottom = $state<HTMLDivElement>();
+	let inputElement = $state<HTMLTextAreaElement>();
 	const suggestions = [
-		'Who averaged the most assists in 2023-24?',
-		'Show me Jokic rebounds in his last 10 games',
-		'Compare Curry and Lillard career stats'
+		{ label: 'Stats → film', text: 'Show Scottie Barnes’ pull-up mid-range field-goal percentage against Boston in the 2024-25 regular season, with a shot chart and available clips.' },
+		{ label: 'Player trends', text: 'Show Jokic’s rebounds in his final ten games of the 2024-25 regular season. Compare the earlier five with the later five and show a chart.' },
+		{ label: 'Matchup research', text: 'Which five players shot the lowest FG% against Scottie Barnes in 2024-25, minimum 10 attempts and 25 partial possessions?' }
 	];
 
-	function scrollToBottom() {
-		if (scrollContainer) {
-			scrollContainer.scrollTop = scrollContainer.scrollHeight;
-		}
-	}
-
+	/** A single session keeps refinements grounded; new research deliberately starts with a fresh scope. */
 	async function sendMessage(content: string) {
-		if (!browser || !content.trim() || isLoading) return;
-
-		const userMessage: Message = {
-			id: crypto.randomUUID(),
-			role: 'user',
-			content: content.trim(),
-			timestamp: new Date()
-		};
-
-		messages = [...messages, userMessage];
+		const question = content.trim();
+		if (!browser || !question || isLoading) return;
+		messages = [...messages, { id: crypto.randomUUID(), role: 'user', content: question }];
 		input = '';
 		isLoading = true;
-
-		setTimeout(scrollToBottom, 0);
-
+		await revealLatest();
 		try {
-			const result = await window.fetch('/api/query', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ question: content.trim() })
-			});
-
-			const data = (await result.json()) as QueryAnswerResponse | ErrorResponse;
-
-			const assistantMessage: Message = {
-				id: crypto.randomUUID(),
-				role: 'assistant',
-				content: getAssistantMessageContent(result.ok, data),
-				data: result.ok ? (data as QueryAnswerResponse) : undefined,
-				timestamp: new Date()
-			};
-
-			messages = [...messages, assistantMessage];
+			const response = await fetch('/api/query', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question, sessionId }) });
+			const data = await response.json() as QueryAnswerResponse | ErrorResponse;
+			if (response.ok && 'traceId' in data) sessionId = data.sessionId;
+			messages = [...messages, { id: crypto.randomUUID(), role: 'assistant', content: getAssistantMessageContent(response.ok, data), ...(response.ok && 'traceId' in data ? { data } : {}) }];
 		} catch {
-			messages = [
-				...messages,
-				{
-					id: crypto.randomUUID(),
-					role: 'assistant',
-					content: 'Request failed. Please try again.',
-					timestamp: new Date()
-				}
-			];
+			messages = [...messages, { id: crypto.randomUUID(), role: 'assistant', content: 'The request could not finish. Please try again.' }];
 		} finally {
 			isLoading = false;
-			setTimeout(scrollToBottom, 0);
+			await revealLatest();
+			inputElement?.focus();
 		}
 	}
 
-	function handleSubmit(event: SubmitEvent) {
-		event.preventDefault();
-		sendMessage(input);
-	}
+	function newResearch() { messages = []; sessionId = undefined; input = ''; inputElement?.focus(); }
 
-	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Enter' && !event.shiftKey) {
-			event.preventDefault();
-			sendMessage(input);
-		}
-	}
-
-	function getMessageTable(message: Message) {
-		return message.data ? getPrimaryTableArtifact(message.data) : null;
-	}
-
-	function getMessageSupportingTables(message: Message) {
-		return message.data ? getSupportingTableArtifacts(message.data) : [];
-	}
-
-	function getMessageTextBlocks(message: Message) {
-		if (!message.data) {
-			return [];
-		}
-
-		return getTextBlockArtifacts(message.data).filter(
-			(artifact) => artifact.text.trim() !== message.content.trim()
-		);
-	}
-
-	function getMessageWarnings(message: Message) {
-		return message.data ? getVisibleWarningMessages(message.data) : [];
-	}
-
-	function getMessageChartPlaceholders(message: Message) {
-		return message.data ? getChartPlaceholderArtifacts(message.data) : [];
-	}
-
-	function getMessageVideoPlaylists(message: Message) {
-		return message.data ? getVideoPlaylistArtifacts(message.data) : [];
-	}
+	/* Presentation helpers */
+	async function revealLatest() { await tick(); bottom?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }
+	function submit(event: SubmitEvent) { event.preventDefault(); void sendMessage(input); }
+	function keydown(event: KeyboardEvent) { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendMessage(input); } }
+	/* End presentation helpers */
 </script>
 
-<svelte:head>
-	<title>Hoop Hub</title>
-</svelte:head>
+<svelte:head><title>Hoop Hub · NBA research</title><meta name="description" content="NBA research with interactive charts, exact shot evidence, and matching film." /></svelte:head>
 
-<main class="flex-1 flex flex-col max-w-3xl mx-auto w-full">
-	{#if messages.length === 0}
-		<div class="flex-1 flex flex-col items-center justify-center px-4 py-12">
-			<div class="flex items-center gap-2 mb-2">
-				<IconBallBasketball class="size-8 text-primary" />
-				<h1 class="text-2xl font-semibold tracking-tight">Hoop Hub</h1>
+<main class="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 sm:px-8">
+	<header class="flex items-center justify-between gap-4 border-b border-border py-5">
+		<a href="/" class="flex items-center gap-2.5 font-semibold tracking-tight"><IconBallBasketball class="size-6 text-sky-400" />Hoop Hub<span class="ml-1 hidden text-xs font-normal text-muted-foreground sm:inline">NBA research</span></a>
+		<button type="button" onclick={newResearch} disabled={isLoading} class="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground transition hover:bg-muted disabled:opacity-40"><IconPlus class="size-3.5" />New research</button>
+	</header>
+	{#if !messages.length}
+		<section class="flex flex-1 flex-col justify-center py-16 sm:py-24">
+			<div class="mb-5 flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-sky-400"><IconChartDots class="size-4" />From question to evidence</div>
+			<h1 class="max-w-2xl text-4xl font-medium leading-tight tracking-tight sm:text-5xl">Know the numbers.<br /><span class="text-muted-foreground">See the plays.</span></h1>
+			<p class="mt-5 max-w-xl text-sm leading-7 text-muted-foreground">Explore NBA stats, inspect the shots behind them, and watch the matching film. Keep refining the same research.</p>
+			<div class="mt-10 grid gap-3 sm:grid-cols-3">
+				{#each suggestions as suggestion}<button type="button" onclick={() => sendMessage(suggestion.text)} class="rounded-xl border border-border bg-card/40 p-4 text-left transition hover:border-sky-400/50 hover:bg-card"><span class="text-xs font-medium text-sky-300">{suggestion.label}</span><p class="mt-2 text-xs leading-6 text-muted-foreground">{suggestion.text}</p></button>{/each}
 			</div>
-			<p class="text-muted-foreground text-center mb-8">
-				Ask anything about NBA stats
-			</p>
-
-			<div class="flex flex-wrap gap-2 justify-center max-w-lg">
-				{#each suggestions as suggestion}
-					<button
-						type="button"
-						class="px-3 py-2 text-sm rounded-2xl bg-muted hover:bg-muted/80 text-foreground transition-colors"
-						onclick={() => sendMessage(suggestion)}
-					>
-						{suggestion}
-					</button>
-				{/each}
-			</div>
-		</div>
+		</section>
 	{:else}
-		<ScrollArea class="flex-1 px-4">
-			<div class="py-6 space-y-6" bind:this={scrollContainer}>
-				{#each messages as message (message.id)}
-					<div class="flex {message.role === 'user' ? 'justify-end' : 'justify-start'}">
-						<div
-							class="max-w-[85%] {message.role === 'user'
-								? 'bg-primary text-primary-foreground'
-								: 'bg-muted text-foreground'} rounded-2xl px-4 py-3"
-						>
-							<p class="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
-
-							{#if getMessageTextBlocks(message).length > 0}
-								<div class="mt-3 space-y-2">
-									{#each getMessageTextBlocks(message) as artifact}
-										<p class="text-xs leading-relaxed whitespace-pre-wrap text-foreground/80">
-											{artifact.text}
-										</p>
-									{/each}
-								</div>
-							{/if}
-
-							{#if getMessageTable(message)?.rows.length}
-								<div class="mt-3 overflow-x-auto">
-									<table class="w-full text-xs border-collapse">
-										<thead>
-											<tr class="border-b border-current/10">
-												{#each getMessageTable(message)?.columns ?? [] as column}
-													<th class="px-2 py-1.5 text-left font-medium opacity-70">{column}</th>
-												{/each}
-											</tr>
-										</thead>
-										<tbody>
-											{#each getMessageTable(message)?.rows ?? [] as row}
-												<tr class="border-b border-current/5 last:border-0">
-													{#each getMessageTable(message)?.columns ?? [] as column}
-														<td class="px-2 py-1.5">{row[column] ?? '—'}</td>
-													{/each}
-												</tr>
-											{/each}
-										</tbody>
-									</table>
-								</div>
-							{/if}
-
-							{#if getMessageSupportingTables(message).length > 0}
-								<div class="mt-3 space-y-3">
-									{#each getMessageSupportingTables(message) as tableArtifact, index}
-										<div class="overflow-x-auto">
-											<p class="mb-1 text-[11px] font-medium uppercase tracking-[0.14em] text-foreground/60">
-												Supporting Table {index + 1}
-											</p>
-											<table class="w-full text-xs border-collapse">
-												<thead>
-													<tr class="border-b border-current/10">
-														{#each tableArtifact.columns as column}
-															<th class="px-2 py-1.5 text-left font-medium opacity-70">{column}</th>
-														{/each}
-													</tr>
-												</thead>
-												<tbody>
-													{#each tableArtifact.rows as row}
-														<tr class="border-b border-current/5 last:border-0">
-															{#each tableArtifact.columns as column}
-																<td class="px-2 py-1.5">{row[column] ?? '—'}</td>
-															{/each}
-														</tr>
-													{/each}
-												</tbody>
-											</table>
-										</div>
-									{/each}
-								</div>
-							{/if}
-
-							{#if getMessageChartPlaceholders(message).length > 0}
-								<div class="mt-3 space-y-3">
-									{#each getMessageChartPlaceholders(message) as chart}
-										<div class="rounded-lg border border-current/10 bg-card px-3 py-2.5">
-											{#if chart.artifact.type === 'line_chart'}
-												<LineChart artifact={chart.artifact} />
-											{:else if chart.artifact.type === 'bar_chart'}
-												<BarChart artifact={chart.artifact} />
-											{:else if chart.artifact.type === 'shot_chart'}
-												<ShotChart artifact={chart.artifact} />
-											{/if}
-										</div>
-									{/each}
-								</div>
-							{/if}
-
-							{#if getMessageVideoPlaylists(message).length > 0}
-								<div class="mt-3 space-y-3">
-									{#each getMessageVideoPlaylists(message) as playlist}
-										<div class="rounded-lg border border-current/10 bg-card px-3 py-2.5">
-											<VideoPlaylist artifact={playlist} />
-										</div>
-									{/each}
-								</div>
-							{/if}
-
-							{#if getMessageWarnings(message).length > 0}
-								<div class="mt-3 space-y-1">
-									{#each getMessageWarnings(message) as warning}
-										<p class="text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/90">
-											{warning}
-										</p>
-									{/each}
-								</div>
-							{/if}
-						</div>
-					</div>
-				{/each}
-
-				{#if isLoading}
-					<div class="flex justify-start">
-						<div class="bg-muted rounded-2xl px-4 py-3">
-							<div class="flex items-center gap-1">
-								<span class="size-2 bg-foreground/40 rounded-full animate-bounce" style="animation-delay: 0ms"></span>
-								<span class="size-2 bg-foreground/40 rounded-full animate-bounce" style="animation-delay: 150ms"></span>
-								<span class="size-2 bg-foreground/40 rounded-full animate-bounce" style="animation-delay: 300ms"></span>
-							</div>
-						</div>
-					</div>
-				{/if}
-			</div>
-		</ScrollArea>
+		<div class="space-y-8 py-8" aria-live="polite" aria-busy={isLoading}>
+			{#each messages as message (message.id)}
+				{#if message.role === 'user'}<div class="ml-auto max-w-[90%] rounded-xl border border-sky-400/20 bg-sky-400/5 px-4 py-3 text-sm leading-6 sm:max-w-[75%]">{message.content}</div>
+				{:else}<article class="min-w-0"><div class="mb-3 flex items-center gap-2 text-xs font-medium text-sky-300"><IconBallBasketball class="size-4" />Research result</div>{#if message.data}<ResearchResult result={message.data} />{:else}<p class="text-sm leading-6 text-muted-foreground" role="status">{message.content}</p>{/if}</article>{/if}
+			{/each}
+			{#if isLoading}<p class="flex items-center gap-2 text-sm text-muted-foreground" role="status"><span class="size-2 animate-pulse rounded-full bg-sky-400"></span>Checking data and building your result…</p>{/if}
+		</div>
 	{/if}
-
-	<div class="sticky bottom-0 bg-background border-t border-border p-4">
-		<form onsubmit={handleSubmit} class="flex items-center gap-2 max-w-3xl mx-auto">
-			<Input
-				type="text"
-				placeholder="Ask about NBA stats..."
-				bind:value={input}
-				onkeydown={handleKeydown}
-				disabled={isLoading}
-				class="flex-1"
-			/>
-			<Button type="submit" size="icon" disabled={isLoading || !input.trim()}>
-				<IconSend2 class="size-4" />
-				<span class="sr-only">Send message</span>
-			</Button>
+	<div bind:this={bottom}></div>
+	<footer class="sticky bottom-0 mt-auto border-t border-border bg-background/95 py-4 backdrop-blur">
+		<form onsubmit={submit} class="flex items-end gap-2 rounded-xl border border-input bg-card p-2 focus-within:border-sky-400/60">
+			<label for="research-question" class="sr-only">NBA research question</label>
+			<textarea id="research-question" bind:this={inputElement} bind:value={input} onkeydown={keydown} rows="2" maxlength="2000" disabled={isLoading} placeholder={sessionId ? 'Refine this research…' : 'Ask an NBA question…'} class="min-w-0 flex-1 resize-none bg-transparent px-2 py-1 text-sm leading-6 outline-none placeholder:text-muted-foreground"></textarea>
+			<button type="submit" disabled={isLoading || !input.trim()} aria-label="Send question" class="rounded-lg bg-sky-300 p-2.5 text-slate-950 transition hover:bg-sky-200 disabled:opacity-30"><IconArrowUp class="size-4" /></button>
 		</form>
-	</div>
+		<p class="mt-2 text-center text-[10px] text-muted-foreground">{sessionId ? 'Follow-ups retain your research scope. Use New research to start fresh.' : 'NBA data and video availability vary. Results show their limits.'}</p>
+	</footer>
 </main>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ArtifactTable from '$lib/components/charts/ArtifactTable.svelte';
 	import BarChart from '$lib/components/charts/BarChart.svelte';
 	import LineChart from '$lib/components/charts/LineChart.svelte';
 	import ShotChart from '$lib/components/charts/ShotChart.svelte';
@@ -81,10 +82,14 @@
 		]
 	};
 
+	// --- Deterministic QA fixture helpers ---
+
 	function pseudoRandom(seed: number): number {
 		const value = Math.sin(seed * 127.1) * 43758.5453;
 		return value - Math.floor(value);
 	}
+
+	// --- End deterministic QA fixture helpers ---
 
 	const shotChart: Extract<QueryAnswerArtifact, { type: 'shot_chart' }> = {
 		type: 'shot_chart',
@@ -99,17 +104,36 @@
 				locX,
 				locY: Math.min(locY, 400),
 				made: pseudoRandom(index + 2000) > (isThree ? 0.64 : 0.5),
-				value: (isThree ? 3 : 2) as 2 | 3
+				value: (isThree ? 3 : 2) as 2 | 3,
+				gameId: 'synthetic-game',
+				eventId: String(index + 1),
+				gameDate: '2026-04-09',
+				period: index % 4 + 1
 			};
 		})
 	};
+	const table: Extract<QueryAnswerArtifact, { type: 'table' }> = {
+		type: 'table', shape: 'ranking', columns: ['rank', 'player', 'attempts', 'makes', 'fgPercent'],
+		rows: Array.from({ length: 32 }, (_, index) => ({
+			rank: index + 1, player: `Sample player ${index + 1}`, attempts: 30 + index * 4,
+			makes: 12 + index * 2, fgPercent: Number(((12 + index * 2) / (30 + index * 4) * 100).toFixed(1))
+		}))
+	};
+	const signedBars: Extract<QueryAnswerArtifact, { type: 'bar_chart' }> = {
+		type: 'bar_chart', title: 'Scoring change vs. previous period', xLabel: 'Player', yLabel: 'PPG change',
+		bars: [{ label: 'Barnes', value: 3.2 }, { label: 'Tatum', value: -1.7 }, { label: 'Jokic', value: 0.6 }, { label: 'Edwards', value: -3.4 }]
+	};
+	let selectedEvent = $state<{ gameId: string; eventId: string } | null>(null);
+	let selectedRow = $state<string | null>(null);
 </script>
 
-<main class="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-10">
-	<h1 class="text-lg font-semibold">Chart QA</h1>
+<main class="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-10">
+	<header><p class="text-xs uppercase tracking-[0.2em] text-muted-foreground">Hoop Hub · Artifact lab</p><h1 class="mt-2 text-2xl font-semibold">Explore the evidence</h1><p class="mt-2 text-sm text-muted-foreground">Synthetic fixtures for interaction QA. These values are not NBA research results.</p></header>
 
-	<section class="rounded-2xl bg-muted px-4 py-3"><LineChart artifact={lineChart} /></section>
-	<section class="rounded-2xl bg-muted px-4 py-3"><LineChart artifact={singleSeriesLine} /></section>
-	<section class="rounded-2xl bg-muted px-4 py-3"><BarChart artifact={barChart} /></section>
-	<section class="rounded-2xl bg-muted px-4 py-3"><ShotChart artifact={shotChart} /></section>
+	<section class="rounded-2xl border border-border bg-card px-4 py-4"><LineChart artifact={lineChart} /></section>
+	<section class="rounded-2xl border border-border bg-card px-4 py-4"><LineChart artifact={singleSeriesLine} /></section>
+	<section class="rounded-2xl border border-border bg-card px-4 py-4"><BarChart artifact={barChart} /></section>
+	<section class="rounded-2xl border border-border bg-card px-4 py-4"><ShotChart artifact={shotChart} {selectedEvent} onselectshot={(shot) => selectedEvent = shot.gameId && shot.eventId ? { gameId: shot.gameId, eventId: shot.eventId } : null} />{#if selectedEvent}<p class="mt-3 text-xs text-muted-foreground" aria-live="polite">Selected synthetic event {selectedEvent.eventId}. A production playlist would match this event ID.</p>{/if}</section>
+	<section class="rounded-2xl border border-border bg-card px-4 py-4"><BarChart artifact={signedBars} /></section>
+	<section class="rounded-2xl border border-border bg-card px-4 py-4"><ArtifactTable artifact={table} title="Shooting comparison" onselectrow={(row) => selectedRow = String(row.player)} />{#if selectedRow}<p class="mt-3 text-xs text-muted-foreground" aria-live="polite">Selected {selectedRow}</p>{/if}</section>
 </main>

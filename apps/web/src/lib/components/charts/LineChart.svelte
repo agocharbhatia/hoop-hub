@@ -3,6 +3,7 @@
 	import {
 		CHART_INK,
 		CHART_SERIES_COLORS,
+		collectChartXValues,
 		createLinearScale,
 		formatChartNumber,
 		niceTicks,
@@ -19,8 +20,9 @@
 
 	let hoverIndex = $state<number | null>(null);
 	let plotElement = $state<SVGRectElement | null>(null);
+	let hiddenSeries = $state<number[]>([]);
 
-	const series = $derived(artifact.series.filter((entry) => entry.points.length > 0));
+	const series = $derived(artifact.series.map((entry, sourceIndex) => ({ ...entry, sourceIndex, points: entry.points.filter((point) => Number.isFinite(point.y)) })).filter((entry) => entry.points.length > 0));
 
 	// Direct end labels need room past the last point; reserve it only when they render.
 	const MARGIN = $derived({
@@ -30,19 +32,7 @@
 		left: 52
 	});
 
-	// One shared categorical x ordering across all series, in first-seen order.
-	const xValues = $derived.by(() => {
-		const seen = new Map<string, string | number>();
-		for (const entry of series) {
-			for (const point of entry.points) {
-				const key = String(point.x);
-				if (!seen.has(key)) {
-					seen.set(key, point.x);
-				}
-			}
-		}
-		return Array.from(seen.values());
-	});
+	const xValues = $derived(collectChartXValues(series));
 
 	const yDomain = $derived(
 		resolveValueDomain(series.flatMap((entry) => entry.points.map((point) => point.y)))
@@ -52,12 +42,16 @@
 	const yScale = $derived(createLinearScale(yDomain.min, yDomain.max, HEIGHT - MARGIN.bottom, MARGIN.top));
 	const xStep = $derived((WIDTH - MARGIN.left - MARGIN.right) / Math.max(1, xValues.length - 1));
 
+	// --- Coordinate helpers ---
+
 	function xPosition(index: number): number {
 		return xValues.length === 1 ? WIDTH / 2 : MARGIN.left + index * xStep;
 	}
 
-	const seriesPaths = $derived(
-		series.map((entry, seriesIndex) => {
+	// --- End coordinate helpers ---
+
+	const allSeriesPaths = $derived(
+		series.map((entry) => {
 			const byX = new Map(entry.points.map((point) => [String(point.x), point.y]));
 			const coordinates = xValues
 				.map((x, index) => {
@@ -68,12 +62,16 @@
 
 			return {
 				name: entry.name,
-				color: CHART_SERIES_COLORS[seriesIndex % CHART_SERIES_COLORS.length],
+				sourceIndex: entry.sourceIndex,
+				color: CHART_SERIES_COLORS[entry.sourceIndex % CHART_SERIES_COLORS.length],
 				coordinates,
+				byIndex: new Map(coordinates.map((point) => [point.index, point])),
 				path: coordinates.map((point, i) => `${i === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join('')
 			};
 		})
 	);
+
+	const seriesPaths = $derived(allSeriesPaths.filter((entry) => !hiddenSeries.includes(entry.sourceIndex)));
 
 	// Direct end labels for <= 4 series, nudged apart so they never collide.
 	const endLabels = $derived.by(() => {
@@ -114,6 +112,8 @@
 		return indexes;
 	});
 
+	// --- Interaction helpers ---
+
 	function handlePointerMove(event: PointerEvent) {
 		if (!plotElement || xValues.length === 0) {
 			return;
@@ -123,14 +123,28 @@
 		hoverIndex = Math.max(0, Math.min(xValues.length - 1, Math.round(relativeX / Math.max(1, xStep))));
 	}
 
-	const hoverRows = $derived(
-		hoverIndex === null
-			? []
-			: seriesPaths.flatMap((entry) => {
-					const point = entry.coordinates.find((coordinate) => coordinate.index === hoverIndex);
-					return point ? [{ name: entry.name, color: entry.color, value: point.value }] : [];
-				})
-	);
+	function handleChartKey(event: KeyboardEvent) {
+		if (!xValues.length) return;
+		const current = hoverIndex ?? 0;
+		if (event.key === 'ArrowRight' || event.key === 'ArrowLeft' || event.key === 'Home' || event.key === 'End') {
+			event.preventDefault();
+			hoverIndex = event.key === 'Home' ? 0 : event.key === 'End' ? xValues.length - 1 : Math.max(0, Math.min(xValues.length - 1, current + (event.key === 'ArrowRight' ? 1 : -1)));
+		}
+	}
+
+	function toggleSeries(index: number) {
+		hiddenSeries = hiddenSeries.includes(index) ? hiddenSeries.filter((value) => value !== index) : [...hiddenSeries, index];
+	}
+
+	// --- End interaction helpers ---
+
+	const hoverRows = $derived.by(() => {
+		const index = hoverIndex;
+		return index === null ? [] : seriesPaths.flatMap((entry) => {
+			const point = entry.byIndex.get(index);
+			return point ? [{ name: entry.name, color: entry.color, value: point.value }] : [];
+		});
+	});
 
 	const tooltipLeftPercent = $derived(
 		hoverIndex === null ? 0 : (xPosition(hoverIndex) / WIDTH) * 100
@@ -140,19 +154,19 @@
 <figure class="w-full">
 	<figcaption class="mb-1 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
 		<span class="text-sm font-medium">{artifact.title}</span>
-		{#if seriesPaths.length >= 2}
+		{#if allSeriesPaths.length >= 2}
 			<span class="flex flex-wrap items-center gap-3">
-				{#each seriesPaths as entry}
-					<span class="flex items-center gap-1.5 text-xs text-muted-foreground">
+				{#each allSeriesPaths as entry}
+					<button type="button" class="series-toggle flex items-center gap-1.5 text-xs text-muted-foreground" class:series-hidden={hiddenSeries.includes(entry.sourceIndex)} aria-pressed={!hiddenSeries.includes(entry.sourceIndex)} onclick={() => toggleSeries(entry.sourceIndex)}>
 						<span class="h-2 w-2 rounded-full" style="background: {entry.color}"></span>
 						{entry.name}
-					</span>
+					</button>
 				{/each}
 			</span>
 		{/if}
 	</figcaption>
 
-	<div class="relative" role="img" aria-label="{artifact.title}: line chart of {artifact.yLabel} by {artifact.xLabel}">
+	<div class="relative" role="group" aria-label="{artifact.title}: line chart of {artifact.yLabel} by {artifact.xLabel}">
 		<svg
 			viewBox="0 0 {WIDTH} {HEIGHT}"
 			class="block w-full"
@@ -220,9 +234,10 @@
 					<circle cx={entry.coordinates[0].x} cy={entry.coordinates[0].y} r="4" fill={entry.color} />
 				{/if}
 				{#if hoverIndex !== null}
-					{#each entry.coordinates.filter((coordinate) => coordinate.index === hoverIndex) as point}
+					{#if entry.byIndex.has(hoverIndex)}
+						{@const point = entry.byIndex.get(hoverIndex)!}
 						<circle cx={point.x} cy={point.y} r="4" fill={entry.color} stroke="var(--color-card)" stroke-width="2" />
-					{/each}
+					{/if}
 				{/if}
 			{/each}
 
@@ -235,6 +250,16 @@
 
 			<rect
 				bind:this={plotElement}
+				role="slider"
+				tabindex={xValues.length ? 0 : -1}
+				aria-label="Inspect {artifact.xLabel.toLowerCase()} values"
+				aria-valuemin={0}
+				aria-valuemax={Math.max(0, xValues.length - 1)}
+				aria-valuenow={hoverIndex ?? 0}
+				aria-valuetext={xValues.length ? `${xValues[hoverIndex ?? 0]}: ${hoverRows.map((row) => `${row.name} ${formatChartNumber(row.value)}`).join(', ')}` : 'No points'}
+				onfocus={() => hoverIndex = 0}
+				onblur={() => hoverIndex = null}
+				onkeydown={handleChartKey}
 				x={MARGIN.left}
 				y={MARGIN.top}
 				width={WIDTH - MARGIN.left - MARGIN.right}
@@ -260,10 +285,16 @@
 				{/each}
 			</div>
 		{/if}
+		{#if seriesPaths.length === 0}<p class="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">{allSeriesPaths.length ? 'Choose a series above to view it.' : 'No data points to display.'}</p>{/if}
 	</div>
+	<p class="mt-1 text-xs text-muted-foreground">Hover to inspect{allSeriesPaths.length > 1 ? ' · Select a series to show or hide it' : ''}. Use arrow keys when the plot is focused.</p>
 </figure>
 
 <style>
+	.series-toggle { padding: 3px 5px; border-radius: 5px; cursor: pointer; transition: opacity .15s; }
+	.series-hidden { opacity: .35; }
+	.series-toggle:focus-visible { outline: 2px solid #3987e5; outline-offset: 3px; }
+	rect[role='slider']:focus-visible { outline: none; stroke: #3987e5; stroke-width: 1; }
 	.chart-tick {
 		font-size: 10px;
 		fill: var(--color-muted-foreground);

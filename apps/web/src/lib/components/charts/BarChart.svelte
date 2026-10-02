@@ -19,13 +19,21 @@
 	const BAR_COLOR = CHART_SERIES_COLORS[0];
 
 	let hoverIndex = $state<number | null>(null);
+	let order = $state<'original' | 'descending' | 'ascending'>('original');
+	let plotElement = $state<SVGRectElement | null>(null);
 
-	const bars = $derived(artifact.bars);
+	const bars = $derived.by(() => {
+		const entries = artifact.bars.filter((bar) => Number.isFinite(bar.value));
+		return order === 'original' ? entries : [...entries].sort((a, b) => (a.value - b.value) * (order === 'ascending' ? 1 : -1));
+	});
 	// Bars encode value as length, so the axis must include zero — never truncate.
 	const yDomain = $derived.by(() => {
-		const values = bars.map((bar) => bar.value);
-		const dataMin = Math.min(...values, 0);
-		const dataMax = Math.max(...values, 0);
+		let dataMin = 0;
+		let dataMax = 0;
+		for (const bar of bars) {
+			dataMin = Math.min(dataMin, bar.value);
+			dataMax = Math.max(dataMax, bar.value);
+		}
 		return {
 			min: dataMin < 0 ? dataMin * 1.05 : 0,
 			max: dataMax > 0 ? dataMax * 1.05 : 1
@@ -42,13 +50,13 @@
 	const showValueLabels = $derived(bars.length <= 14);
 	const showEveryLabel = $derived(bars.length <= 10);
 
+	// --- Geometry and interaction helpers ---
+
 	function barX(index: number): number {
 		return MARGIN.left + index * step + (step - barWidth) / 2;
 	}
 
-	/**
-	 * Bar anchored at the zero baseline with only the value end rounded (4px).
-	 */
+	/** Round only the value end so positive and negative bars keep an honest zero baseline. */
 	function barPath(index: number): string {
 		const value = bars[index].value;
 		const x = barX(index);
@@ -63,13 +71,28 @@
 		const bottom = yValue;
 		return `M${x},${zeroY} L${x},${bottom - radius} Q${x},${bottom} ${x + radius},${bottom} L${x + barWidth - radius},${bottom} Q${x + barWidth},${bottom} ${x + barWidth},${bottom - radius} L${x + barWidth},${zeroY} Z`;
 	}
+	function handlePointerMove(event: PointerEvent) {
+		if (!plotElement || !bars.length) return;
+		const bounds = plotElement.getBoundingClientRect();
+		hoverIndex = Math.max(0, Math.min(bars.length - 1, Math.floor((event.clientX - bounds.left) / bounds.width * bars.length)));
+	}
+
+	function handleChartKey(event: KeyboardEvent) {
+		if (!bars.length) return;
+		if (event.key === 'ArrowRight' || event.key === 'ArrowLeft' || event.key === 'Home' || event.key === 'End') {
+			event.preventDefault();
+			hoverIndex = event.key === 'Home' ? 0 : event.key === 'End' ? bars.length - 1 : Math.max(0, Math.min(bars.length - 1, (hoverIndex ?? 0) + (event.key === 'ArrowRight' ? 1 : -1)));
+		}
+	}
+
+	// --- End geometry and interaction helpers ---
 </script>
 
 <figure class="w-full">
-	<figcaption class="mb-1 text-sm font-medium">{artifact.title}</figcaption>
+	<figcaption class="mb-1 flex flex-wrap items-center justify-between gap-2"><span class="text-sm font-medium">{artifact.title}</span><label class="flex items-center gap-2 text-xs text-muted-foreground">Order <select bind:value={order} onchange={() => hoverIndex = null} class="rounded-md border border-border bg-card px-2 py-1 text-foreground" aria-label="Bar order"><option value="original">Original</option><option value="descending">Highest first</option><option value="ascending">Lowest first</option></select></label></figcaption>
 
-	<div class="relative" role="img" aria-label="{artifact.title}: bar chart of {artifact.yLabel} by {artifact.xLabel}">
-		<svg viewBox="0 0 {WIDTH} {HEIGHT}" class="block w-full" role="presentation" onpointerleave={() => (hoverIndex = null)}>
+	<div class="relative" role="group" aria-label="{artifact.title}: bar chart of {artifact.yLabel} by {artifact.xLabel}">
+		<svg viewBox="0 0 {WIDTH} {HEIGHT}" class="block w-full" role="presentation" onpointermove={handlePointerMove} onpointerleave={() => (hoverIndex = null)}>
 			{#each yTicks as tick}
 				<line
 					x1={MARGIN.left}
@@ -130,9 +153,10 @@
 			>
 				{artifact.yLabel}
 			</text>
+			<rect bind:this={plotElement} x={MARGIN.left} y={MARGIN.top} width={plotWidth} height={HEIGHT - MARGIN.top - MARGIN.bottom} fill="transparent" role="slider" tabindex={bars.length ? 0 : -1} aria-label="Inspect bars" aria-valuemin={0} aria-valuemax={Math.max(0, bars.length - 1)} aria-valuenow={hoverIndex ?? 0} aria-valuetext={bars.length ? `${bars[hoverIndex ?? 0]?.label}: ${formatChartNumber(bars[hoverIndex ?? 0]?.value)}` : 'No bars'} onfocus={() => hoverIndex = 0} onblur={() => hoverIndex = null} onkeydown={handleChartKey} />
 		</svg>
 
-		{#if hoverIndex !== null}
+		{#if hoverIndex !== null && bars[hoverIndex]}
 			<div
 				class="pointer-events-none absolute top-2 z-10 -translate-x-1/2 rounded-md border border-border bg-popover px-2.5 py-1.5 text-xs shadow-md"
 				style="left: {Math.min(88, Math.max(12, ((barX(hoverIndex) + barWidth / 2) / WIDTH) * 100))}%"
@@ -141,10 +165,14 @@
 				<p class="tabular-nums">{formatChartNumber(bars[hoverIndex].value)}</p>
 			</div>
 		{/if}
+		{#if !bars.length}<p class="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">No values to display.</p>{/if}
 	</div>
+	<p class="mt-1 text-xs text-muted-foreground">Hover to inspect. Use arrow keys when the plot is focused.</p>
 </figure>
 
 <style>
+	select:focus-visible { outline: 2px solid #3987e5; outline-offset: 3px; }
+	rect[role='slider']:focus-visible { outline: none; stroke: #3987e5; stroke-width: 1; }
 	.chart-tick {
 		font-size: 10px;
 		fill: var(--color-muted-foreground);

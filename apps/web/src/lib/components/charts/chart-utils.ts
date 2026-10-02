@@ -19,6 +19,25 @@ export const CHART_INK = {
 	axis: 'rgba(255, 255, 255, 0.22)'
 } as const;
 
+// --- Scale, axis, and label helpers ---
+
+/** Merge incomplete comparison series without reversing time when another series contributes missing dates. */
+export function collectChartXValues(series: readonly { points: readonly ChartPoint[] }[]): Array<string | number> {
+	const seen = new Map<string, string | number>();
+	for (const entry of series) {
+		for (const point of entry.points) {
+			const key = String(point.x);
+			if (!seen.has(key)) seen.set(key, point.x);
+		}
+	}
+	const values = [...seen.values()];
+	if (values.every((value) => typeof value === 'number' && Number.isFinite(value))) return values.sort((a, b) => Number(a) - Number(b));
+	if (values.every((value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value) && Number.isFinite(Date.parse(value)))) {
+		return values.sort((a, b) => Date.parse(String(a)) - Date.parse(String(b)));
+	}
+	return values;
+}
+
 export function createLinearScale(domainMin: number, domainMax: number, rangeMin: number, rangeMax: number): LinearScale {
 	const domainSpan = domainMax - domainMin;
 	if (domainSpan === 0) {
@@ -32,6 +51,7 @@ export function createLinearScale(domainMin: number, domainMax: number, rangeMin
  * Returns rounded tick values covering [min, max] using 1/2/5 steps.
  */
 export function niceTicks(min: number, max: number, targetCount = 4): number[] {
+	if (!Number.isFinite(min) || !Number.isFinite(max) || min > max) return [];
 	if (min === max) {
 		return [min];
 	}
@@ -75,8 +95,14 @@ export function formatChartNumber(value: number): string {
  * in which case pad around the band so the shape stays readable.
  */
 export function resolveValueDomain(values: number[]): { min: number; max: number } {
-	const dataMin = Math.min(...values);
-	const dataMax = Math.max(...values);
+	let dataMin = Infinity;
+	let dataMax = -Infinity;
+	for (const value of values) {
+		if (!Number.isFinite(value)) continue;
+		dataMin = Math.min(dataMin, value);
+		dataMax = Math.max(dataMax, value);
+	}
+	if (dataMin === Infinity) return { min: 0, max: 1 };
 
 	if (dataMin >= 0) {
 		const span = dataMax - dataMin;
@@ -87,10 +113,12 @@ export function resolveValueDomain(values: number[]): { min: number; max: number
 		return { min: 0, max: dataMax === 0 ? 1 : dataMax * 1.05 };
 	}
 
-	const pad = (dataMax - dataMin) * 0.05;
+	const pad = Math.max((dataMax - dataMin) * 0.05, Math.abs(dataMin) * 0.02);
 	return { min: dataMin - pad, max: Math.max(0, dataMax) + pad };
 }
 
 export function truncateLabel(label: string, maxChars: number): string {
 	return label.length > maxChars ? `${label.slice(0, Math.max(1, maxChars - 1))}…` : label;
 }
+
+// --- End scale, axis, and label helpers ---

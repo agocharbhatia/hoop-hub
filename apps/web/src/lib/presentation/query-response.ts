@@ -137,6 +137,7 @@ export type VideoPlaylistArtifactView = {
 	type: 'video_playlist';
 	title: string;
 	clips: VideoPlaylistClip[];
+	coverage?: Extract<QueryAnswerArtifact, { type: 'video_playlist' }>['coverage'];
 };
 
 function isVideoPlaylistClip(value: unknown): value is VideoPlaylistClip {
@@ -155,7 +156,7 @@ function isVideoPlaylistArtifact(artifact: unknown): artifact is VideoPlaylistAr
 
 export function getVideoPlaylistArtifacts(payload: QueryAnswerResponse): VideoPlaylistArtifactView[] {
 	const artifacts: unknown[] = payload.artifacts;
-	return artifacts.filter(isVideoPlaylistArtifact).filter((artifact) => artifact.clips.length > 0);
+	return artifacts.filter(isVideoPlaylistArtifact).filter((artifact) => artifact.clips.length > 0 || artifact.coverage !== undefined);
 }
 
 export function getVisibleWarningMessages(payload: QueryAnswerResponse): string[] {
