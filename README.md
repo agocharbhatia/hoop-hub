@@ -43,7 +43,8 @@ Detailed implementation context for future agents lives in [agents/current-state
 - [ ] Add historical backfill, anomaly policy, indexed shot/event data, alert routing, and server-grade production storage
 - [x] Add grounded derived/computed metric execution (`aggregate_endpoint_rows` filters/groups/aggregates full result sets server-side)
 - [x] Add richer visualization artifacts (line, bar, and half-court shot chart components render agent artifacts in the UI)
-- [ ] Add persisted session grounding and stronger answer/artifact composition
+- [x] Add bounded server-session grounding, exact shot refinements and canonical season comparisons
+- [ ] Persist research across server restarts and support broader compound refinements
 - [x] Add the dynamic-agent evaluation harness and performance gates
 - [x] Clip retrieval and playlist output (`find_video_clips` over `videodetailsasset` + sequential playlist player in the UI)
 - [x] Exact custom-shot playlists (`shotchartdetail` event filters joined to playable clips by game/event id)
@@ -119,7 +120,16 @@ cd apps/web
 bun run eval
 ```
 
-Live-model evaluation is a separate, explicit command. It uses the configured OpenAI model plus the normal NBA cache/live endpoint client and is never invoked by `bun run test` or the default CI workflow:
+Paid evaluations have two separate modes. Set `HOOP_HUB_EVAL_BUDGET_USD` and current input/output USD rates per million in `apps/web/.env` first (see `.env.example`). The budget is checked before every model call with a conservative token reservation, 8192 output-token limit and no automatic transport retries. Requests are paced (default 4 seconds between starts); explicit token-rate errors get at most two bounded retries. Billing/quota failures stop immediately. Cache-read and cache-write token usage is recorded; optional rates improve estimates. CI's live workflow uses repository variables with the same names.
+
+`eval:model` lets the actual model choose tools against strictly scoped synthetic fixtures and a fixed calendar. It rejects unrecorded player/season/filter populations and never reads live NBA data. These tests establish computation and interpretation behavior, not independently verified real NBA gold answers:
+
+```bash
+cd apps/web
+bun run eval:model -- --repetitions 1
+```
+
+`eval:live` uses the configured model plus NBA cache/live data. It checks availability and evidence consistency without applying synthetic fixture numbers to real sports results. It is excluded from ordinary tests and CI:
 
 ```bash
 cd apps/web
@@ -136,7 +146,7 @@ bun run eval:live -- --case scottie-made-threes-vs-boston --repetitions 20
 
 Each invocation exits nonzero when a required gate fails and writes redacted `results.jsonl` plus `summary.md` under `apps/web/eval-results/<timestamp>-<mode>/` by default. Use `--output <directory>` to choose another report location, and `--help` for all filters.
 
-Local evals certify the deterministic tool/parser/reconciliation path; only live evals exercise natural-language model decisions. Playlist contents are checked structurally here, while actual video playback and auto-advance still require browser QA.
+Local evals certify deterministic contracts; model evals test real interpretation against synthetic gold data; live evals check NBA retrieval and evidence consistency. A passing live consistency check alone does not prove every answer number correct. Playlist contents are checked structurally here, while actual video playback and auto-advance still require browser QA.
 
 ## Custom Shot Video Search
 
@@ -152,6 +162,19 @@ The action families cover the values observed in live shot logs, including pull-
 `bun run eval:custom-shots` runs deterministic custom-video contract cases, including paraphrases, empty combinations, and partial joins. Live model, NBA data, and playback checks remain separate release gates because they require credentials and network/video availability.
 
 The full deterministic, live, and browser release gate is documented in [`.docs/RELEASE_CHECKLIST.md`](.docs/RELEASE_CHECKLIST.md).
+
+
+## Interactive Research
+
+Shot charts include event inspection, makes/misses controls, attempt-density and FG% heatmaps. Percentage bins disclose their sample sizes and shade small samples. Tables support stable numeric sorting, search and pagination; line charts toggle series; bars support order changes. Keyboard controls accompany pointer inspection.
+
+Available shot/video selection uses exact game and event IDs. The playlist shows matching, unavailable and capped counts, supports sequential playback, and surfaces browser/media errors. Shooting denominators use all attempts under the research filters, independently of which clips are available.
+
+Raw leaderboards qualify and rank the full retrieved population before returning a limited selection. Trend arithmetic comes from server computation. This first pass supports one player/team and one metric per trend question; unsupported combined trend populations return a clear limitation. Season comparisons use separate metric panels.
+
+`POST /api/query` accepts `{ question, sessionId? }` and returns `sessionId` plus effective scope when grounding succeeds. The UI retains the session for follow-ups and starts fresh with **New research**. Narrow edits such as “Now include misses,” “Only fourth quarters,” and “Compare that with 2023-24” replay validated requests server-side. General follow-ups use bounded context and require broader model evaluation. Sessions are held in memory for one hour, bounded to 100 sessions, and expire on restart; expired IDs return 409.
+
+The synthetic interaction lab is at `/dev/charts`. Use live research for actual NBA findings.
 
 ## CI
 

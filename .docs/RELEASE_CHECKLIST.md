@@ -31,7 +31,10 @@ HOOP_HUB_DB_PATH=/tmp/hoop-hub-release.sqlite bun run nightly:audit -- --slate-d
 
 ## Required live gates for query-facing releases
 
+First run real-model interpretation against strictly scoped frozen fixtures, then validate real NBA responses separately. Configure `HOOP_HUB_EVAL_BUDGET_USD`, `HOOP_HUB_EVAL_INPUT_COST_PER_MILLION`, and `HOOP_HUB_EVAL_OUTPUT_COST_PER_MILLION` for each paid run using the configured model's current prices.
+
 ```bash
+bun run eval:model -- --repetitions 1
 bun run eval:live -- --repetitions 1
 ```
 
@@ -39,7 +42,7 @@ bun run eval:live -- --repetitions 1
 - Live failures are classified as product regressions, model instability, upstream availability, or environment configuration.
 - A focused case is repeated when the change addresses stochastic behavior.
 - Live eval reports are retained as CI artifacts and contain no secrets.
-- Set both eval pricing environment variables when cost is a release gate; otherwise reports intentionally show cost as unavailable.
+- Set optional cached-input/cache-write prices when the provider reports these token categories. Failed calls without usage retain their conservative reservation and do not constitute an exact billed-cost measurement.
 
 Live checks remain separate from deterministic PR CI because OpenAI and NBA availability are external dependencies.
 

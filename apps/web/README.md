@@ -11,6 +11,7 @@ bun run check:endpoint-catalog-contracts
 bun run test
 bun run eval
 bun run eval:custom-shots
+bun run eval:model -- --repetitions 1
 bun run eval:live -- --repetitions 1
 bun run nightly:bootstrap -- --slate-date 2026-04-01
 bun run nightly:bootstrap -- --fixture-data --slate-date 2026-04-01
@@ -18,7 +19,9 @@ bun run nightly:audit -- --slate-date 2026-04-01
 bun run build
 ```
 
-Default tests and local evals are deterministic. Live eval requires configured OpenAI credentials and NBA connectivity and is intentionally separate from ordinary CI.
+Default tests and local evals are deterministic. Model eval uses the configured OpenAI model against strictly scoped synthetic fixtures. Live eval additionally requires NBA connectivity. Both paid modes are separate from ordinary CI.
+
+Production builds package the NBA subprocess transports as private server assets and verify that both launch after relocating the server output. The NBA transport requires a Node runtime with child-process support.
 
 ## Environment
 
@@ -28,7 +31,9 @@ Default tests and local evals are deterministic. Live eval requires configured O
 - `HOOP_HUB_NBA_TIMEOUT_MS` — optional NBA request timeout.
 - `HOOP_HUB_NBA_PROXY_URL` — optional preferred NBA proxy; standard `HTTPS_PROXY` and `HTTP_PROXY` are also supported.
 - `HOOP_HUB_DB_PATH` — optional SQLite path override. The default is a per-worktree file under `~/.hoop-hub/data/<hash>/hoop-hub.sqlite`.
-- `HOOP_HUB_EVAL_INPUT_COST_PER_MILLION` and `HOOP_HUB_EVAL_OUTPUT_COST_PER_MILLION` — optional pricing inputs used to estimate live eval cost without hardcoding model prices.
+- `HOOP_HUB_EVAL_BUDGET_USD` — required shared allowance for each paid eval run; calls reserve a conservative token allowance before execution.
+- `HOOP_HUB_EVAL_INPUT_COST_PER_MILLION` and `HOOP_HUB_EVAL_OUTPUT_COST_PER_MILLION` — required current model prices used to enforce the eval budget and estimate cost.
+- `HOOP_HUB_EVAL_CACHED_INPUT_COST_PER_MILLION` and `HOOP_HUB_EVAL_CACHE_WRITE_COST_PER_MILLION` — optional prices for provider-reported cache usage.
 
 ## Public routes
 
@@ -46,7 +51,7 @@ Default tests and local evals are deterministic. Live eval requires configured O
 - `src/lib/server/nightly/` owns resumable bootstrap/materialization.
 - `nightly:audit` validates run completion, request/cache agreement, JSON/checksum integrity, and finalized/provisional/stale/unavailable freshness.
 - `src/lib/server/players/` and `src/lib/server/teams/` own canonical identity resolution.
-- `src/lib/server/eval/` owns deterministic/live agent cases, assertions, reports, and runner logic.
+- `src/lib/server/eval/` owns deterministic, model-fixture, and live agent cases, assertions, budget enforcement, reports, and runner logic.
 - `src/lib/components/charts/` and `src/lib/components/video/` render grounded artifacts.
 - Planner, query-orchestrator, answer-renderer, and mock modules are compatibility surfaces; new product behavior should not be added there.
 

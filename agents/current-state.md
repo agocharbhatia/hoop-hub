@@ -34,7 +34,10 @@ This file is the short source of truth for future agents. Use it before relying 
 ## Trace and Session State
 
 - Traces should expose canonicalized execution state through `resolvedQuery`, not raw caller input when normalization/resolution changed it.
-- The production natural-language route no longer uses `sessionId`; the UI should not imply real conversational memory.
+- The production natural-language route accepts an optional UUID `sessionId` and returns the active session plus effective scope. It retains bounded, validated tool requests for follow-ups, with deterministic makes/misses, quarter, and season-comparison refinements.
+- Sessions are process-local, expire after one hour, and reset on server restart. The UI starts fresh research explicitly and handles expired sessions; durable persistence remains a gap.
+- Results expose player, opponent, shot definition and season/quarter labels from validated requests. Failed unrelated questions retain prior context internally without presenting that old scope as the new answer.
+- Trend averages/direction use server computation. Multiple distinct trend populations in a general question return an honest limitation; supported season comparisons separate metric panels.
 
 ## Legacy Boundary
 
@@ -71,12 +74,13 @@ Derived/computed metrics now run through the agent's `aggregate_endpoint_rows` t
   - `cd apps/web && bun run eval`
 - Fixture-backed semantic tests are the main guardrail for default CI.
 - Live integration smoke coverage should stay isolated from default PR gating.
-- Dynamic-agent model evaluation now has two explicit modes:
+- Dynamic-agent evaluation has three explicit modes:
   - `cd apps/web && bun run eval` replays data-defined model turns against deterministic endpoint fixtures with no OpenAI or NBA network calls.
+  - `cd apps/web && bun run eval:model` uses the configured OpenAI model against strictly scoped synthetic endpoint fixtures and recorded semantic scopes. It tests interpretation and computation separately from upstream availability; it is not a real-data gold benchmark.
   - `cd apps/web && bun run eval:live` uses the configured OpenAI model and normal NBA cache/live endpoint client; it is excluded from `bun run test` and ordinary CI.
 - Eval cases, invariants, fixture adapters, runner, and redacted JSONL/Markdown reports live in `apps/web/src/lib/server/eval/`; the thin CLI entry point is `apps/web/scripts/run-evals.ts`.
 - Local eval runs every prompt variant at least once and currently covers 24 deterministic prompt-level runs; the custom-shot suite adds seven deterministic contract cases.
-- Dynamic-agent traces record model calls and input/output/total tokens. Eval reports estimate cost only when `HOOP_HUB_EVAL_INPUT_COST_PER_MILLION` and `HOOP_HUB_EVAL_OUTPUT_COST_PER_MILLION` are configured, avoiding stale hardcoded model pricing.
+- Dynamic-agent traces record model calls, input/output/total tokens, and provider-reported cache usage. Paid evals require a shared `HOOP_HUB_EVAL_BUDGET_USD` allowance and input/output token prices before making requests; cache prices are optional. Calls are paced and token-rate refusals receive bounded retries.
 - Focus runs accept `--case`, `--tag`, and `--repetitions`. The made-three stochastic gate defaults to 20 live repetitions, while `--repetitions 1` is suitable for a credential smoke.
 - Current required eval coverage includes pull-up mid-range grounding and shot-chart reconciliation, latest-ten trend chronology, top-five truncation hygiene, conditional records, win/loss splits, typed semantic lookup/split grounding, tracking-derived named-player matchup stats, sample-qualified defender rankings, stable made-three clip intent/FG3M mapping, named-defender clip fallback rejection, endpoint failure behavior, and global product-response diagnostic hygiene.
 - The server eval validates playlist contents and contracts, not browser media playback or auto-advance; keep real-browser playlist QA as a separate merge-readiness check.
