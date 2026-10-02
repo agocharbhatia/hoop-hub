@@ -118,6 +118,8 @@ export type QueryAnswerAnyToolResult = QueryAnswerToolResult | QueryAnswerAgentT
 
 export type QueryAnswerResponse = {
 	sessionId?: string;
+	researchTurnId?: string;
+	followUpSuggestions?: Array<{ label: string; question: string }>;
 	effectiveScope?: QueryEffectiveScope;
 	status: StatsQueryStatus;
 	answer: string;

@@ -1,5 +1,6 @@
 import type { QueryEffectiveScope } from '$lib/contracts/query-context';
 import type { GroundedResearchRequest, ResolvedResearchPlayer } from './research-context';
+import { createResearchRepository, researchRepository, type ResearchRepository } from '$lib/server/research/repository';
 
 const DEFAULT_TTL_MS = 60 * 60 * 1000;
 const MAX_STORED_SESSIONS = 100;
@@ -65,8 +66,31 @@ export function createQuerySessionStore(options: { nowMs?: () => number; ttlMs?:
 	};
 }
 
-export type QuerySessionStore = ReturnType<typeof createQuerySessionStore>;
-export const querySessionStore = createQuerySessionStore();
+/** Reopening saved research restores only the small validated scope; display artifacts stay in durable history. */
+export function createPersistentQuerySessionStore(options: { repository?: ResearchRepository; nowMs?: () => number; retentionDays?: number } = {}) {
+	const repository = options.repository ?? (options.nowMs || options.retentionDays ? createResearchRepository(options) : researchRepository);
+	return {
+		load(sessionId?: string): QuerySession {
+			if (!sessionId) return { sessionId: crypto.randomUUID(), context: null };
+			const stored = repository.readSession(sessionId);
+			if (!stored) throw new QuerySessionExpiredError();
+			repository.writeContext(sessionId, stored.contextJson);
+			return { sessionId, context: stored.contextJson ? JSON.parse(stored.contextJson) as GroundedResearchContext : null };
+		},
+		save(sessionId: string, context: GroundedResearchContext | null): boolean {
+			if (context && context.requests.length > MAX_RESEARCH_REQUESTS) return false;
+			const bounded = context ? { ...context, questions: context.questions.slice(-MAX_HISTORY_TURNS), players: context.players.slice(0, 20) } : null;
+			const serialized = JSON.stringify(bounded);
+			if (Buffer.byteLength(serialized) > MAX_CONTEXT_BYTES) return false;
+			repository.writeContext(sessionId, bounded ? serialized : null);
+			return true;
+		},
+		saveResult: repository.saveResult
+	};
+}
+
+export type QuerySessionStore = ReturnType<typeof createQuerySessionStore> & { saveResult?: ResearchRepository['saveResult'] };
+export const querySessionStore: QuerySessionStore = createPersistentQuerySessionStore();
 
 /* Helper functions */
 

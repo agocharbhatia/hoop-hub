@@ -96,7 +96,21 @@ const SCHEMA_STATEMENTS = [
 		snapshot_version TEXT NOT NULL,
 		imported_at TEXT NOT NULL
 	)`,
-	'CREATE INDEX IF NOT EXISTS idx_player_directory_entries_name ON player_directory_entries (normalized_name, player_id)'
+	'CREATE INDEX IF NOT EXISTS idx_player_directory_entries_name ON player_directory_entries (normalized_name, player_id)',
+	`CREATE TABLE IF NOT EXISTS research_sessions (
+		session_id TEXT PRIMARY KEY, title TEXT NOT NULL, context_json TEXT,
+		created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+	)`,
+	'CREATE INDEX IF NOT EXISTS idx_research_sessions_updated ON research_sessions (updated_at DESC, session_id DESC)',
+	`CREATE TABLE IF NOT EXISTS research_turns (
+		sequence INTEGER PRIMARY KEY AUTOINCREMENT, turn_id TEXT UNIQUE NOT NULL,
+		session_id TEXT NOT NULL REFERENCES research_sessions(session_id) ON DELETE CASCADE,
+		question TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL
+	)`,
+	'CREATE INDEX IF NOT EXISTS idx_research_turns_session ON research_turns (session_id, sequence)',
+	`CREATE TABLE IF NOT EXISTS clip_export_jobs (
+		job_id TEXT PRIMARY KEY, record_json TEXT NOT NULL, updated_at TEXT NOT NULL
+	)`
 ];
 
 type SqliteStatement<Row, Params> = {
@@ -323,6 +337,9 @@ export type DataStoreOptions = {
 	dbPath?: string;
 };
 
+export type ResearchSessionRecord = { sessionId: string; title: string; contextJson: string | null; createdAt: string; updatedAt: string };
+export type ResearchTurnRecord = { turnId: string; sessionId: string; question: string; responseJson: string; createdAt: string };
+
 type TraceSourceBundle = {
 	dataFreshnessMode: DataFreshnessMode;
 	sourceCalls: TraceSourceCall[];
@@ -488,6 +505,9 @@ export class DataStore {
 	private readonly orchestrationTraceReferencesMemory = new Map<string, OrchestrationTraceReferenceBundle>();
 	private readonly playerDirectoryByIdMemory = new Map<string, PlayerDirectoryEntryRecord>();
 	private readonly playerDirectoryByNormalizedNameMemory = new Map<string, PlayerDirectoryEntryRecord[]>();
+	private readonly researchSessionsMemory = new Map<string, ResearchSessionRecord>();
+	private readonly researchTurnsMemory = new Map<string, ResearchTurnRecord>();
+	private readonly clipExportJobsMemory = new Map<string, string>();
 
 	constructor(options: DataStoreOptions = {}) {
 		const dbPath = resolveDbPath(options.dbPath);
@@ -514,6 +534,107 @@ export class DataStore {
 
 	close(): void {
 		this.sqlite?.close(false);
+	}
+
+	/** Research persistence is separate from endpoint caches so reopening a result does not require a refetch. */
+	putResearchSession(record: ResearchSessionRecord): void {
+		if (!this.sqlite) { this.researchSessionsMemory.set(record.sessionId, { ...record }); return; }
+		this.sqlite.query(`INSERT INTO research_sessions (session_id,title,context_json,created_at,updated_at)
+			VALUES (@sessionId,@title,@contextJson,@createdAt,@updatedAt) ON CONFLICT(session_id) DO UPDATE SET
+			title=excluded.title,context_json=excluded.context_json,updated_at=excluded.updated_at`).run(record);
+	}
+
+	getResearchSession(sessionId: string): ResearchSessionRecord | null {
+		if (!this.sqlite) return this.researchSessionsMemory.has(sessionId) ? { ...this.researchSessionsMemory.get(sessionId)! } : null;
+		return this.sqlite.query<ResearchSessionRecord, string>(`SELECT session_id AS sessionId,title,context_json AS contextJson,
+			created_at AS createdAt,updated_at AS updatedAt FROM research_sessions WHERE session_id=?`).get(sessionId) ?? null;
+	}
+
+	listResearchSessions(limit: number, before?: { updatedAt: string; sessionId: string }): Array<ResearchSessionRecord & { turnCount: number }> {
+		if (!this.sqlite) return [...this.researchSessionsMemory.values()]
+			.filter((record) => !before || record.updatedAt < before.updatedAt || (record.updatedAt === before.updatedAt && record.sessionId < before.sessionId))
+			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.sessionId.localeCompare(a.sessionId)).slice(0, limit)
+			.map((record) => ({ ...record, turnCount: [...this.researchTurnsMemory.values()].filter((turn) => turn.sessionId === record.sessionId).length }));
+		return this.sqlite.query<ResearchSessionRecord & { turnCount: number }>(`SELECT s.session_id AS sessionId,s.title,s.context_json AS contextJson,
+			s.created_at AS createdAt,s.updated_at AS updatedAt,(SELECT COUNT(*) FROM research_turns t WHERE t.session_id=s.session_id) AS turnCount
+			FROM research_sessions s WHERE (@beforeDate IS NULL OR s.updated_at<@beforeDate OR (s.updated_at=@beforeDate AND s.session_id<@beforeId))
+			ORDER BY s.updated_at DESC,s.session_id DESC LIMIT @limit`).all({ beforeDate: before?.updatedAt ?? null, beforeId: before?.sessionId ?? null, limit });
+	}
+
+	putResearchTurn(record: ResearchTurnRecord): void {
+		if (!this.sqlite) { this.researchTurnsMemory.set(record.turnId, { ...record }); return; }
+		this.sqlite.query(`INSERT INTO research_turns (turn_id,session_id,question,response_json,created_at)
+			VALUES (@turnId,@sessionId,@question,@responseJson,@createdAt) ON CONFLICT(turn_id) DO NOTHING`).run(record);
+	}
+
+	getResearchTurn(sessionId: string, turnId: string): ResearchTurnRecord | null {
+		if (!this.sqlite) { const turn = this.researchTurnsMemory.get(turnId); return turn?.sessionId === sessionId ? { ...turn } : null; }
+		return this.sqlite.query<ResearchTurnRecord>(`SELECT turn_id AS turnId,session_id AS sessionId,question,response_json AS responseJson,
+			created_at AS createdAt FROM research_turns WHERE session_id=@sessionId AND turn_id=@turnId`).get({ sessionId, turnId }) ?? null;
+	}
+
+	listResearchTurns(sessionId: string): ResearchTurnRecord[] {
+		if (!this.sqlite) return [...this.researchTurnsMemory.values()].filter((turn) => turn.sessionId === sessionId).map((turn) => ({ ...turn }));
+		return this.sqlite.query<ResearchTurnRecord, string>(`SELECT turn_id AS turnId,session_id AS sessionId,question,response_json AS responseJson,
+			created_at AS createdAt FROM research_turns WHERE session_id=? ORDER BY sequence`).all(sessionId);
+	}
+
+	deleteResearchSession(sessionId: string): void {
+		if (!this.sqlite) {
+			this.researchSessionsMemory.delete(sessionId);
+			for (const [id, turn] of this.researchTurnsMemory) if (turn.sessionId === sessionId) this.researchTurnsMemory.delete(id);
+			return;
+		}
+		this.sqlite.query('DELETE FROM research_sessions WHERE session_id=?').run(sessionId);
+	}
+
+	pruneResearchStorage(olderThan: string, maxSessions: number, maxTurnsPerSession: number, maxBytes = 268_435_456): void {
+		if (!this.sqlite) {
+			const retained = new Set(this.listResearchSessions(maxSessions).filter((record) => record.updatedAt >= olderThan).map((record) => record.sessionId));
+			for (const id of this.researchSessionsMemory.keys()) if (!retained.has(id)) this.deleteResearchSession(id);
+			for (const id of retained) {
+				const turns = this.listResearchTurns(id);
+				for (const turn of turns.slice(0, Math.max(0, turns.length - maxTurnsPerSession))) this.researchTurnsMemory.delete(turn.turnId);
+			}
+			let retainedBytes = 0;
+			for (const record of this.listResearchSessions(maxSessions)) {
+				retainedBytes += Buffer.byteLength(record.contextJson ?? '') + this.listResearchTurns(record.sessionId).reduce((size, turn) => size + Buffer.byteLength(turn.responseJson), 0);
+				if (retainedBytes > maxBytes) this.deleteResearchSession(record.sessionId);
+			}
+			return;
+		}
+		this.sqlite.transaction(() => {
+			this.sqlite!.query('DELETE FROM research_sessions WHERE updated_at<?').run(olderThan);
+			this.sqlite!.query('DELETE FROM research_sessions WHERE session_id NOT IN (SELECT session_id FROM research_sessions ORDER BY updated_at DESC,session_id DESC LIMIT ?)').run(maxSessions);
+			this.sqlite!.query(`DELETE FROM research_turns WHERE sequence IN (SELECT sequence FROM (
+				SELECT sequence,ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY sequence DESC) AS age FROM research_turns) WHERE age>?)`).run(maxTurnsPerSession);
+			this.sqlite!.query(`DELETE FROM research_sessions WHERE session_id IN (SELECT session_id FROM (
+				SELECT session_id,SUM(bytes) OVER (ORDER BY updated_at DESC,session_id DESC) AS retained_bytes FROM (
+					SELECT s.session_id,s.updated_at,LENGTH(CAST(COALESCE(s.context_json,'') AS BLOB))+
+					COALESCE((SELECT SUM(LENGTH(CAST(response_json AS BLOB))) FROM research_turns t WHERE t.session_id=s.session_id),0) AS bytes
+					FROM research_sessions s)) WHERE retained_bytes>?)`).run(maxBytes);
+		})();
+	}
+
+	putClipExportJob(jobId: string, recordJson: string, updatedAt: string): void {
+		if (!this.sqlite) { this.clipExportJobsMemory.set(jobId, recordJson); return; }
+		this.sqlite.query(`INSERT INTO clip_export_jobs (job_id,record_json,updated_at) VALUES (@jobId,@recordJson,@updatedAt)
+			ON CONFLICT(job_id) DO UPDATE SET record_json=excluded.record_json,updated_at=excluded.updated_at`).run({ jobId, recordJson, updatedAt });
+	}
+
+	getClipExportJob(jobId: string): string | null {
+		if (!this.sqlite) return this.clipExportJobsMemory.get(jobId) ?? null;
+		return this.sqlite.query<{ recordJson: string }, string>('SELECT record_json AS recordJson FROM clip_export_jobs WHERE job_id=?').get(jobId)?.recordJson ?? null;
+	}
+
+	listClipExportJobs(): Array<{ jobId: string; recordJson: string }> {
+		if (!this.sqlite) return [...this.clipExportJobsMemory].map(([jobId, recordJson]) => ({ jobId, recordJson }));
+		return this.sqlite.query<{ jobId: string; recordJson: string }>('SELECT job_id AS jobId,record_json AS recordJson FROM clip_export_jobs').all();
+	}
+
+	deleteClipExportJob(jobId: string): void {
+		if (!this.sqlite) { this.clipExportJobsMemory.delete(jobId); return; }
+		this.sqlite.query('DELETE FROM clip_export_jobs WHERE job_id=?').run(jobId);
 	}
 
 	putRawEndpointCache(input: PutRawEndpointCacheInput): RawEndpointCacheRecord {
