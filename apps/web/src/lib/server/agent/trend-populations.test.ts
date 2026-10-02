@@ -40,6 +40,45 @@ test('reports failed populations without discarding a successful distinct trend;
 	assert.equal(countUnverifiedTrendScopes([success, failed, trend('203954', 'AST', [4, 3, 2, 1])]), 0);
 });
 
+test('a corrected upstream player-game retrieval replaces the eight-game sample with the complete ten-game window', () => {
+	const params = { Season: '2024-25', MeasureType: 'Base', PerMode: 'PerGame' };
+	const short = trend('203999', 'REB', [8, 9, 10, 11, 12, 13, 14, 15], { ...params, LastNGames: '10' });
+	const complete = trend('203999', 'REB', [20, 21, 22, 23, 24, 25, 26, 27, 28, 29], { ...params, LastNGames: '0' });
+	short.request.lastN = 10;
+	complete.request.lastN = 10;
+	for (const results of [[short, complete], [complete, short]]) {
+		const populations = collectVerifiedTrendPopulations(results);
+		assert.equal(populations.length, 1);
+		assert.deepEqual(populations[0].points.map((point) => point.y), [20, 21, 22, 23, 24, 25, 26, 27, 28, 29]);
+		assert.equal(populations[0].earlierWindow.average, 22);
+		assert.equal(populations[0].recentWindow.average, 27);
+		assert.doesNotMatch(populations[0].scopeLabel, /LastNGames/);
+		assert.equal(countUnverifiedTrendScopes(results), 0);
+		const chart = reconcileVerifiedTrendArtifacts([], populations).find((artifact) => artifact.type === 'line_chart');
+		assert.equal(chart?.series.length, 1);
+	}
+});
+
+test('an upstream-window failure is superseded by the same scoped computation using full player logs', () => {
+	const failed = trend('1641705', 'BLK', [], { LastNGames: '10' });
+	failed.request.lastN = 10;
+	failed.response = { ok: false, error: 'No player games in the upstream team window' };
+	const repaired = trend('1641705', 'BLK', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], { LastNGames: '0' });
+	repaired.request.lastN = 10;
+	assert.equal(countUnverifiedTrendScopes([failed, repaired]), 0);
+	assert.equal(collectVerifiedTrendPopulations([failed, repaired]).length, 1);
+	const changedDate = { ...repaired, request: { ...repaired.request, params: { ...(repaired.request.params as Record<string, string>), DateFrom: '2025-01-01' } } };
+	assert.equal(countUnverifiedTrendScopes([failed, changedDate]), 1, 'Another date population cannot repair this scope');
+});
+
+test('computed game count and genuine filters remain separate population dimensions', () => {
+	const first = trend('203999', 'REB', [1, 2, 3, 4], { LastNGames: '10' });
+	const shorter = trend('203999', 'REB', [5, 6], { LastNGames: '0' });
+	shorter.request.lastN = 2;
+	const period = trend('203999', 'REB', [7, 8, 9, 10], { LastNGames: '0', Period: '4' });
+	assert.equal(collectVerifiedTrendPopulations([first, shorter, period]).length, 3);
+});
+
 test('rejects league-wide logs, invalid numeric points and reverse chronology', () => {
 	const unscoped = trend('0', 'REB', [1, 2]);
 	const invalid = trend('203999', 'REB', [1, Number.NaN]);

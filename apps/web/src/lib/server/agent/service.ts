@@ -934,7 +934,7 @@ function buildToolDefinitions(): DynamicAgentToolDefinition[] {
 			function: {
 				name: 'analyze_time_series',
 				description:
-					'Fetch a full NBA result set, select the latest N dated numeric rows, order them oldest-to-newest, and compute deterministic earlier-versus-recent trend statistics.',
+					'Fetch a full NBA result set, select the latest N dated numeric rows, order them oldest-to-newest, and compute deterministic earlier-versus-recent trend statistics. For player game windows, prefer playergamelog; if using playergamelogs, leave LastNGames=0 because lastN selects the player window server-side.',
 				parameters: {
 					type: 'object',
 					additionalProperties: false,
@@ -1951,6 +1951,10 @@ function parseAnalyzeTimeSeriesRequest(
 	}
 	if (!Number.isInteger(lastN) || Number(lastN) < 2 || Number(lastN) > 100) {
 		return { ok: false, error: 'analyze_time_series lastN must be an integer from 2 to 100.' };
+	}
+	if (endpointRequest.request.endpointId.toLowerCase() === 'playergamelogs' && Number(endpointRequest.request.params.PlayerID) > 0 &&
+		Number(endpointRequest.request.params.LastNGames) > 0) {
+		return { ok: false, error: 'Use LastNGames=0 for playergamelogs and retain lastN. The upstream game-window filter can omit a player\'s recorded games; this tool selects the player\'s latest games from the complete scoped log.' };
 	}
 
 	return {

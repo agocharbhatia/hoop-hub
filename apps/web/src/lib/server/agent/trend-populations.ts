@@ -36,7 +36,10 @@ export function collectVerifiedTrendPopulations(toolResults: QueryAnswerAgentToo
 	}
 	for (const result of toolResults) {
 		const population = readVerifiedPopulation(result, names);
-		if (population) populations.set(population.key, population);
+		if (!population) continue;
+		const prior = populations.get(population.key);
+		// A corrected retrieval should replace an incomplete window, never reduce an already verified one.
+		if (!prior || population.points.length >= prior.points.length) populations.set(population.key, population);
 	}
 	return [...populations.values()];
 }
@@ -95,7 +98,9 @@ function readVerifiedPopulation(result: QueryAnswerAgentToolResult, names: Map<s
 }
 
 function requestKey(request: Record<string, unknown>): string {
-	const params = isRecord(request.params) ? Object.fromEntries(Object.entries(request.params).map(([key, value]) => [key.toLowerCase(), String(value)]).sort(([a], [b]) => a.localeCompare(b))) : {};
+	const hasComputedWindow = typeof request.lastN === 'number' && request.lastN > 0;
+	// lastN is the player-game window. NBA's upstream LastNGames can instead narrow a team window.
+	const params = isRecord(request.params) ? Object.fromEntries(Object.entries(request.params).filter(([key]) => !hasComputedWindow || key.toLowerCase() !== 'lastngames').map(([key, value]) => [key.toLowerCase(), String(value)]).sort(([a], [b]) => a.localeCompare(b))) : {};
 	return JSON.stringify([String(request.endpointId).toLowerCase(), params, request.resultSetName ?? null, String(request.dateColumn).toUpperCase(), String(request.valueColumn).toUpperCase(), request.lastN]);
 }
 
@@ -108,9 +113,11 @@ function describeScope(params: Record<string, unknown>, lastN: unknown): string 
 	const labels: string[] = [];
 	if (typeof lastN === 'number') labels.push(`latest ${lastN} games`);
 	const core = new Set(['playerid', 'teamid', 'season', 'seasonyear', 'seasontype', 'leagueid']);
+	if (typeof lastN === 'number' && lastN > 0) core.add('lastngames');
 	const names: Record<string, string> = { datefrom: 'from', dateto: 'through', opponentteamid: 'opponent team', outcome: 'outcome', location: 'location', period: 'quarter', permode: 'mode' };
 	for (const [key, raw] of Object.entries(params).sort(([a], [b]) => a.localeCompare(b))) {
 		if (core.has(key.toLowerCase()) || typeof raw !== 'string' || ['', '0', 'N'].includes(raw)) continue;
+		if ((key.toLowerCase() === 'measuretype' && raw === 'Base') || (key.toLowerCase() === 'permode' && raw === 'PerGame')) continue;
 		const value = key.toLowerCase() === 'opponentteamid' ? findTeamDirectoryEntryById(raw)?.canonicalName ?? raw : raw;
 		labels.push(`${names[key.toLowerCase()] ?? key} ${value}`);
 	}

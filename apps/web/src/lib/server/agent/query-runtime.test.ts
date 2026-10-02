@@ -56,6 +56,29 @@ async function runClipCompletionScenario(question: string) {
 /* Runtime behavior */
 
 describe('research execution latency and cancellation', () => {
+	test('repairs an upstream player game window before fetching and keeps one verified population', async () => {
+		let calls = 0;
+		let fetches = 0;
+		const agent = createDynamicQueryAgent({
+			model: { async complete() {
+				calls++;
+				if (calls <= 2) return { content: null, toolCalls: [{ id: `trend-${calls}`, name: 'analyze_time_series', arguments: JSON.stringify({ endpointId: 'playergamelogs', params: { PlayerID: '203999', Season: '2024-25', LastNGames: calls === 1 ? '2' : '0' }, dateColumn: 'GAME_DATE', valueColumn: 'REB', lastN: 2 }) }] };
+				return { content: JSON.stringify({ answer: 'Verified.', artifacts: [], warnings: [] }), toolCalls: [] };
+			} },
+			endpointFetcher: async (request) => { fetches++; assert.equal(request.params.LastNGames, '0'); return { ...endpointResult(), endpointId: 'playergamelogs' }; },
+			playerDirectory: { ensureAvailable: () => ({ ok: true }), findByNameOrAlias: () => [] },
+			teamDirectory: { findByNameOrAlias: () => [] }, sessionStore: createQuerySessionStore()
+		});
+		const response = await agent.answerQuestion('Show Nikola Jokic rebounds trend in his latest two games in 2024-25.');
+		assert.equal(fetches, 1);
+		const rejected = response.toolResults[0].response;
+		assert.ok('ok' in rejected);
+		assert.equal(rejected.ok, false);
+		assert.equal(response.status, 'ok');
+		assert.equal(response.artifacts.filter((artifact) => artifact.type === 'line_chart').length, 1);
+		assert.ok(response.warnings.every((warning) => !warning.message.includes('trend population')));
+	});
+
 	test('complete earlier-five/latest-five comparisons retain the direct final optimization', async () => {
 		assert.deepEqual(await runTrendCompletionScenario('Show Nikola Jokic rebounds over his final ten games in 2024-25. Compare the earlier five with the latest five and include a chart.', 10, 10), [false, true]);
 	});
