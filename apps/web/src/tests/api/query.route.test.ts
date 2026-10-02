@@ -289,7 +289,9 @@ describe('POST /api/query', () => {
 			calls: 3,
 			inputTokens: 0,
 			outputTokens: 0,
-			totalTokens: 0
+			totalTokens: 0,
+			cachedInputTokens: 0,
+			cacheWriteInputTokens: 0
 		});
 		assert.equal(tracePayload.sourceCalls[0]?.endpointId, 'playerdashptshots');
 		assert.equal(tracePayload.cache.misses, 1);

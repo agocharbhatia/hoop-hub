@@ -5,7 +5,7 @@ import { buildRawEndpointCacheKey, getDataStore, resetDataStoreForTests, stableS
 import { createNightlyBootstrapFixtureFetcher } from '$lib/server/nightly/bootstrap-fixtures';
 import { bootstrapCurrentSeasonNightly } from '$lib/server/nightly/bootstrap-service';
 import { seedSemanticFixtureCache } from '../helpers/seed-semantic-fixture-cache';
-import { POST } from '../../routes/api/stats/query/+server';
+import { POST, _setStatsQueryNowForTests } from '../../routes/api/stats/query/+server';
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
 const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;
@@ -92,6 +92,7 @@ async function parseJson(response: Response): Promise<unknown> {
 
 describe('POST /api/stats/query', () => {
 	beforeEach(() => {
+		_setStatsQueryNowForTests(new Date('2026-04-03T12:00:00.000Z'));
 		process.env.HOOP_HUB_DB_PATH = ':memory:';
 		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '0';
 		resetDataStoreForTests();
@@ -100,6 +101,7 @@ describe('POST /api/stats/query', () => {
 	});
 
 	afterEach(() => {
+		_setStatsQueryNowForTests(null);
 		resetDataStoreForTests();
 	});
 
@@ -513,7 +515,8 @@ describe('POST /api/stats/query', () => {
 		assert.equal(payload.provenance.resolvedQuery.filters.conference, 'East');
 	});
 
-	test('returns honest 200 coverage_gap for game requests before execution support exists', async () => {
+	test('returns honest 200 coverage_gap when team game data is absent', async () => {
+		resetDataStoreForTests();
 		const response = await POST(
 			createPostEvent(
 				JSON.stringify({

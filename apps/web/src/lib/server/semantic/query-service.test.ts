@@ -1329,7 +1329,7 @@ describe('executeSemanticQuery', () => {
 				metrics: ['pts'],
 				filters: {}
 			}
-		});
+		}, new Date('2026-03-25T12:00:00.000Z'));
 
 		assert.equal(response.status, 'ok');
 		assert.deepEqual(response.provenance.resolvedQuery?.subject, {
@@ -1349,7 +1349,7 @@ describe('executeSemanticQuery', () => {
 				metrics: ['pts'],
 				filters: {}
 			}
-		});
+		}, new Date('2026-03-25T12:00:00.000Z'));
 
 		setPlayerDirectoryRefreshLoaderForTests(() => {
 			throw new Error('refresh unavailable');
@@ -1365,7 +1365,7 @@ describe('executeSemanticQuery', () => {
 				metrics: ['pts'],
 				filters: {}
 			}
-		});
+		}, new Date('2026-03-25T12:00:00.000Z'));
 
 		assert.equal(response.status, 'ok');
 		assert.deepEqual(response.provenance.resolvedQuery?.subject, {

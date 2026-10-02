@@ -3,11 +3,15 @@ import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import { resetDataStoreForTests } from '$lib/server/data/store';
 import { createNightlyBootstrapFixtureFetcher } from '$lib/server/nightly/bootstrap-fixtures';
 import { bootstrapCurrentSeasonNightly } from '$lib/server/nightly/bootstrap-service';
-import { executeSemanticQuery } from '$lib/server/semantic/query-service';
+import { executeSemanticQuery as executeSemanticQueryAt } from '$lib/server/semantic/query-service';
 import { POST as queryPost, _setQueryRouteDependenciesForTests } from '../../routes/api/query/+server';
 import { seedSemanticFixtureCache } from '../helpers/seed-semantic-fixture-cache';
-import { POST as statsPost } from '../../routes/api/stats/query/+server';
+import { POST as statsPost, _setStatsQueryNowForTests } from '../../routes/api/stats/query/+server';
 import { GET } from '../../routes/api/query-trace/[traceId]/+server';
+
+// Keep current-season fixtures independent of the date the suite runs.
+const FIXTURE_QUERY_NOW = new Date('2026-04-03T12:00:00.000Z');
+const executeSemanticQuery: typeof executeSemanticQueryAt = (request, now = FIXTURE_QUERY_NOW, ...options) => executeSemanticQueryAt(request, now, ...options);
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
 const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;
@@ -36,6 +40,7 @@ function createQueryPostEvent(question: string): Parameters<typeof queryPost>[0]
 
 describe('GET /api/query-trace/:traceId', () => {
 	beforeEach(() => {
+		_setStatsQueryNowForTests(FIXTURE_QUERY_NOW);
 		process.env.HOOP_HUB_DB_PATH = ':memory:';
 		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '0';
 		resetDataStoreForTests();
@@ -44,6 +49,7 @@ describe('GET /api/query-trace/:traceId', () => {
 	});
 
 	afterEach(() => {
+		_setStatsQueryNowForTests(null);
 		_setQueryRouteDependenciesForTests(null);
 		resetDataStoreForTests();
 	});
@@ -478,7 +484,8 @@ describe('GET /api/query-trace/:traceId', () => {
 		assert.equal(payload.resolvedQuery.filters.division, 'Atlantic');
 	});
 
-	test('returns honest structured traces for game requests before execution support exists', async () => {
+	test('returns honest structured traces when team game data is absent', async () => {
+		resetDataStoreForTests();
 		const statsResponse = await statsPost({
 			request: new Request('http://localhost/api/stats/query', {
 				method: 'POST',

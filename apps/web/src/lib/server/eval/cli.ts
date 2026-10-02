@@ -53,7 +53,7 @@ export async function runEvalCli(args: string[]): Promise<number> {
 		return 0;
 	}
 
-	if (options.mode === 'local') {
+	if (options.mode !== 'live') {
 		process.env.HOOP_HUB_DB_PATH = ':memory:';
 		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '0';
 	}
@@ -98,10 +98,10 @@ export function selectEvalCases(cases: EvalCase[], options: Pick<EvalCliOptions,
 
 export function evalCliUsage(): string {
 	return [
-		'Usage: bun run eval[:live] -- [options]',
+		'Usage: bun run eval[:model|:live] -- [options]',
 		'',
 		'Options:',
-		'  --mode local|live     Evaluation mode (scripts set this automatically)',
+		'  --mode local|model|live     Evaluation mode (scripts set this automatically)',
 		'  --case <id>           Run one case; repeat to select several',
 		'  --tag <tag>           Require a case tag; repeat to combine filters',
 		`  --repetitions <n>     Override every selected case (1-${MAX_REPETITIONS}; supports 20+ stochastic runs)`,
@@ -121,8 +121,8 @@ function requireValue(args: string[], index: number, option: string): string {
 }
 
 function parseMode(value: string): EvalMode {
-	if (value !== 'local' && value !== 'live') {
-		throw new Error(`--mode must be 'local' or 'live', received '${value}'.`);
+	if (value !== 'local' && value !== 'model' && value !== 'live') {
+		throw new Error(`--mode must be 'local', 'model' or 'live', received '${value}'.`);
 	}
 	return value;
 }

@@ -6,7 +6,7 @@ import type {
 import type { DynamicAgentFinalOutput } from '$lib/server/agent/types';
 import type { StatsQueryResponse } from '$lib/contracts/semantic-query';
 
-export type EvalMode = 'local' | 'live';
+export type EvalMode = 'local' | 'model' | 'live';
 
 export type EvalFixtureId =
 	| 'scottie_pullup_midrange'
@@ -79,7 +79,7 @@ export type EvalCase = {
 	id: string;
 	tags: string[];
 	prompts: string[];
-	repetitions: Record<EvalMode, number>;
+	repetitions: Record<'local' | 'live', number>;
 	expectedStatus: QueryAnswerResponse['status'];
 	requiredTools: QueryAnswerAgentToolName[];
 	forbiddenTools: QueryAnswerAgentToolName[];
@@ -130,6 +130,8 @@ export type EvalArtifactSummary =
 
 export type EvalRunRecord = {
 	schemaVersion: 1;
+	dataSource?: 'synthetic_fixture' | 'live_nba';
+	fixtureVersion?: string;
 	mode: EvalMode;
 	caseId: string;
 	tags: string[];
@@ -148,6 +150,8 @@ export type EvalRunRecord = {
 	modelUsage: {
 		calls: number;
 		inputTokens: number;
+		cachedInputTokens?: number;
+		cacheWriteInputTokens?: number;
 		outputTokens: number;
 		totalTokens: number;
 		estimatedCostUsd: number | null;

@@ -2,6 +2,13 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { executeSemanticQuery, validateSemanticQueryRequest } from '$lib/server/semantic/query-service';
 
+let testNow: Date | undefined;
+
+/** Pins dated NBA fixtures without changing the production route's current-date behavior. */
+export function _setStatsQueryNowForTests(now: Date | null): void {
+	testNow = now ?? undefined;
+}
+
 export const POST: RequestHandler = async ({ request }) => {
 	let body: unknown;
 	try {
@@ -16,7 +23,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	try {
-		const result = await executeSemanticQuery(parsed.value);
+		const result = await executeSemanticQuery(parsed.value, testNow);
 		return json(result, { status: 200 });
 	} catch (error) {
 		console.error('Unexpected semantic query handler error:', error);

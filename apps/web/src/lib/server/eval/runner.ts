@@ -12,6 +12,11 @@ import {
 } from '$lib/server/data/adapters/stats-endpoint-client';
 import { getQueryTraceById } from '$lib/server/semantic/trace-store';
 import { evaluateEvalExecution } from './assertions';
+import { createScopedSemanticFixtureExecutor } from './scoped-semantic-fixture';
+import { createScopedFixtureFetcher } from './fixture-scope';
+import { createBudgetedEvalModel, type EvalModelBudget } from './model-budget';
+import { evaluateFrozenExecution } from './frozen-assertions';
+import { evaluateLiveExecution } from './live-assertions';
 import { createEvalFixtureFetcher } from './fixtures';
 import { createEvalScriptedModel } from './scripted-model';
 import type {
@@ -38,16 +43,18 @@ export async function runEvalSuite(options: RunEvalSuiteOptions): Promise<EvalSu
 	const now = options.now ?? (() => new Date());
 	const startedAt = now().toISOString();
 	const records: EvalRunRecord[] = [];
+	const budget = options.mode === 'local' ? null : readModelBudget();
 
 	for (const evalCase of options.cases) {
 		const repetitions =
 			options.repetitions ??
 			(options.mode === 'local'
 				? Math.max(evalCase.repetitions.local, evalCase.prompts.length)
-				: evalCase.repetitions.live);
+				: options.mode === 'model' ? Math.max(1, evalCase.prompts.length) : evalCase.repetitions.live);
 		for (let repetition = 1; repetition <= repetitions; repetition += 1) {
-			const prompt = evalCase.prompts[(repetition - 1) % evalCase.prompts.length] ?? evalCase.prompts[0];
-			records.push(await runEvalRepetition(evalCase, options.mode, prompt, repetition));
+			const selectedPrompt = evalCase.prompts[(repetition - 1) % evalCase.prompts.length] ?? evalCase.prompts[0];
+			const prompt = options.mode === 'local' ? selectedPrompt : selectedPrompt.replace(/this season/gi, 'in the 2025-26 regular season');
+			records.push(await runEvalRepetition(evalCase, options.mode, prompt, repetition, budget));
 		}
 	}
 
@@ -69,20 +76,22 @@ async function runEvalRepetition(
 	evalCase: EvalCase,
 	mode: EvalMode,
 	prompt: string,
-	repetition: number
+	repetition: number,
+	budget: EvalModelBudget | null
 ): Promise<EvalRunRecord> {
 	const endpointCalls: EvalEndpointCall[] = [];
-	const baseFetcher = mode === 'local' ? createEvalFixtureFetcher(evalCase.local.fixtureId) : createStatsEndpointFetcher();
+	const baseFetcher = mode === 'live' ? createStatsEndpointFetcher() : mode === 'model' ? createScopedFixtureFetcher(evalCase) : createEvalFixtureFetcher(evalCase.local.fixtureId);
 	const endpointFetcher = captureEndpointCalls(baseFetcher, endpointCalls);
-	const model = mode === 'local' ? createEvalScriptedModel(evalCase) : createOpenAIDynamicAgentAdapter();
+	const observedUsage = { calls: 0, inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, totalTokens: 0 };
+	const model = mode === 'local' ? createEvalScriptedModel(evalCase) : createBudgetedEvalModel(createOpenAIDynamicAgentAdapter({ maxCompletionTokens: 8192, timeoutMs: 60_000, maxRetries: 0 }), budget!, observedUsage);
 	const agent = createDynamicQueryAgent({
 		model,
 		endpointFetcher,
 		playerDirectory: createDefaultPlayerDirectoryAdapter(),
 		teamDirectory: createDefaultTeamDirectoryAdapter(),
-		...(mode === 'local' && evalCase.local.semanticResponses
-			? { semanticExecutor: createScriptedSemanticExecutor(evalCase.local.semanticResponses) }
-			: {})
+		...(mode !== 'live' ? { now: () => new Date('2026-04-15T12:00:00Z') } : {}),
+		...(mode !== 'live' ? { semanticExecutor: createScopedSemanticFixtureExecutor(evalCase) } : {}),
+		...(mode === 'model' ? { wallClockMs: 180_000 } : {})
 	});
 	const startedAt = performance.now();
 
@@ -90,9 +99,11 @@ async function runEvalRepetition(
 		const response = await agent.answerQuestion(prompt);
 		const trace = getDynamicTrace(response.traceId);
 		const execution: EvalExecution = { response, trace, endpointCalls };
-		const failures = evaluateEvalExecution(evalCase, execution);
+		const failures = mode === 'live' ? evaluateLiveExecution(evalCase, execution) : mode === 'model' ? evaluateFrozenExecution(evalCase, execution) : evaluateEvalExecution(evalCase, execution);
 		return {
 			schemaVersion: 1,
+			dataSource: mode === 'live' ? 'live_nba' : 'synthetic_fixture',
+			...(mode !== 'live' ? { fixtureVersion: 'synthetic-v1-2026-04-15' } : {}),
 			mode,
 			caseId: evalCase.id,
 			tags: [...evalCase.tags],
@@ -113,6 +124,8 @@ async function runEvalRepetition(
 	} catch (error) {
 		return {
 			schemaVersion: 1,
+			dataSource: mode === 'live' ? 'live_nba' : 'synthetic_fixture',
+			...(mode !== 'live' ? { fixtureVersion: 'synthetic-v1-2026-04-15' } : {}),
 			mode,
 			caseId: evalCase.id,
 			tags: [...evalCase.tags],
@@ -128,7 +141,7 @@ async function runEvalRepetition(
 			warnings: [],
 			artifacts: [],
 			totalLatencyMs: Math.round(performance.now() - startedAt),
-			modelUsage: { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUsd: null }
+			modelUsage: summarizeModelUsage(observedUsage)
 		};
 	}
 }
@@ -191,10 +204,14 @@ function summarizeArtifact(artifact: EvalExecution['response']['artifacts'][numb
 function summarizeModelUsage(usage: DynamicAgentQueryTraceResponse['modelUsage']): EvalRunRecord['modelUsage'] {
 	const inputRate = parseOptionalRate(process.env.HOOP_HUB_EVAL_INPUT_COST_PER_MILLION);
 	const outputRate = parseOptionalRate(process.env.HOOP_HUB_EVAL_OUTPUT_COST_PER_MILLION);
-	const estimatedCostUsd =
-		inputRate === null || outputRate === null
-			? null
-			: Number(((usage.inputTokens * inputRate + usage.outputTokens * outputRate) / 1_000_000).toFixed(6));
+	const cachedRate = parseOptionalRate(process.env.HOOP_HUB_EVAL_CACHED_INPUT_COST_PER_MILLION) ?? inputRate;
+	const writeRate = parseOptionalRate(process.env.HOOP_HUB_EVAL_CACHE_WRITE_COST_PER_MILLION) ?? (inputRate === null ? null : inputRate * 1.25);
+	const cached = usage.cachedInputTokens ?? 0;
+	const writes = usage.cacheWriteInputTokens ?? 0;
+	const uncached = Math.max(0, usage.inputTokens - cached - writes);
+	const estimatedCostUsd = inputRate === null || outputRate === null || cachedRate === null || writeRate === null
+		? null
+		: Number(((uncached * inputRate + cached * cachedRate + writes * writeRate + usage.outputTokens * outputRate) / 1_000_000).toFixed(6));
 
 	return { ...usage, estimatedCostUsd };
 }
@@ -205,13 +222,11 @@ function parseOptionalRate(value: string | undefined): number | null {
 	return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-function createScriptedSemanticExecutor(
-	responses: NonNullable<EvalCase['local']['semanticResponses']>
-): NonNullable<Parameters<typeof createDynamicQueryAgent>[0]['semanticExecutor']> {
-	const remaining = responses.map((response) => structuredClone(response));
-	return async () => {
-		const response = remaining.shift();
-		if (!response) throw new Error('Eval case exhausted its scripted semantic responses.');
-		return response;
-	};
+/** A paid evaluation must declare rates and a ceiling rather than accidentally consuming the balance. */
+function readModelBudget(): EvalModelBudget {
+	const ceiling = parseOptionalRate(process.env.HOOP_HUB_EVAL_BUDGET_USD);
+	const inputRate = parseOptionalRate(process.env.HOOP_HUB_EVAL_INPUT_COST_PER_MILLION);
+	const outputRate = parseOptionalRate(process.env.HOOP_HUB_EVAL_OUTPUT_COST_PER_MILLION);
+	if (ceiling === null || ceiling <= 0 || inputRate === null || outputRate === null) throw new Error('Paid evals require HOOP_HUB_EVAL_BUDGET_USD and input/output cost rates per million tokens.');
+	return { remainingUsd: ceiling, inputRate, outputRate, minCallIntervalMs: Math.min(30_000, parseOptionalRate(process.env.HOOP_HUB_EVAL_MIN_CALL_INTERVAL_MS) ?? 4_000) };
 }

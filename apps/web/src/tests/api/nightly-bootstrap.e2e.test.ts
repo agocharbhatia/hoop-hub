@@ -9,7 +9,7 @@ import { bootstrapCurrentSeasonNightly } from '$lib/server/nightly/bootstrap-ser
 import { executeSemanticQuery } from '$lib/server/semantic/query-service';
 import { POST as queryPost, _setQueryRouteDependenciesForTests } from '../../routes/api/query/+server';
 import { GET as queryTraceGet } from '../../routes/api/query-trace/[traceId]/+server';
-import { POST as statsPost } from '../../routes/api/stats/query/+server';
+import { POST as statsPost, _setStatsQueryNowForTests } from '../../routes/api/stats/query/+server';
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
 const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;
@@ -145,12 +145,14 @@ function usePlayerLookupPlannerAt(now: Date): void {
 
 describe('nightly bootstrap end-to-end coverage', () => {
 	beforeEach(() => {
+		_setStatsQueryNowForTests(NEXT_DAY_QUERY_NOW);
 		process.env.HOOP_HUB_DB_PATH = ':memory:';
 		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '0';
 		resetDataStoreForTests();
 	});
 
 	afterEach(() => {
+		_setStatsQueryNowForTests(null);
 		_setQueryRouteDependenciesForTests(null);
 		resetDataStoreForTests();
 	});

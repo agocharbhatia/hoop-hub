@@ -248,7 +248,7 @@ export const DYNAMIC_AGENT_EVAL_CASES: EvalCase[] = [
 		id: 'semantic-player-season-lookup',
 		tags: ['semantic', 'lookup', 'table', 'grounding', 'stored-data'],
 		prompts: [
-			'What is Scottie Barnes averaging this season? Show the grounded row.',
+			'What is Scottie Barnes averaging in points per game this season? Show the grounded row.',
 			'Scottie Barnes points per game for 2025-26 in a table.'
 		],
 		repetitions: { local: 1, live: 2 },

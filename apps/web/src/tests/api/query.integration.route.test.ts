@@ -3,9 +3,13 @@ import { after, afterEach, beforeEach, describe, test } from 'node:test';
 import type { QueryAnswerResponse, QueryAnswerToolResult } from '$lib/contracts/answer-response';
 import type { BatchPlannerDecision } from '$lib/contracts/planner';
 import { resetDataStoreForTests } from '$lib/server/data/store';
-import { executeSemanticQuery } from '$lib/server/semantic/query-service';
+import { executeSemanticQuery as executeSemanticQueryAt } from '$lib/server/semantic/query-service';
 import { seedSemanticFixtureCache } from '../helpers/seed-semantic-fixture-cache';
 import { POST, _setQueryRouteDependenciesForTests } from '../../routes/api/query/+server';
+
+// Keep current-season fixtures independent of the date the suite runs.
+const FIXTURE_QUERY_NOW = new Date('2026-04-03T12:00:00.000Z');
+const executeSemanticQuery: typeof executeSemanticQueryAt = (request, now = FIXTURE_QUERY_NOW, ...options) => executeSemanticQueryAt(request, now, ...options);
 
 const ORIGINAL_DB_PATH = process.env.HOOP_HUB_DB_PATH;
 const ORIGINAL_LIVE_FETCH = process.env.HOOP_HUB_ENABLE_LIVE_NBA;
