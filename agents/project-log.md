@@ -401,3 +401,10 @@ This is chronological implementation history, not a current roadmap. For shipped
 - Added full historical real NBA game logs and independent latest-window oracles for Jokic and Wembanyama, including source provenance, original freshness flags and SHA-256 hashes. Computed prose no longer depends on a literal trend keyword.
 - Final checks: 500 tests/70 files, 24 local eval runs, seven custom-shot contracts, 30 endpoint contracts, zero Svelte errors/warnings, clean diff and production build/transport startup checks. Real paired samples improved from 16.12s→6.48s and 11.33s→3.82s; this is a narrow cache-backed sample rather than a latency distribution.
 - Named guarding and tactical possession attribution still require reliable event annotations. Production auth/quotas/backups and distributed export workers remain gaps. See `.docs/RESEARCH_ITERATION_2026-10-02.md` and its compact evidence record for scope, timings, estimated costs and limits.
+
+## 2026-10-02 — Advanced analytics provider feasibility
+
+- Researched official access, pricing, coverage and terms for BBall Index, Dunks & Threes, PBP Stats, Sportradar Synergy, BALLDONTLIE, Second Spectrum and Sports Reference. No subscriptions, accounts or provider outreach initiated.
+- Verified a documented Synergy API with defensive participant roles and possession metadata; incomplete tagging, NBA event mapping, video delivery and public-app entitlements remain evaluation requirements.
+- Verified one unauthenticated PBP Stats on/off endpoint returned HTTP 200 in 1.35s. This is a connectivity sample, not an accuracy or latency benchmark.
+- Recommended possession/lineup coverage first, followed by one specialist source evaluated against unanswered questions. See `.docs/ADVANCED_ANALYTICS_SOURCES_2026-10-02.md`; runtime integrations remain unimplemented.
