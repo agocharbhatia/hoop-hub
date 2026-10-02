@@ -1,0 +1,294 @@
+{
+  "capturedDate": "2026-10-02",
+  "pricingAssumptionsUsdPerMillion": {
+    "uncachedInput": 0.1,
+    "cacheRead": 0.01,
+    "cacheWrite": 0.125,
+    "output": 0.5
+  },
+  "pricingCaveat": "Assumptions carried from the earlier authorized pricing probe, not a current billing receipt. All paired timings use cached NBA data and include provider prompt-cache effects. One sample per question per version.",
+  "pairedLatencyRuns": [
+    {
+      "version": "baseline",
+      "question": "Show Scottie Barnes' pull-up mid-range FG% against Boston in the 2024-25 regular season, plot the attempts, and play the available makes.",
+      "elapsedSeconds": 16.12006654200377,
+      "firstProgressSeconds": null,
+      "firstArtifactSeconds": null,
+      "modelUsage": {
+        "calls": 6,
+        "inputTokens": 52988,
+        "outputTokens": 875,
+        "totalTokens": 53863,
+        "cachedInputTokens": 49018,
+        "cacheWriteInputTokens": 3820
+      },
+      "estimatedUsd": 0.00142018,
+      "status": "ok",
+      "artifacts": [
+        "shot_chart",
+        "video_playlist"
+      ]
+    },
+    {
+      "version": "baseline",
+      "question": "Show Nikola Jokic's rebound trend over his last ten games in the 2024-25 regular season. Compare the earlier five with the latest five and include a chart.",
+      "elapsedSeconds": 11.331627457984723,
+      "firstProgressSeconds": null,
+      "firstArtifactSeconds": null,
+      "modelUsage": {
+        "calls": 5,
+        "inputTokens": 42604,
+        "outputTokens": 1139,
+        "totalTokens": 43743,
+        "cachedInputTokens": 40099,
+        "cacheWriteInputTokens": 2082
+      },
+      "estimatedUsd": 0.00127304,
+      "status": "ok",
+      "artifacts": [
+        "table",
+        "line_chart"
+      ]
+    },
+    {
+      "version": "after",
+      "question": "Show Scottie Barnes' pull-up mid-range FG% against Boston in the 2024-25 regular season, plot the attempts, and play the available makes.",
+      "elapsedSeconds": 16.553317791986046,
+      "firstProgressSeconds": 0.10313429200323299,
+      "firstArtifactSeconds": 1.8330436249962077,
+      "modelUsage": {
+        "calls": 8,
+        "inputTokens": 93940,
+        "outputTokens": 1499,
+        "totalTokens": 95439,
+        "cachedInputTokens": 64113,
+        "cacheWriteInputTokens": 29249
+      },
+      "estimatedUsd": 0.00510456,
+      "status": "ok",
+      "artifacts": [
+        "table",
+        "shot_chart",
+        "video_playlist"
+      ]
+    },
+    {
+      "version": "after",
+      "question": "Show Nikola Jokic's rebound trend over his last ten games in the 2024-25 regular season. Compare the earlier five with the latest five and include a chart.",
+      "elapsedSeconds": 8.567576041998109,
+      "firstProgressSeconds": 0.0038722500030416995,
+      "firstArtifactSeconds": 3.012521750002634,
+      "modelUsage": {
+        "calls": 4,
+        "inputTokens": 34617,
+        "outputTokens": 524,
+        "totalTokens": 35141,
+        "cachedInputTokens": 17000,
+        "cacheWriteInputTokens": 17417
+      },
+      "estimatedUsd": 0.00262912,
+      "status": "ok",
+      "artifacts": [
+        "line_chart"
+      ]
+    },
+    {
+      "version": "after-final",
+      "question": "Show Scottie Barnes' pull-up mid-range FG% against Boston in the 2024-25 regular season, plot the attempts, and play the available makes.",
+      "elapsedSeconds": 14.9265825,
+      "firstProgressSeconds": 0.093237417,
+      "firstArtifactSeconds": 2.2694716670000004,
+      "modelUsage": {
+        "calls": 6,
+        "inputTokens": 54344,
+        "outputTokens": 1081,
+        "totalTokens": 55425,
+        "cachedInputTokens": 52005,
+        "cacheWriteInputTokens": 1828
+      },
+      "estimatedUsd": 0.00134015,
+      "status": "ok",
+      "artifacts": [
+        "shot_chart",
+        "video_playlist"
+      ]
+    },
+    {
+      "version": "after-final",
+      "question": "Show Nikola Jokic's rebound trend over his last ten games in the 2024-25 regular season. Compare the earlier five with the latest five and include a chart.",
+      "elapsedSeconds": 6.680367291999999,
+      "firstProgressSeconds": 0.003667166999999608,
+      "firstArtifactSeconds": 1.7341635840000018,
+      "modelUsage": {
+        "calls": 3,
+        "inputTokens": 25752,
+        "outputTokens": 549,
+        "totalTokens": 26301,
+        "cachedInputTokens": 24222,
+        "cacheWriteInputTokens": 1227
+      },
+      "estimatedUsd": 0.0007004,
+      "status": "ok",
+      "artifacts": [
+        "line_chart"
+      ]
+    },
+    {
+      "version": "after-complete",
+      "question": "Show Scottie Barnes' pull-up mid-range FG% against Boston in the 2024-25 regular season, plot the attempts, and play the available makes.",
+      "elapsedSeconds": 6.479346541,
+      "firstProgressSeconds": 0.08389324999999999,
+      "firstArtifactSeconds": 4.0519176660000005,
+      "modelUsage": {
+        "calls": 3,
+        "inputTokens": 25633,
+        "outputTokens": 563,
+        "totalTokens": 26196,
+        "cachedInputTokens": 24209,
+        "cacheWriteInputTokens": 1360
+      },
+      "estimatedUsd": 0.00069999,
+      "status": "ok",
+      "artifacts": [
+        "shot_chart",
+        "video_playlist"
+      ]
+    },
+    {
+      "version": "after-complete",
+      "question": "Show Nikola Jokic's rebound trend over his last ten games in the 2024-25 regular season. Compare the earlier five with the latest five and include a chart.",
+      "elapsedSeconds": 3.8242925000000003,
+      "firstProgressSeconds": 0.0033761249999997743,
+      "firstArtifactSeconds": 1.3312180419999995,
+      "modelUsage": {
+        "calls": 2,
+        "inputTokens": 16518,
+        "outputTokens": 271,
+        "totalTokens": 16789,
+        "cachedInputTokens": 15818,
+        "cacheWriteInputTokens": 639
+      },
+      "estimatedUsd": 0.00037965,
+      "status": "ok",
+      "artifacts": [
+        "line_chart"
+      ]
+    }
+  ],
+  "pairedRunsEstimatedUsd": 0.01354709,
+  "expandedTrend": {
+    "question": "Compare Nikola Jokic's rebound trend with Victor Wembanyama's block trend over their last ten games in the 2024-25 regular season. Show charts and compare the earlier five with the latest five for each player.",
+    "elapsedSeconds": 9.472165916,
+    "firstProgressSeconds": 0.082162916,
+    "firstArtifactSeconds": 2.4929930409999996,
+    "answer": "Nikola Jokic \u00b7 2024-25: Rebounds trended up across 10 games: 10.8 in the earlier 5 games versus 12.4 in the recent 5 games (latest 10 games).\n\nVictor Wembanyama \u00b7 2024-25: Blocks trended down across 10 games: 3.4 in the earlier 5 games versus 3 in the recent 5 games (latest 10 games).",
+    "warnings": [],
+    "modelUsage": {
+      "calls": 3,
+      "inputTokens": 27998,
+      "outputTokens": 1041,
+      "totalTokens": 29039,
+      "cachedInputTokens": 15903,
+      "cacheWriteInputTokens": 11497
+    },
+    "artifacts": [
+      "line_chart",
+      "line_chart",
+      "table"
+    ]
+  },
+  "implicitSeason": {
+    "question": "Show all Kawhi Leonard pull-up three-point makes this season.",
+    "effectiveScope": {
+      "seasons": [
+        "2025-26"
+      ],
+      "playerIds": [
+        "202695"
+      ],
+      "teamIds": [],
+      "opponentTeamIds": [],
+      "shotResult": "made",
+      "players": [
+        {
+          "id": "202695",
+          "name": "Kawhi Leonard"
+        }
+      ],
+      "teams": [],
+      "opponents": [],
+      "shotFilters": [
+        "Pull-up",
+        "3-pointers"
+      ],
+      "seasonTypes": [
+        "Regular Season"
+      ]
+    },
+    "answer": "Kawhi Leonard\u2019s pull-up three-point makes in the 2025\u201326 regular season: 64 makes on 173 attempts (36.99%). The playlist shows 40 available clips; the full matching shot population is 64 makes.",
+    "modelUsage": {
+      "calls": 2,
+      "inputTokens": 35874,
+      "outputTokens": 215,
+      "totalTokens": 36089,
+      "cachedInputTokens": 0,
+      "cacheWriteInputTokens": 35813
+    }
+  },
+  "export": {
+    "sessionId": "ea1af52d-f469-4827-896b-9e38862ef8f1",
+    "turnId": "57b85f06-b657-4fd5-a7cb-87c6d8ab339b",
+    "job": {
+      "id": "d4475d5d-44d9-4479-a6a4-83564e234abf",
+      "status": "completed",
+      "completedClips": 2,
+      "totalClips": 2,
+      "createdAt": "2026-10-02T20:07:51.820Z",
+      "updatedAt": "2026-10-02T20:08:03.021Z",
+      "expiresAt": "2026-10-03T20:08:03.021Z",
+      "downloadUrl": "/api/clip-exports/d4475d5d-44d9-4479-a6a4-83564e234abf/download"
+    },
+    "download": {
+      "filename": "hoop-hub-highlights-d4475d5d-44d9-4479-a6a4-83564e234abf.mp4",
+      "size": 810497
+    },
+    "media": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 854,
+          "height": 480
+        },
+        {
+          "codec_name": "aac",
+          "codec_type": "audio"
+        }
+      ],
+      "format": {
+        "duration": "30.022982",
+        "size": "810497"
+      }
+    },
+    "selectedEvents": [
+      [
+        "0022400449",
+        "13"
+      ],
+      [
+        "0022400449",
+        "20"
+      ]
+    ],
+    "openAiCalls": 0
+  },
+  "exportRangeAfterRestart": {
+    "id": "98823454-255b-4dfc-9dfc-6a75c2e64058",
+    "status": 206,
+    "contentType": "video/mp4",
+    "contentRange": "bytes 0-99/405969",
+    "bytes": 100
+  }
+}

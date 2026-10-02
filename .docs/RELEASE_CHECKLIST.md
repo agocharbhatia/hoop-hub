@@ -53,6 +53,10 @@ Live checks remain separate from deterministic PR CI because OpenAI and NBA avai
 - Confirm video URLs load, next/previous works, `Play all` advances after user activation, and unavailable clips fail clearly.
 - Confirm empty and partial results are honest and do not broaden the request.
 - Confirm mobile and desktop layouts remain usable.
+- Confirm current activity and verified artifacts appear while narration loads; cancellation and stream failure preserve clearly labeled partial evidence.
+- Reopen saved research after a server restart and exercise a generated follow-up without losing its filters.
+- Compile a saved real NBA playlist, verify the MP4 with ffprobe, and inspect omitted-media and expired-download behavior.
+- Check implicit season defaults immediately before and after the published opening tip, and preserve explicitly requested future seasons.
 
 ## Release decision
 

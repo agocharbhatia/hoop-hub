@@ -30,9 +30,9 @@ The old planner, query orchestrator, answer renderer, and mock engine remain com
 
 - The eval corpus covers 24 deterministic prompt variants across core regression families plus seven custom-shot cases, but it is not yet broad enough to characterize arbitrary-query reliability.
 - Scheduled nightly materialization and live dynamic-agent canaries exist, but production alert routing, freshness SLO dashboards, and broad historical backfill do not.
-- Natural-language sessions are stateless. The product does not currently promise follow-up memory.
+- Research sessions and rendered history persist in bounded SQLite storage; general follow-up interpretation still needs broader real-model evaluation.
 - Named-player matchup stats use NBA Advanced Stats Player Tracking attribution with explicit evidence and sample-size context. Named-defender clip attribution remains unavailable because the aggregate matchup feed has no event IDs.
-- Playlists are sequential browser playback, not compiled single-file exports.
+- Playlists support sequential playback and bounded single-file MP4 compilation. Distributed export coordination remains future work.
 - The production deployment, authentication, quota, observability, backup, and server-grade data-store story is not complete.
 
 ## Ordered Roadmap
@@ -116,7 +116,7 @@ Exit criteria: follow-ups are reproducible and do not rely on opaque transcript 
 - Add sortable/downloadable tables, chart interaction, drill-down, filter chips, saved searches, and shareable result URLs.
 - Allow chart/table selections to become clip searches.
 - Improve playlist buffering, retry, autoplay feedback, and unavailable-media states.
-- Add CSV/image export before optional ffmpeg playlist compilation.
+- Expand CSV/image export. Bounded ffmpeg playlist compilation is implemented for saved canonical clips.
 
 Exit criteria: users can inspect, refine, save, share, and export grounded research flows.
 

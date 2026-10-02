@@ -35,9 +35,12 @@ This file is the short source of truth for future agents. Use it before relying 
 
 - Traces should expose canonicalized execution state through `resolvedQuery`, not raw caller input when normalization/resolution changed it.
 - The production natural-language route accepts an optional UUID `sessionId` and returns the active session plus effective scope. It retains bounded, validated tool requests for follow-ups, with deterministic makes/misses, quarter, and season-comparison refinements.
-- Sessions are process-local, expire after one hour, and reset on server restart. The UI starts fresh research explicitly and handles expired sessions; durable persistence remains a gap.
+- The default session store persists validated grounding and rendered research in SQLite across restarts. Default retention is 90 days, with bounds of 100 sessions, 50 turns/session, 1 MiB/turn and 256 MiB total; `HOOP_HUB_RESEARCH_RETENTION_DAYS` controls retention. `/api/research` supports paginated reopening, renaming and deletion. The in-memory store remains an injectable test factory.
 - Results expose player, opponent, shot definition and season/quarter labels from validated requests. Failed unrelated questions retain prior context internally without presenting that old scope as the new answer.
-- Trend averages/direction use server computation. Multiple distinct trend populations in a general question return an honest limitation; supported season comparisons separate metric panels.
+- Trend averages/direction use server computation. Multiple verified player/metric/season/window populations stay separate; unlike metrics use separate charts and a canonical comparison table. Failed attempted scopes produce partial-coverage warnings.
+- `Accept: text/event-stream` on `/api/query` provides current activity, elapsed time and verified artifacts before the final answer. Independent tools run in bounded parallel batches, successful endpoint requests share per-answer retrievals, and cancellation reaches model requests/NBA subprocesses. Common fully scoped single-player computations can skip an extra planning round.
+- Server-generated follow-up suggestions derive from verified current scope and use supported deterministic refinements. Desktop results use a two-column artifact grid; mobile results stack.
+- Implicit season defaults use published opening-tip evidence in `season-intent.ts`; explicit future seasons remain explicit. Refresh that evidence annually instead of guessing an opening date.
 
 ## Legacy Boundary
 
@@ -50,8 +53,8 @@ This file is the short source of truth for future agents. Use it before relying 
 - historical backfill, anomaly policy, shot/event indexes, and production alert routing
 - broader dynamic-agent endpoint coverage, eval corpus growth, and model prompt hardening
 - starter/bench, playoffs, clutch, opponent, lineup, and on/off typed execution
-- persisted session grounding
-- single-file clip compilation/export (ffmpeg); the shipped playlist player auto-advances through clips instead
+- event-level primary-defender and tactical coverage labels; aggregate matchup feeds cannot establish guarding on a shot
+- distributed export workers and production authentication/quotas/backups
 
 Clip retrieval now has direct-event and exact custom-shot paths. Standard event intents still map straight to `videodetailsasset` context measures (`made_three` -> `FG3M`, `made_field_goal` -> `FGM`, plus direct assist/block/steal/rebound/turnover measures). `custom_shot` fetches the full `shotchartdetail` log, applies canonical result/value/zone/zone-area/action-family/period/distance filters, then makes at most one broad video request and joins only on `(GAME_ID, GAME_EVENT_ID)`. The 40-clip cap is applied after joining, and tool data exposes matching/joined/missing counts, invalid keys, cap state, returned event ids, and applied filters. `src/lib/server/agent/custom-shot-clips.ts` owns the deterministic filter/join logic; `video-clips.ts` can parse an uncapped feed for this path.
 
@@ -62,6 +65,8 @@ Named-player matchup statistics are now supported through the official `leaguese
 Defender leaderboards use `rank_defender_matchups`. The server fetches every tracked offensive matchup for one defender, applies minimum games/FGA/3PA/partial-possession thresholds, ranks deterministically, caps only after filtering/sorting, and reconciles a grounded ranking table. Supported ranking fields are `fgPct`, `fg3Pct`, `partialPossessions`, `points`, `fga`, `fg3a`, `assists`, and `turnovers`. “Defended best” defaults to lowest FG% with at least 10 FGA and 25 partial possessions; three-point defense defaults to at least 5 3PA; unbounded asks default to five results.
 
 Clip opponent filtering remains team-level because the season matchup feed has no event IDs. The existing video guard still rejects a resolved defender-to-team substitution unless the user first approves that broader scope. Browser autoplay policies may require the native play control after `Play all`; this is distinct from missing video. `bun run eval:custom-shots` runs the deterministic custom-video contract suite; live model/data/playback checks remain separate release gates.
+
+Saved playlists can now compile into one downloadable MP4 through `/api/clip-exports`. The server resolves saved canonical game/event identities, validates NBA media provenance, normalizes streams with ffmpeg/ffprobe, and lists omissions. One worker and bounded queue/media bytes/time prevent unbounded work. Completed files survive restarts and expire after 24 hours; interrupted jobs fail with explicit retry. Tactical labels such as switches and pick-and-roll coverage are rejected before clip retrieval when no event annotation supports them.
 
 Derived/computed metrics now run through the agent's `aggregate_endpoint_rows` tool (server-side filter/group/aggregate over full result sets), and line/bar/shot-chart artifacts render as real chart components (`src/lib/components/charts/`, QA page at `/dev/charts`). The player directory re-seeds stored DBs whenever the checked-in snapshot version changes.
 
