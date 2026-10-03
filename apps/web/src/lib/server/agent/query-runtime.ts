@@ -1,6 +1,7 @@
 import type { StatsEndpointFetcher } from '$lib/server/data/adapters/stats-endpoint-client';
 import { normalizeEndpointParams } from '$lib/server/data/adapters/stats-endpoint-client';
 import { stableStringify } from '$lib/server/data/store';
+import type { DataProviderFetcher } from '$lib/server/data/providers/client';
 
 /** Stops orchestration promptly even when an injected dependency does not understand cancellation. */
 export async function awaitWithSignal<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -35,6 +36,22 @@ export function createRunEndpointFetcher(
 }
 
 /* Helper functions */
+
+/** Reuse one source population across related provider computations without sharing cancellation across users. */
+export function createRunProviderFetcher(fetcher: DataProviderFetcher, signal: AbortSignal, onFetch: (datasetId: string) => void): DataProviderFetcher {
+	const pending = new Map<string, ReturnType<DataProviderFetcher>>();
+	return (request) => {
+		signal.throwIfAborted();
+		const key = stableStringify({ providerId: request.providerId, datasetId: request.datasetId, params: request.params });
+		const existing = pending.get(key);
+		if (existing) return existing;
+		onFetch(request.datasetId);
+		const result = awaitWithSignal(fetcher({ ...request, signal }), signal);
+		pending.set(key, result);
+		result.then((source) => { if (source.payload === null) pending.delete(key); }, () => pending.delete(key));
+		return result;
+	};
+}
 
 export function describeEndpointActivity(endpointId: string): string {
 	const labels: Record<string, string> = {

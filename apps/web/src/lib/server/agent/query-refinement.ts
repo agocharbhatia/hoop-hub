@@ -105,6 +105,11 @@ export function summarizeResearchScope(entries: GroundedResearchRequest[], resol
 				shotResult = entry.request.customShot?.result ?? (
 					entry.request.eventType === 'made_field_goal' || entry.request.eventType === 'made_three' ? 'made' : shotResult
 				);
+			} else if (entry.toolName === 'analyze_possession_stats') {
+				teamIds.add(entry.request.teamId);
+				entry.request.playerIds.forEach((id) => playerIds.add(id));
+				dateFrom = entry.request.dateFrom ?? dateFrom;
+				dateTo = entry.request.dateTo ?? dateTo;
 			} else {
 				playerIds.add(entry.request.defensivePlayerId);
 				if (entry.toolName === 'analyze_player_matchup') playerIds.add(entry.request.offensivePlayerId);
@@ -190,6 +195,7 @@ function withSeason(entry: GroundedResearchRequest, season: string): GroundedRes
 		next.request.params.Season = season;
 	} else {
 		if (next.toolName === 'find_video_clips' && (next.request.dateFrom || next.request.dateTo || next.request.gameId)) return null;
+		if (next.toolName === 'analyze_possession_stats' && (next.request.dateFrom || next.request.dateTo)) return null;
 		next.request.season = season;
 	}
 	return next;

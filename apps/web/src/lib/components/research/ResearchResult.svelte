@@ -66,6 +66,9 @@
 			{#if artifact.text.trim() !== result.answer.trim()}<p class="artifact-wide whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{artifact.text}</p>{/if}
 		{:else}
 			<section class="artifact-card {visualCount === 1 || (artifact.type === 'table' && (artifact.columns.length > 5 || (hasShotAndVideo && artifact.rows.length <= 3))) ? 'artifact-wide' : ''} min-w-0 rounded-xl border border-border bg-card/50 p-3 sm:p-5" aria-label={`Research artifact ${index + 1}`}>
+				{#if 'source' in artifact && artifact.source?.providerId === 'pbpstats'}
+					<p class="mb-3 text-[11px] text-muted-foreground">PBP Stats · {artifact.source.resultSetName.replaceAll('_', ' ')}{artifact.source.sampled ? ' · limited source population' : ''}</p>
+				{/if}
 				{#if artifact.type === 'table'}
 					<ArtifactTable {artifact} canSelectRow={(row) => rowEvent(row) !== null} onselectrow={artifact.rows.some((row) => rowEvent(row)) ? (row) => {
 						const event = rowEvent(row);

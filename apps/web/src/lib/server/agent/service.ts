@@ -60,6 +60,10 @@ import type {
 	DynamicQueryAgentDependencies
 } from './types';
 import { DynamicAgentError } from './types';
+import { createDataProviderFetcher } from '$lib/server/data/providers/client';
+import { listDataProviders } from '$lib/server/data/providers/catalog';
+import { createRunProviderFetcher } from './query-runtime';
+import { analyzePossessionStats, buildPossessionAnswer, buildPossessionArtifacts, findPossessionScopeConflict, possessionAnalyticsTool, validatePossessionAnalyticsRequest, verifiedPossessionData, type PossessionAnalyticsRequest } from './possession-analytics';
 import { resolveLatestStartedNbaSeason } from '$lib/server/season-intent';
 import { querySessionStore } from './query-session-store';
 import { awaitWithSignal, createRunEndpointFetcher, describeEndpointActivity } from './query-runtime';
@@ -92,6 +96,7 @@ const TOOL_NAMES: QueryAnswerAgentToolName[] = [
 	'execute_semantic_query',
 	'analyze_player_matchup',
 	'rank_defender_matchups',
+	'analyze_possession_stats',
 	'call_nba_stats_endpoint',
 	'aggregate_endpoint_rows',
 	'analyze_time_series',
@@ -245,6 +250,7 @@ type EndpointToolData = {
 };
 
 type ParsedToolRequest =
+	| { ok: true; toolName: 'analyze_possession_stats'; request: PossessionAnalyticsRequest }
 	| { ok: true; toolName: 'resolve_players' | 'resolve_teams'; request: { names: string[] } }
 	| {
 			ok: true;
@@ -295,6 +301,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 	const clock = dependencies.clock ?? { nowMs: () => performance.now() };
 	const semanticExecutor = dependencies.semanticExecutor ?? ((request) => executeSemanticQuery(request, dependencies.now?.() ?? new Date()));
 	const sessions = dependencies.sessionStore ?? querySessionStore;
+	const providerFetcher = dependencies.providerFetcher ?? createDataProviderFetcher({ nbaFetcher: dependencies.endpointFetcher });
 
 	return {
 		async answerQuestion(question: string, options = {}): Promise<QueryAnswerResponse> {
@@ -309,7 +316,8 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				stage, message, completedTools: executionContext.toolResults.length, elapsedMs: Math.max(0, Math.round(clock.nowMs() - startedAt))
 			});
 			const runDependencies = { ...dependencies, endpointFetcher: createRunEndpointFetcher(dependencies.endpointFetcher, signal,
-				(endpointId) => emitProgress('fetching', describeEndpointActivity(endpointId))) };
+				(endpointId) => emitProgress('fetching', describeEndpointActivity(endpointId))),
+				providerFetcher: createRunProviderFetcher(providerFetcher, signal, (datasetId) => emitProgress('fetching', `Loading PBP Stats ${datasetId.replaceAll('_', ' ')} data`)) };
 			const traceId = crypto.randomUUID();
 			const messages: DynamicAgentChatMessage[] = [
 				...buildSystemMessages(referenceDate),
@@ -488,8 +496,12 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				),
 				executionContext.toolResults
 			);
+			const hasPossessionResearch = verifiedPossessionData(executionContext.toolResults).length > 0;
+			const onlyPossessionResearch = hasPossessionResearch && executionContext.researchRequests.every((entry) => entry.toolName === 'analyze_possession_stats');
+			const canonicalPossessionArtifacts = buildPossessionArtifacts(executionContext.toolResults);
+			const canonicalBaseArtifacts = onlyPossessionResearch ? canonicalPossessionArtifacts : hasPossessionResearch ? buildProgressiveArtifacts(executionContext.toolResults) : baseArtifacts;
 			const groundedArtifacts = groundingUnavailable ? [] : splitScope && verifiedSplit
-				? buildVerifiedWinLossArtifacts(splitScope, verifiedSplit) : reconcileOrderedRankings(baseArtifacts, executionContext.toolResults);
+				? buildVerifiedWinLossArtifacts(splitScope, verifiedSplit) : reconcileOrderedRankings(canonicalBaseArtifacts, executionContext.toolResults);
 			const modelWarnings = finalOutput.warnings.map((warning) => ({
 				code: `dynamic_agent_${warning.kind}`,
 				message: warning.message
@@ -498,7 +510,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			const status = groundingUnavailable ? 'coverage_gap' : selectStatus(executionContext, traceWarnings);
 			const publicWarnings = splitMissing ? [{ code: 'win_loss_split_not_computed', message: 'The requested win/loss averages could not be verified from complete game logs.' }]
 				: trendMissing ? [{ code: 'trend_not_computed', message: 'A verified trend comparison could not be calculated for this scope.' }] : selectPublicWarnings(status, verifiedSplit ? modelWarnings.filter((warning) => !['dynamic_agent_capability_limit', 'dynamic_agent_partial_data'].includes(warning.code)) : modelWarnings, executionContext.toolResults);
-			const groundedAnswer = splitMissing ? 'I could not verify these win/loss averages from complete game logs for the requested scope.'
+			const groundedAnswer = onlyPossessionResearch ? buildPossessionAnswer(executionContext.toolResults) : splitMissing ? 'I could not verify these win/loss averages from complete game logs for the requested scope.'
 				: splitScope && verifiedSplit ? buildVerifiedWinLossAnswer(splitScope, verifiedSplit)
 				: trendMissing ? 'I could not verify the trend for this scope.' : trendRequested || trendPopulations.length > 0
 				? buildVerifiedTrendAnswer(executionContext.toolResults, executionContext.resolvedPlayers)
@@ -512,10 +524,10 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			if (!trendMissing && unverifiedTrendScopes > 0) publicWarnings.push({ code: 'trend_population_unavailable', message: `${unverifiedTrendScopes} requested trend population(s) could not be verified; only available populations are shown.` });
 			const totalLatencyMs = Math.round(clock.nowMs() - startedAt);
 			const cache = summarizeCache(executionContext.sourceCalls);
-			const citations =
-				executionContext.successfulEndpointCalls > 0
-					? [{ source: 'stats.nba.com', detail: 'NBA Stats endpoint results fetched by the dynamic agent.' }]
-					: [];
+			const citations = [
+				...(executionContext.sourceCalls.some((call) => !call.endpointId.startsWith('pbpstats:') && call.sourceStatus === 'ok') ? [{ source: 'stats.nba.com', detail: 'NBA Stats endpoint results fetched by the dynamic agent.' }] : []),
+				...(hasPossessionResearch ? [{ source: 'pbpstats.com', detail: 'PBP Stats possession-derived analytics. On/off evidence is descriptive, not causal or primary-defender attribution.' }] : [])
+			];
 			// Unavailable/failed turns must not replace the last successful research scope.
 			const recoveredSemanticGapCount = hasRecoveredSemanticCoverage(executionContext.toolResults)
 				? executionContext.semanticStatuses.filter((status) => status === 'coverage_gap').length : 0;
@@ -524,8 +536,10 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				result.response.data.videoAvailability === 'source_unavailable' && Array.isArray(result.response.data.researchRows) &&
 				isPlainObject(result.response.data.shootingSummary) && typeof result.response.data.shootingSummary.attempts === 'number'
 			).length;
+			const recoveredProviderGapCount = executionContext.toolResults.filter((result) => result.toolName === 'analyze_possession_stats' && !result.response.ok &&
+				executionContext.toolResults.some((success) => success.toolName === result.toolName && success.response.ok && serializeClipRequest(success.request) === serializeClipRequest(result.request))).length;
 			const nextContext = !groundingUnavailable && refinementCompleted && executionContext.researchRequests.length > 0 &&
-				executionContext.failedEndpointCalls <= recoveredSemanticGapCount + groundedVideoGapCount ? {
+				executionContext.failedEndpointCalls <= recoveredSemanticGapCount + groundedVideoGapCount + recoveredProviderGapCount ? {
 				questions: [...session.context?.questions ?? [], question],
 				requests: executionContext.researchRequests,
 				players: executionContext.resolvedPlayers,
@@ -592,6 +606,7 @@ export function createDefaultTeamDirectoryAdapter(): DynamicAgentTeamDirectory {
 /* Helper functions */
 
 function describeToolActivity(name: string): Pick<QueryProgress, 'stage' | 'message'> {
+	if (name === 'analyze_possession_stats') return { stage: 'fetching', message: 'Loading possession and lineup analytics from PBP Stats' };
 	if (name === 'resolve_players' || name === 'resolve_teams') return { stage: 'resolving', message: 'Resolving player and team identities' };
 	if (name === 'aggregate_endpoint_rows' || name === 'analyze_time_series') return { stage: 'computing', message: 'Calculating the requested statistics' };
 	return { stage: 'fetching', message: name === 'find_video_clips' ? 'Finding matching shots and videos' : 'Checking NBA source data' };
@@ -643,6 +658,7 @@ function buildProgressiveArtifacts(toolResults: QueryAnswerAgentToolResult[]): Q
 	return [...results.values()].flatMap((result): QueryAnswerArtifact[] => {
 		const data = result.response.data;
 		if (!isPlainObject(data)) return [];
+		if (result.toolName === 'analyze_possession_stats') return buildPossessionArtifacts([result]);
 		const seeds: QueryAnswerArtifact[] = [];
 		if (result.toolName === 'execute_semantic_query') {
 			const semanticData = result.response.data;
@@ -675,6 +691,7 @@ function recordModelUsage(
 
 function buildSystemMessages(now: Date): DynamicAgentChatMessage[] {
 	return [
+		{ role: 'system', content: `Available data providers: ${JSON.stringify(listDataProviders())}. Use analyze_possession_stats for PBP Stats on/off, four-factor, player-combination, lineup-ranking and possession-start questions. Resolve canonical NBA team/player IDs. Preserve explicit team, season and season type; do not assume a player's current team for a historical question. For best lineups use netRating desc, for defense use defensiveRating asc. Default lineup qualification is at least 100 offensive AND defensive possessions, with limit 10; honor user thresholds/counts. Only combinations support sameGamesOnly or up to three on/off players; only lineups support date ranges or included player IDs. Possession-start categories overlap and have no sample counts. This tool does not support opponent, quarter, clutch, home/away or last-N filters; never drop those constraints. Do not infer named defenders or tactical labels from lineups. The server supplies provider tables and bar charts; omit model-written copies and describe on/off differences as descriptive rather than causal.` },
 		{ role: 'system', content: 'When all necessary tool results are available, return the final JSON object directly with answer (string), artifacts (array), and warnings (array of {kind,message}, using partial_data/capability_limit/artifact_sample/scope_assumption/diagnostic). Do not add a separate narration or announce a future answer. Tables use rows as arrays aligned with columns. For verified analyze_time_series line charts, filtered shot charts, video playlists, typed semantic tables and ordered rankings, emit the artifact structure with empty data arrays: the server fills their exact canonical points/shots/clips/rows. Do not spend output tokens copying these source populations. Include short computed-summary tables when needed.' },
 		{
 			role: 'system',
@@ -751,6 +768,7 @@ function buildEndpointCatalogForPrompt() {
 
 function buildToolDefinitions(): DynamicAgentToolDefinition[] {
 	return [
+		possessionAnalyticsTool,
 		{
 			type: 'function',
 			function: {
@@ -1287,6 +1305,10 @@ async function executeToolCall(
 	// Server-held canonical scope can contain resolved seasons beyond the model-facing capability aliases.
 	let parsed: ParsedToolRequest = trustedReplay ? { ok: true, ...structuredClone(trustedReplay) } : parseToolRequest(toolCall);
 	if (parsed.ok) parsed = applyRequestedSeason(parsed, context, dependencies.now?.() ?? new Date());
+	if (parsed.ok && parsed.toolName === 'analyze_possession_stats' && !trustedReplay) {
+		const conflict = findPossessionScopeConflict(context.question, parsed.request);
+		if (conflict) parsed = { ok: false, toolName: parsed.toolName, request: parsed.request, error: conflict };
+	}
 	let request = parsed.request;
 	let ok = false;
 	let error: string | undefined;
@@ -1297,7 +1319,17 @@ async function executeToolCall(
 	} else {
 		request = parsed.request;
 		try {
-			if (parsed.toolName === 'execute_semantic_query') {
+			if (parsed.toolName === 'analyze_possession_stats') {
+				const analytics = await analyzePossessionStats(parsed.request, dependencies.providerFetcher!, dependencies.now?.() ?? new Date());
+				for (const source of analytics.sources) {
+					context.sourceCalls.push({ endpointId: source.endpointId, cacheStatus: source.cacheStatus, sourceStatus: source.sourceStatus, latencyMs: source.latencyMs, stale: source.stale, isProvisional: source.isProvisional, parserVersion: source.parserVersion });
+					context.retrievalLatencyMs += source.latencyMs;
+				}
+				if (analytics.ok) context.successfulEndpointCalls += 1; else context.failedEndpointCalls += 1;
+				data = analytics.data;
+				ok = analytics.ok;
+				error = analytics.error;
+			} else if (parsed.toolName === 'execute_semantic_query') {
 				const semanticData = await executeSemanticQueryTool(parsed.request, semanticExecutor, context);
 				data = semanticData.data;
 				ok = true;
@@ -1423,6 +1455,10 @@ function parseToolRequest(toolCall: DynamicAgentToolCall): ParsedToolRequest {
 		}
 		return { ok: true, toolName, request: validation.value };
 	}
+	if (toolName === 'analyze_possession_stats') {
+		const validation = validatePossessionAnalyticsRequest(rawArguments);
+		return validation.ok ? { ok: true, toolName, request: validation.request } : { ok: false, toolName, request: rawArguments, error: validation.error };
+	}
 
 	if (toolName === 'analyze_player_matchup') {
 		const matchupRequest = parsePlayerMatchupRequest(rawArguments);
@@ -1546,6 +1582,7 @@ function captureGroundedResearchRequest(parsed: Extract<ParsedToolRequest, { ok:
 	if (parsed.toolName === 'find_video_clips') return { toolName: parsed.toolName, request: structuredClone(parsed.request) };
 	if (parsed.toolName === 'analyze_player_matchup') return { toolName: parsed.toolName, request: structuredClone(parsed.request) };
 	if (parsed.toolName === 'rank_defender_matchups') return { toolName: parsed.toolName, request: structuredClone(parsed.request) };
+	if (parsed.toolName === 'analyze_possession_stats') return { toolName: parsed.toolName, request: structuredClone(parsed.request) };
 	return null;
 }
 
@@ -1572,7 +1609,7 @@ function applyRequestedSeason(
 			parsed.request.params.Season = season;
 		}
 	} else {
-		if (parsed.toolName === 'find_video_clips' || parsed.toolName === 'analyze_player_matchup' || parsed.toolName === 'rank_defender_matchups') season = parsed.request.season;
+		if (parsed.toolName === 'find_video_clips' || parsed.toolName === 'analyze_player_matchup' || parsed.toolName === 'rank_defender_matchups' || parsed.toolName === 'analyze_possession_stats') season = parsed.request.season;
 	}
 	if (!season || context.allowMultipleSeasons) return parsed;
 	if (context.requestedSeason && context.requestedSeason !== season) {
@@ -4024,6 +4061,7 @@ function selectPublicWarnings(
 	modelWarnings: StatsQueryWarning[],
 	toolResults: QueryAnswerAgentToolResult[]
 ): StatsQueryWarning[] {
+	const providerWarnings = verifiedPossessionData(toolResults).flatMap((data) => data.warnings);
 	const visibleCodes = new Set(['dynamic_agent_partial_data', 'dynamic_agent_capability_limit']);
 	let visible = modelWarnings.filter((warning) => visibleCodes.has(warning.code) && !containsInternalDiagnostic(warning.message));
 	const blockedDefenderClip = toolResults.find((result) => result.toolName === 'find_video_clips' &&
@@ -4049,13 +4087,13 @@ function selectPublicWarnings(
 	}
 
 	if (visible.length > 0 || status !== 'coverage_gap') {
-		return mergeWarnings(visible);
+		return mergeWarnings(visible, providerWarnings);
 	}
 
 	return [
 		{
 			code: 'data_unavailable',
-			message: 'Some NBA data required for this answer is currently unavailable.'
+			message: toolResults.some((result) => result.toolName === 'analyze_possession_stats') ? 'Some possession or lineup data required for this answer is currently unavailable.' : 'Some NBA data required for this answer is currently unavailable.'
 		}
 	];
 }

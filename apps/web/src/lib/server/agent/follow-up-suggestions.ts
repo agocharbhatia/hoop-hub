@@ -11,6 +11,23 @@ export function buildFollowUpSuggestions(
 	const scope = response.effectiveScope;
 	const season = scope?.seasons.length === 1 ? scope.seasons[0] : null;
 	const shotRequest = context.requests.find((entry) => entry.toolName === 'find_video_clips' && entry.request.eventType === 'custom_shot');
+	const possessionRequest = context.requests.find((entry) => entry.toolName === 'analyze_possession_stats');
+	if (possessionRequest?.toolName === 'analyze_possession_stats' && season) {
+		const request = possessionRequest.request;
+		const team = scope.teams?.find((team) => team.id === request.teamId)?.name;
+		const player = scope.players?.find((player) => player.id === request.playerIds[0])?.name;
+		if (team && player && request.mode === 'on_off') suggestions.push({ label: 'Four-factor breakdown', question: `Compare ${team}'s offensive and defensive four factors with ${player} on and off the court in the ${season} ${request.seasonType}.` });
+		if (team && request.mode !== 'lineups') suggestions.push({ label: 'Best qualifying lineups', question: `Rank ${team}'s top five lineups by net rating in the ${season} ${request.seasonType}, with at least 100 offensive and defensive possessions.` });
+		if (team && request.mode === 'lineups') {
+			const names = request.playerIds.map((id) => scope.players?.find((player) => player.id === id)?.name);
+			// A suggestion must preserve every filter even when a display name could not be resolved.
+			if (names.every(Boolean)) {
+				const players = names.length ? ` including ${names.join(' and ')}` : '';
+				const dates = `${request.dateFrom ? ` from ${request.dateFrom}` : ''}${request.dateTo ? ` through ${request.dateTo}` : ''}`;
+				suggestions.push({ label: 'Best defensive lineups', question: `Rank ${team}'s top five lineups${players} by lowest defensive rating in the ${season} ${request.seasonType}${dates}, with at least ${request.minPossessions} offensive and defensive possessions and ${request.minMinutes} minutes.` });
+			}
+		}
+	}
 	if (shotRequest?.toolName === 'find_video_clips') {
 		const shot = shotRequest.request.customShot;
 		if (shot?.result !== 'missed') suggestions.push({ label: 'See the misses', question: 'Show only the misses.' });

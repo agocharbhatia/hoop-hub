@@ -6,6 +6,7 @@ import { buildFollowUpSuggestions } from './follow-up-suggestions';
 import { deriveResearchRefinement } from './query-refinement';
 import type { GroundedResearchContext } from './query-session-store';
 import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
+import { validatePossessionAnalyticsRequest } from './possession-analytics';
 
 test('pre-resolves only exact, uniquely verified full names and leaves ambiguous names for the model', () => {
 	const directory = {
@@ -15,6 +16,20 @@ test('pre-resolves only exact, uniquely verified full names and leaves ambiguous
 	assert.deepEqual(resolveExplicitQuestionPlayers("Show all Kawhi Leonard's pull-up three-point makes this season.", directory).map((player) => player.canonicalName), ['Kawhi Leonard']);
 	assert.deepEqual(resolveExplicitQuestionPlayers('Show Kawhi makes.', directory), []);
 	assert.deepEqual(resolveExplicitQuestionPlayers('Show Kawhi Leonard makes.', { ...directory, findByNameOrAlias: (name) => [...directory.findByNameOrAlias(name), ...directory.findByNameOrAlias(name)] }), []);
+});
+
+test('lineup follow-ups retain included players, date ranges and both sample floors', () => {
+	const parsed = validatePossessionAnalyticsRequest({ mode: 'lineups', teamId: '1610612761', playerIds: ['1630567'], season: '2025-26', seasonType: 'Regular Season', minPossessions: 200, minMinutes: 50, dateFrom: '2026-01-01', dateTo: '2026-04-01' });
+	if (!parsed.ok) throw new Error(parsed.error);
+	const context: GroundedResearchContext = {
+		questions: [], requests: [{ toolName: 'analyze_possession_stats', request: parsed.request }], players: [],
+		scope: { seasons: ['2025-26'], playerIds: ['1630567'], teamIds: ['1610612761'], opponentTeamIds: [], players: [{ id: '1630567', name: 'Scottie Barnes' }], teams: [{ id: '1610612761', name: 'Toronto Raptors' }] }
+	};
+	const response: QueryAnswerResponse = { status: 'ok', answer: '', artifacts: [], toolResults: [], warnings: [], citations: [], traceId: 'test', effectiveScope: context.scope };
+	const question = buildFollowUpSuggestions(response, context).find((suggestion) => suggestion.label === 'Best defensive lineups')?.question;
+	assert.ok(question);
+	for (const filter of ['Scottie Barnes', '2026-01-01', '2026-04-01', '200 offensive and defensive possessions', '50 minutes']) assert.ok(question.includes(filter));
+	assert.ok(!buildFollowUpSuggestions({ ...response, effectiveScope: { ...context.scope, players: [] } }, context).some((suggestion) => suggestion.label === 'Best defensive lineups'));
 });
 
 test('distinguishes supported recorded shot actions from unsupported possession schemes', () => {

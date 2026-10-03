@@ -3,7 +3,8 @@ import type { QueryEffectiveScope } from './query-context';
 import type { SemanticQueryRequest, StatsQueryResponse, StatsQueryRow, StatsQueryStatus, StatsQueryWarning } from './semantic-query';
 
 export type QueryArtifactSource = {
-	toolName: 'aggregate_endpoint_rows' | 'find_video_clips';
+	toolName: 'aggregate_endpoint_rows' | 'find_video_clips' | 'analyze_possession_stats';
+	providerId?: 'nba_stats' | 'pbpstats';
 	endpointId: string;
 	resultSetName: string;
 	request: Record<string, unknown>;
@@ -99,6 +100,7 @@ export type QueryAnswerAgentToolName =
 	| 'execute_semantic_query'
 	| 'analyze_player_matchup'
 	| 'rank_defender_matchups'
+	| 'analyze_possession_stats'
 	| 'call_nba_stats_endpoint'
 	| 'find_video_clips'
 	| 'aggregate_endpoint_rows'

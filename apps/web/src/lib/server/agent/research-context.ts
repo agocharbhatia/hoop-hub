@@ -1,6 +1,7 @@
 import type { SemanticQueryRequest } from '$lib/contracts/semantic-query';
 import type { CustomShotFilters } from './custom-shot-clips';
 import type { DefenderMatchupLeaderboardRequest, PlayerMatchupRequest } from './player-matchups';
+import type { PossessionAnalyticsRequest } from './possession-analytics';
 
 export type AggregateFilter = {
 	column: string;
@@ -55,6 +56,7 @@ export type GroundedResearchRequest =
 	| { toolName: 'analyze_time_series'; request: AnalyzeTimeSeriesRequest }
 	| { toolName: 'find_video_clips'; request: FindVideoClipsRequest }
 	| { toolName: 'analyze_player_matchup'; request: PlayerMatchupRequest }
+	| { toolName: 'analyze_possession_stats'; request: PossessionAnalyticsRequest }
 	| { toolName: 'rank_defender_matchups'; request: DefenderMatchupLeaderboardRequest };
 
 export type ResolvedResearchPlayer = { id: string; canonicalName: string; teamId: string | null };

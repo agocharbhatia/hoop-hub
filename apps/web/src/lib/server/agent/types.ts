@@ -5,6 +5,7 @@ import type { PlayerDirectoryEntryRecord } from '$lib/server/data/store';
 import type { TeamDirectoryEntryRecord } from '$lib/server/teams/team-directory';
 import type { QuerySessionStore } from './query-session-store';
 import type { QueryProgress } from '$lib/contracts/query-progress';
+import type { DataProviderFetcher } from '$lib/server/data/providers/client';
 
 export type DynamicAgentToolCall = {
 	id: string;
@@ -84,6 +85,7 @@ export type DynamicAgentClock = {
 export type DynamicQueryAgentDependencies = {
 	model: DynamicAgentAdapter;
 	endpointFetcher: StatsEndpointFetcher;
+	providerFetcher?: DataProviderFetcher;
 	playerDirectory: DynamicAgentPlayerDirectory;
 	teamDirectory: DynamicAgentTeamDirectory;
 	semanticExecutor?: (request: SemanticQueryRequest) => Promise<StatsQueryResponse>;
