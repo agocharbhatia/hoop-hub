@@ -39,7 +39,7 @@ const METRICS = ['netRating', 'offensiveRating', 'defensiveRating', 'minutes', '
 export const possessionAnalyticsTool: DynamicAgentToolDefinition = {
 	type: 'function', function: {
 		name: 'analyze_possession_stats',
-		description: 'PBP Stats NBA team on/off ratings, offensive/defensive four factors, all combinations of up to three players on/off, ranked five-player lineups, or offense by possession start. Resolve the team and players first. Descriptive lineup evidence, never primary-defender or tactical attribution. Ranking filters run on the server before limiting rows. No opponent, quarter, clutch, or last-N game filters.',
+		description: 'PBP Stats NBA team on/off ratings, offensive/defensive four factors, all combinations of up to three players on/off, ranked five-player lineups, or offense by possession start. One on_off call returns offensive, defensive AND net ratings together plus four factors; do not repeat it for each metric. Resolve the team and players first. Descriptive lineup evidence, never primary-defender or tactical attribution. Ranking options apply only to lineups/combinations and run on the server before limiting rows. No opponent, quarter, clutch, or last-N game filters.',
 		parameters: { type: 'object', additionalProperties: false, properties: {
 			mode: { type: 'string', enum: MODES }, teamId: { type: 'string' }, playerIds: { type: 'array', items: { type: 'string' }, maxItems: 5 },
 			season: { type: 'string' }, seasonType: { type: 'string', enum: ['Regular Season', 'Playoffs'] },
@@ -99,9 +99,10 @@ export function validatePossessionAnalyticsRequest(value: Record<string, unknown
 		if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date) return fail(`Invalid ${key}.`);
 	}
 	if (value.dateFrom && value.dateTo && String(value.dateFrom) > String(value.dateTo)) return fail('dateFrom must precede dateTo.');
+	const ranked = value.mode === 'lineups' || value.mode === 'combinations';
 	return { ok: true, request: { mode: value.mode as PossessionAnalyticsRequest['mode'], teamId: value.teamId, playerIds: value.playerIds as string[], season: value.season,
-		seasonType: value.seasonType as PossessionAnalyticsRequest['seasonType'], metric: metric as PossessionAnalyticsRequest['metric'], direction,
-		limit: value.limit as number ?? 10, minPossessions: value.minPossessions as number ?? (value.mode === 'lineups' ? 100 : 0), minMinutes: value.minMinutes as number ?? 0,
+		seasonType: value.seasonType as PossessionAnalyticsRequest['seasonType'], metric: ranked ? metric as PossessionAnalyticsRequest['metric'] : 'netRating', direction: ranked ? direction : 'desc',
+		limit: ranked ? value.limit as number ?? 10 : 10, minPossessions: value.minPossessions as number ?? (value.mode === 'lineups' ? 100 : 0), minMinutes: value.minMinutes as number ?? 0,
 		sameGamesOnly: value.sameGamesOnly as boolean ?? false, ...(value.dateFrom ? { dateFrom: String(value.dateFrom) } : {}), ...(value.dateTo ? { dateTo: String(value.dateTo) } : {}) } };
 }
 
@@ -183,7 +184,9 @@ export function parsePossessionAnalytics(request: PossessionAnalyticsRequest, so
 			if (!request.playerIds.every((id) => ids.includes(id))) return null;
 			const offPoss = nonnegativeNumber(row.OffPoss), defPoss = nonnegativeNumber(row.DefPoss);
 			const offensiveRating = rate(row.Points, offPoss), defensiveRating = rate(row.OpponentPoints, defPoss);
-			return { lineup: typeof row.Name === 'string' ? row.Name : ids.join(', '), playerIds: ids.join(','), games: nonnegativeNumber(row.GamesPlayed), minutes: nonnegativeNumber(row.Minutes),
+			// Rounded Minutes can be absent for sub-minute units; SecondsPlayed supplies the actual sample.
+			const minutes = finite(row.SecondsPlayed) !== null ? nonnegativeNumber(row.SecondsPlayed) / 60 : nonnegativeNumber(row.Minutes);
+			return { lineup: typeof row.Name === 'string' ? row.Name : ids.join(', '), playerIds: ids.join(','), games: nonnegativeNumber(row.GamesPlayed), minutes,
 				offensivePossessions: offPoss, defensivePossessions: defPoss, possessions: Math.min(offPoss, defPoss), offensiveRating, defensiveRating, netRating: difference(offensiveRating, defensiveRating) };
 		}).filter((row): row is NonNullable<typeof row> => row !== null && row.offensivePossessions >= request.minPossessions && row.defensivePossessions >= request.minPossessions && row.minutes >= request.minMinutes);
 		if (possibleProviderCap) warnings.push({ code: 'pbpstats_lineups_sampled', message: 'PBP Stats returned 500 or more lineups and may have capped the response. These rankings cover returned qualifying lineups, not a verified complete population.' });

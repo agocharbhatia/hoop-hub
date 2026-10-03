@@ -67,6 +67,15 @@ test('upstream lineup caps, stale snapshots and missing numeric values remain ex
 	assert.equal(missing.rows[0].difference, null);
 });
 
+test('sparse sub-minute lineups use seconds and equivalent on/off metric requests share one canonical scope', () => {
+	const sparse = { ...lineup(10, 200, 2, 2), Minutes: undefined, SecondsPlayed: 30 };
+	const data = parsePossessionAnalytics(request({ mode: 'lineups', playerIds: [], minPossessions: 0 }), [source('lineups', { multi_row_table_data: [sparse] })]);
+	assert.equal(data.rows[0].minutes, 0.5);
+	const excluded = parsePossessionAnalytics(request({ mode: 'lineups', playerIds: [] }), [source('lineups', { multi_row_table_data: [sparse] })]);
+	assert.equal(excluded.rows.length, 0);
+	assert.deepEqual(request({ metric: 'offensiveRating', limit: 1 }), request({ metric: 'defensiveRating', direction: 'asc' }));
+});
+
 test('combination state counts, minute thresholds and unavailable ratings cannot imply complete tiny-sample rankings', () => {
 	const data = parsePossessionAnalytics(request({ mode: 'combinations', playerIds: ['1', '2'], minMinutes: 100 }), [source('combinations', { results: [
 		{ On: 'A, B', Off: '', Minutes: 5, OffRtg: 200, DefRtg: 10, NetRtg: 190 },
