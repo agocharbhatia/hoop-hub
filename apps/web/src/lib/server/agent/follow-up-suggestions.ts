@@ -24,7 +24,8 @@ export function buildFollowUpSuggestions(
 			if (names.every(Boolean)) {
 				const players = names.length ? ` including ${names.join(' and ')}` : '';
 				const dates = `${request.dateFrom ? ` from ${request.dateFrom}` : ''}${request.dateTo ? ` through ${request.dateTo}` : ''}`;
-				suggestions.push({ label: 'Best defensive lineups', question: `Rank ${team}'s top five lineups${players} by lowest defensive rating in the ${season} ${request.seasonType}${dates}, with at least ${request.minPossessions} offensive and defensive possessions and ${request.minMinutes} minutes.` });
+				const offense = request.metric === 'defensiveRating';
+				suggestions.push({ label: `Best ${offense ? 'offensive' : 'defensive'} lineups`, question: `Rank ${team}'s top five lineups${players} by ${offense ? 'highest offensive' : 'lowest defensive'} rating in the ${season} ${request.seasonType}${dates}, with at least ${request.minPossessions} offensive and defensive possessions${request.minMinutes > 0 ? ` and ${request.minMinutes} minutes` : ''}.` });
 			}
 		}
 	}

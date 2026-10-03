@@ -4064,6 +4064,9 @@ function selectPublicWarnings(
 	const providerWarnings = verifiedPossessionData(toolResults).flatMap((data) => data.warnings);
 	const visibleCodes = new Set(['dynamic_agent_partial_data', 'dynamic_agent_capability_limit']);
 	let visible = modelWarnings.filter((warning) => visibleCodes.has(warning.code) && !containsInternalDiagnostic(warning.message));
+	if (providerWarnings.some((warning) => warning.code === 'pbpstats_lineups_sampled')) {
+		visible = visible.filter((warning) => !/\b(?:cap(?:ped)?|limited|incomplete|not verified|not complete)\b/i.test(warning.message) || !/\b(?:lineups?|population)\b/i.test(warning.message));
+	}
 	const blockedDefenderClip = toolResults.find((result) => result.toolName === 'find_video_clips' &&
 		!result.response.ok && (result.response.error?.startsWith('Named-defender clip filtering is unavailable') || result.response.error?.startsWith('Tactical clip filtering is unavailable')));
 	if (blockedDefenderClip?.response.error) {

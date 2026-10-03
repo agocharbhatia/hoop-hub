@@ -139,3 +139,19 @@ test('agent replaces fabricated provider prose/artifacts, streams canonical evid
 	assert.equal(compared.artifacts.filter((artifact) => artifact.type === 'table').length, 2);
 	assert.ok(retrieved.includes('on_off:2024-25'));
 });
+
+test('source-owned lineup coverage warnings suppress duplicate model phrasing', async () => {
+	let calls = 0;
+	const agent = createDynamicQueryAgent({
+		model: { async complete() {
+			if (++calls === 1) return { content: null, toolCalls: [{ id: 'lineups', name: 'analyze_possession_stats', arguments: JSON.stringify({ ...base, mode: 'lineups', playerIds: [], limit: 5 }) }] };
+			return { content: JSON.stringify({ answer: '', artifacts: [], warnings: [{ kind: 'partial_data', message: 'The provider may have capped the lineup population; rankings are not verified against every lineup.' }] }), toolCalls: [] };
+		} },
+		endpointFetcher: async () => { throw new Error('Wrong provider'); },
+		providerFetcher: async () => source('lineups', { multi_row_table_data: Array.from({ length: 500 }, (_, id) => lineup(id + 10, 200)) }),
+		playerDirectory: { ensureAvailable: () => ({ ok: true }), findByNameOrAlias: () => [] },
+		teamDirectory: { findByNameOrAlias: () => [] }, sessionStore: createQuerySessionStore()
+	});
+	const answer = await agent.answerQuestion('Top 5 Toronto lineups in 2025-26.');
+	assert.deepEqual(answer.warnings.map((warning) => warning.code), ['pbpstats_lineups_sampled']);
+});

@@ -30,6 +30,8 @@ test('lineup follow-ups retain included players, date ranges and both sample flo
 	assert.ok(question);
 	for (const filter of ['Scottie Barnes', '2026-01-01', '2026-04-01', '200 offensive and defensive possessions', '50 minutes']) assert.ok(question.includes(filter));
 	assert.ok(!buildFollowUpSuggestions({ ...response, effectiveScope: { ...context.scope, players: [] } }, context).some((suggestion) => suggestion.label === 'Best defensive lineups'));
+	const defense = { ...context, requests: [{ toolName: 'analyze_possession_stats' as const, request: { ...parsed.request, metric: 'defensiveRating' as const } }] };
+	assert.ok(buildFollowUpSuggestions(response, defense).some((suggestion) => suggestion.label === 'Best offensive lineups' && suggestion.question.includes('highest offensive rating')));
 });
 
 test('distinguishes supported recorded shot actions from unsupported possession schemes', () => {

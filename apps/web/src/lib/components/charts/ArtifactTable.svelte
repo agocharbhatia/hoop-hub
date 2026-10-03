@@ -70,7 +70,7 @@
 				{#each visibleRows as { row, index } (index)}
 					{@const selectable = canSelectRow(row, index)}
 					<tr>
-						{#each artifact.columns as column}<td class:numeric={numericColumns.has(column)}>{formatTableCell(row[column])}</td>{/each}
+						{#each artifact.columns as column}<td class:numeric={numericColumns.has(column)} class:long-label={typeof row[column] === 'string' && String(row[column]).length > 50}>{formatTableCell(row[column])}</td>{/each}
 						{#if onselectrow}<td><button type="button" class="row-button" disabled={!selectable} onclick={() => onselectrow?.(row, index)} aria-label="{selectable ? rowLabel : 'Event unavailable'}, row {index + 1}">{selectable ? `${rowLabel} →` : 'No event ID'}</button></td>{/if}
 					</tr>
 				{:else}
@@ -91,6 +91,7 @@
 	th { position: relative; background: rgba(255,255,255,.025); font-weight: 500; color: var(--color-muted-foreground); border-bottom: 1px solid var(--color-border); text-align: left; }
 	th, td { padding: 10px 12px; }
 	td { border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+	td.long-label { white-space: normal; min-width: 14rem; max-width: 22rem; overflow-wrap: anywhere; }
 	tbody tr:last-child td { border-bottom: none; }
 	tbody tr:hover { background: rgba(255,255,255,.025); }
 	.numeric { text-align: right; font-variant-numeric: tabular-nums; }

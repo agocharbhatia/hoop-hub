@@ -15,6 +15,7 @@
 	const playlists = $derived(result.artifacts.filter((a) => a.type === 'video_playlist'));
 	const hasShotAndVideo = $derived(playlists.length > 0 && result.artifacts.some((artifact) => artifact.type === 'shot_chart'));
 	const visualCount = $derived(result.artifacts.filter((artifact) => artifact.type !== 'text_block').length);
+	const narrowVisualCount = $derived(result.artifacts.filter((artifact) => artifact.type !== 'text_block' && !requiresWideArtifact(artifact)).length);
 
 	function selectShot(shot: Extract<QueryAnswerArtifact, { type: 'shot_chart' }>['shots'][number]) {
 		if (!shot.gameId || !shot.eventId) {
@@ -27,6 +28,10 @@
 		selectionNote = available ? 'Matching clip selected.' : 'No clip for this shot in the returned playlist. It may be unavailable or outside its filters or limit.';
 	}
 	/* Presentation helpers */
+	function requiresWideArtifact(artifact: QueryAnswerArtifact): boolean {
+		return artifact.type === 'table' && (artifact.columns.length > 5 || (hasShotAndVideo && artifact.rows.length <= 3));
+	}
+
 	function rowEvent(row: Record<string, unknown>): { gameId: string; eventId: string } | null {
 		const gameId = row.GAME_ID ?? row.gameId;
 		const eventId = row.GAME_EVENT_ID ?? row.eventId;
@@ -65,7 +70,7 @@
 		{#if artifact.type === 'text_block'}
 			{#if artifact.text.trim() !== result.answer.trim()}<p class="artifact-wide whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{artifact.text}</p>{/if}
 		{:else}
-			<section class="artifact-card {visualCount === 1 || (artifact.type === 'table' && (artifact.columns.length > 5 || (hasShotAndVideo && artifact.rows.length <= 3))) ? 'artifact-wide' : ''} min-w-0 rounded-xl border border-border bg-card/50 p-3 sm:p-5" aria-label={`Research artifact ${index + 1}`}>
+			<section class="artifact-card {visualCount === 1 || narrowVisualCount === 1 || requiresWideArtifact(artifact) ? 'artifact-wide' : ''} min-w-0 rounded-xl border border-border bg-card/50 p-3 sm:p-5" aria-label={`Research artifact ${index + 1}`}>
 				{#if 'source' in artifact && artifact.source?.providerId === 'pbpstats'}
 					<p class="mb-3 text-[11px] text-muted-foreground">PBP Stats · {artifact.source.resultSetName.replaceAll('_', ' ')}{artifact.source.sampled ? ' · limited source population' : ''}</p>
 				{/if}

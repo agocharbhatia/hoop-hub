@@ -248,14 +248,19 @@ export function buildPossessionAnswer(results: QueryAnswerAgentToolResult[]): st
 			const sample = data.rows[0];
 			return `${data.title}\n${values.join('\n')}\nSample: ${format(sample.minutesOn)} minutes on court and ${format(sample.minutesOff)} off court. Lower defensive rating means fewer points allowed.`;
 		}
-		if (request.mode === 'lineups') return `${data.title}\nShowing ${data.rows.length} of ${data.coverage.qualifyingRows} returned qualifying lineups, sorted by ${request.metric} ${request.direction}. Each has at least ${request.minPossessions} offensive and defensive possessions and ${request.minMinutes} minutes.${data.coverage.possibleProviderCap ? ' The provider may have capped the lineup population.' : ''}`;
-		if (request.mode === 'combinations') return `${data.title}\nShowing ${data.rows.length} on/off combinations with at least ${request.minMinutes} minutes, sorted by ${request.metric} ${request.direction}. Ratings are points per 100 possessions; lower defensive rating is better.`;
+		if (request.mode === 'lineups') return `${data.title}\nShowing ${data.rows.length} of ${data.coverage.qualifyingRows} returned qualifying lineups, ranked by ${rankingLabel(request)}. Each has at least ${request.minPossessions} offensive and defensive possessions${request.minMinutes > 0 ? ` and ${request.minMinutes} minutes` : ''}.${data.coverage.possibleProviderCap ? ' The provider may have capped the lineup population.' : ''}`;
+		if (request.mode === 'combinations') return `${data.title}\nShowing ${data.rows.length} on/off combinations${request.minMinutes > 0 ? ` with at least ${request.minMinutes} minutes` : ''}, ranked by ${rankingLabel(request)}. Ratings are points per 100 possessions; lower defensive rating is better.`;
 		if (request.mode === 'four_factors') return `${data.title}\nThe table compares offensive and defensive four factors with the player on/off court. Differences are on minus off; percentage differences are percentage points. Sample: ${format(data.rows[0].minutesOn)} minutes on and ${format(data.rows[0].minutesOff)} off.`;
 		return `${data.title}\nOffense is shown in points per 100 possessions, with seconds per possession. Categories describe how possessions began and can overlap; their sample counts are unavailable.`;
 	}).join('\n\n');
 }
 
 /* Helper functions */
+
+function rankingLabel(request: PossessionAnalyticsRequest): string {
+	const metric = { netRating: 'net rating', offensiveRating: 'offensive rating', defensiveRating: 'defensive rating', minutes: 'minutes', possessions: 'possessions' }[request.metric];
+	return `${metric}, ${request.direction === 'asc' ? 'lowest' : 'highest'} first`;
+}
 
 function record(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('PBP Stats returned malformed data.'); return value as Record<string, unknown>; }
 function finite(value: unknown): number | null { if (value === null || value === undefined || typeof value === 'string' && value.trim() === '' || typeof value === 'boolean' || typeof value === 'object') return null; const number = Number(value); return Number.isFinite(number) ? number : null; }
