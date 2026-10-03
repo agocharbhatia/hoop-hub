@@ -56,6 +56,7 @@ export async function runEvalCli(args: string[]): Promise<number> {
 	if (options.mode !== 'live') {
 		process.env.HOOP_HUB_DB_PATH = ':memory:';
 		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '0';
+		process.env.HOOP_HUB_ENABLE_LIVE_PBPSTATS = '0';
 	}
 
 	const cases = selectEvalCases(DYNAMIC_AGENT_EVAL_CASES, options);

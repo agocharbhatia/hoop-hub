@@ -4,12 +4,13 @@ import { evaluateRankingGrounding } from './ranking-assertions';
 
 /** Live integration checks evidence consistency without using synthetic fixture values as NBA ground truth. */
 export function evaluateLiveExecution(evalCase: EvalCase, execution: EvalExecution): string[] {
-	const invariantKinds = new Set(['shot_chart_matches_aggregate', 'line_chart_matches_time_series', 'time_series_dates_ascending', 'time_series_direction_matches_windows', 'playlist_descriptions_match', 'no_endpoint_calls']);
+	const invariantKinds = new Set(['shot_chart_matches_aggregate', 'line_chart_matches_time_series', 'time_series_dates_ascending', 'time_series_direction_matches_windows', 'playlist_descriptions_match', 'no_endpoint_calls', 'possession_artifacts_grounded']);
+	const providerCase = evalCase.tags.includes('pbpstats');
 	const integrationCase: EvalCase = {
 		...evalCase,
 		requiredTools: [],
-		artifactExpectations: evalCase.artifactExpectations.map(({ type, count, minItems }) => ({ type, count, ...(minItems !== undefined && minItems > 0 ? { minItems: 1 } : {}) })),
-		assertions: evalCase.assertions.filter((assertion) => invariantKinds.has(assertion.kind)),
+		artifactExpectations: providerCase ? evalCase.artifactExpectations : evalCase.artifactExpectations.map(({ type, count, minItems }) => ({ type, count, ...(minItems !== undefined && minItems > 0 ? { minItems: 1 } : {}) })),
+		assertions: evalCase.assertions.filter((assertion) => invariantKinds.has(assertion.kind) || providerCase && assertion.kind === 'value' && assertion.source.type === 'tool_request'),
 		limits: { maxLatencyMs: 180_000 }
 	};
 	const failures = evaluateEvalExecution(integrationCase, execution);

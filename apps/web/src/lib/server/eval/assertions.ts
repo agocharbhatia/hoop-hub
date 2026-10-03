@@ -4,6 +4,7 @@ import type {
 	QueryAnswerArtifact
 } from '$lib/contracts/answer-response';
 import type { EvalAssertion, EvalCase, EvalExecution, EvalValueSource } from './types';
+import { evaluatePossessionArtifacts } from './possession-assertions';
 
 const PRODUCT_HYGIENE_PATTERNS = [
 	'transport=',
@@ -135,6 +136,7 @@ function evaluateLimits(evalCase: EvalCase, execution: EvalExecution): string[] 
 }
 
 function evaluateAssertion(assertion: EvalAssertion, execution: EvalExecution): string[] {
+	if (assertion.kind === 'possession_artifacts_grounded') return evaluatePossessionArtifacts(execution);
 	if (assertion.kind === 'answer_includes') {
 		const answer = execution.response.answer.toLowerCase();
 		return assertion.values

@@ -19,6 +19,8 @@ import { evaluateFrozenExecution } from './frozen-assertions';
 import { evaluateLiveExecution } from './live-assertions';
 import { createEvalFixtureFetcher } from './fixtures';
 import { createEvalScriptedModel } from './scripted-model';
+import { createDataProviderFetcher } from '$lib/server/data/providers/client';
+import { createScopedProviderFixtureFetcher } from './provider-fixture';
 import type {
 	EvalArtifactSummary,
 	EvalCase,
@@ -82,11 +84,16 @@ async function runEvalRepetition(
 	const endpointCalls: EvalEndpointCall[] = [];
 	const baseFetcher = mode === 'live' ? createStatsEndpointFetcher() : mode === 'model' ? createScopedFixtureFetcher(evalCase) : createEvalFixtureFetcher(evalCase.local.fixtureId);
 	const endpointFetcher = captureEndpointCalls(baseFetcher, endpointCalls);
+	const providerBase = mode === 'live' ? createDataProviderFetcher({ nbaFetcher: endpointFetcher }) : createScopedProviderFixtureFetcher(evalCase);
 	const observedUsage = { calls: 0, inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, totalTokens: 0 };
 	const model = mode === 'local' ? createEvalScriptedModel(evalCase) : createBudgetedEvalModel(createOpenAIDynamicAgentAdapter({ maxCompletionTokens: 8192, timeoutMs: 60_000, maxRetries: 0 }), budget!, observedUsage);
 	const agent = createDynamicQueryAgent({
 		model,
 		endpointFetcher,
+		providerFetcher: async (request) => {
+			endpointCalls.push({ endpointId: `${request.providerId}:${request.datasetId}`, params: { ...request.params } });
+			return providerBase(request);
+		},
 		playerDirectory: createDefaultPlayerDirectoryAdapter(),
 		teamDirectory: createDefaultTeamDirectoryAdapter(),
 		...(mode !== 'live' ? { now: () => new Date('2026-04-15T12:00:00Z') } : {}),
@@ -102,7 +109,7 @@ async function runEvalRepetition(
 		const failures = mode === 'live' ? evaluateLiveExecution(evalCase, execution) : mode === 'model' ? evaluateFrozenExecution(evalCase, execution) : evaluateEvalExecution(evalCase, execution);
 		return {
 			schemaVersion: 1,
-			dataSource: mode === 'live' ? 'live_nba' : 'synthetic_fixture',
+			dataSource: mode === 'live' ? evalCase.tags.includes('pbpstats') ? 'live_providers' : 'live_nba' : 'synthetic_fixture',
 			...(mode !== 'live' ? { fixtureVersion: 'synthetic-v1-2026-04-15' } : {}),
 			mode,
 			caseId: evalCase.id,
@@ -124,7 +131,7 @@ async function runEvalRepetition(
 	} catch (error) {
 		return {
 			schemaVersion: 1,
-			dataSource: mode === 'live' ? 'live_nba' : 'synthetic_fixture',
+			dataSource: mode === 'live' ? evalCase.tags.includes('pbpstats') ? 'live_providers' : 'live_nba' : 'synthetic_fixture',
 			...(mode !== 'live' ? { fixtureVersion: 'synthetic-v1-2026-04-15' } : {}),
 			mode,
 			caseId: evalCase.id,

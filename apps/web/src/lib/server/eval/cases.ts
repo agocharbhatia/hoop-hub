@@ -1,4 +1,5 @@
 import type { EvalCase } from './types';
+import { POSSESSION_EVAL_CASES } from './possession-cases';
 
 const SHOT_CHART_PARAMS = {
 	PlayerID: '1630567',
@@ -7,6 +8,7 @@ const SHOT_CHART_PARAMS = {
 };
 
 export const DYNAMIC_AGENT_EVAL_CASES: EvalCase[] = [
+	...POSSESSION_EVAL_CASES,
 	{
 		id: 'scottie-pullup-midrange-fg-pct',
 		tags: ['grounding', 'shot-chart', 'aggregation', 'hygiene'],

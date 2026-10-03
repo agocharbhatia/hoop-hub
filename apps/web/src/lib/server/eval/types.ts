@@ -73,6 +73,7 @@ export type EvalAssertion =
 			valueColumn: string;
 	  }
 	| { kind: 'playlist_descriptions_match'; pattern: string }
+	| { kind: 'possession_artifacts_grounded' }
 	| { kind: 'no_endpoint_calls' };
 
 export type EvalCase = {
@@ -95,6 +96,7 @@ export type EvalCase = {
 		turns: EvalLocalTurn[];
 		finalOutput: DynamicAgentFinalOutput;
 		semanticResponses?: StatsQueryResponse[];
+		providerFixtures?: Array<{ datasetId: string; params: Record<string, string>; payload: unknown }>;
 	};
 };
 
@@ -130,7 +132,7 @@ export type EvalArtifactSummary =
 
 export type EvalRunRecord = {
 	schemaVersion: 1;
-	dataSource?: 'synthetic_fixture' | 'live_nba';
+	dataSource?: 'synthetic_fixture' | 'live_nba' | 'live_providers';
 	fixtureVersion?: string;
 	mode: EvalMode;
 	caseId: string;
