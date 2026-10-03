@@ -25,6 +25,8 @@ This file is the short source of truth for future agents. Use it before relying 
 
 - Semantic query execution now reads stored endpoint payloads only; it no longer exposes request-level live fallback.
 - Dynamic agent endpoint calls use the cataloged NBA Stats endpoint client live-first with SQLite caching. `HOOP_HUB_NBA_PROXY_URL` is needed on networks where direct `stats.nba.com` requests are blocked.
+- The `data/providers/` catalog/client adds isolated external-provider transport and caching. `analyze_possession_stats` supplies PBP Stats team/player on/off, offensive/defensive four factors, up-to-three-player combinations, qualified lineup rankings and possession-start efficiency. Calculations and artifacts are server-owned; PBP calls participate in progress, saved context, season comparisons and follow-ups. See `.docs/PBP_STATS_INTEGRATION_2026-10-02.md` for scope and rights/configuration limits.
+- PBP Stats lineup responses can be capped at 500 rows. Rankings cover returned qualifying lineups, with explicit population warnings; both offensive and defensive sample floors apply. Quarter, opponent, clutch, last-N and tactical/primary-defender filters are not represented by this integration.
 - Resumable finalized nightly ingestion is implemented through `nightly:bootstrap`; missing stored endpoint data returns typed `coverage_gap` responses.
 - `nightly:audit` verifies run completion, request/cache agreement, payload JSON/checksum integrity, expiry, and finalized/provisional/stale/unavailable freshness. `.github/workflows/nightly-materialization.yml` schedules live bootstrap plus audit and retains the database and health report as artifacts.
 - Player resolution now goes through the shared seeded player-directory snapshot in `apps/web/src/lib/server/players/player-directory.ts`.
@@ -52,7 +54,7 @@ This file is the short source of truth for future agents. Use it before relying 
 
 - historical backfill, anomaly policy, shot/event indexes, and production alert routing
 - broader dynamic-agent endpoint coverage, eval corpus growth, and model prompt hardening
-- starter/bench, playoffs, clutch, opponent, lineup, and on/off typed execution
+- starter/bench, clutch, opponent-specific possession scopes, broader playoff evaluation, and verified complete lineup populations
 - event-level primary-defender and tactical coverage labels; aggregate matchup feeds cannot establish guarding on a shot
 - distributed export workers and production authentication/quotas/backups
 
@@ -84,7 +86,7 @@ Derived/computed metrics now run through the agent's `aggregate_endpoint_rows` t
   - `cd apps/web && bun run eval:model` uses the configured OpenAI model against strictly scoped synthetic endpoint fixtures and recorded semantic scopes. It tests interpretation and computation separately from upstream availability; it is not a real-data gold benchmark.
   - `cd apps/web && bun run eval:live` uses the configured OpenAI model and normal NBA cache/live endpoint client; it is excluded from `bun run test` and ordinary CI.
 - Eval cases, invariants, fixture adapters, runner, and redacted JSONL/Markdown reports live in `apps/web/src/lib/server/eval/`; the thin CLI entry point is `apps/web/scripts/run-evals.ts`.
-- Local eval runs every prompt variant at least once and currently covers 24 deterministic prompt-level runs; the custom-shot suite adds seven deterministic contract cases.
+- Local eval runs every prompt variant at least once and currently covers 28 deterministic prompt-level runs, including four PBP Stats on/off/lineup variants; the custom-shot suite adds seven deterministic contract cases. Frozen provider fixtures reject unrecorded scopes without live fallback. Provider live checks retain scope, sample floors, ranking order and exact artifact population invariants.
 - Dynamic-agent traces record model calls, input/output/total tokens, and provider-reported cache usage. Paid evals require a shared `HOOP_HUB_EVAL_BUDGET_USD` allowance and input/output token prices before making requests; cache prices are optional. Calls are paced and token-rate refusals receive bounded retries.
 - Focus runs accept `--case`, `--tag`, and `--repetitions`. The made-three stochastic gate defaults to 20 live repetitions, while `--repetitions 1` is suitable for a credential smoke.
 - Current required eval coverage includes pull-up mid-range grounding and shot-chart reconciliation, latest-ten trend chronology, top-five truncation hygiene, conditional records, win/loss splits, typed semantic lookup/split grounding, tracking-derived named-player matchup stats, sample-qualified defender rankings, stable made-three clip intent/FG3M mapping, named-defender clip fallback rejection, endpoint failure behavior, and global product-response diagnostic hygiene.

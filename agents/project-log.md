@@ -2,6 +2,14 @@
 
 This is chronological implementation history, not a current roadmap. For shipped runtime state read `agents/current-state.md`; for priorities read `.docs/PLAN.md`. Older entries intentionally preserve the architecture and terminology that existed when each slice landed.
 
+## 2026-10-02 — external providers and possession analytics
+
+- Added provider-specific catalog, bounded/cancellable PBP Stats transport, persistent cache isolation and a public-display configuration gate.
+- Added grounded on/off, four factors, player combinations, lineup rankings and possession-start efficiency to the dynamic agent, including progressive interactive artifacts, saved scope and filter-preserving follow-ups.
+- Live checks exposed duplicate equivalent on/off populations and omitted rounded minutes in sub-minute lineups. Normalized request populations and source-second fallback now have regressions.
+- Added exact-scope provider fixtures and four question variants to the evaluation corpus. Verification: 519 tests, 28 local eval runs, seven clip contracts, 30 NBA endpoint contracts, zero type errors/warnings and a successful production build. Both provider-focused model and corrected live checks passed; all five parser modes passed real-source checks.
+- Verified saved results across preview restart, visible follow-up progress, table sorting, chart interaction and responsive presentation. This iteration's model probes estimated $0.019835, including failed initial live checks; no paid provider subscription was purchased. Evidence and limitations are recorded in `.docs/PBP_STATS_INTEGRATION_2026-10-02.md`.
+
 ## 2026-07-10 — dynamic agent, artifacts, clips, and eval
 
 - `POST /api/query` now uses the dynamic tool-loop agent rather than the closed planner/orchestrator as its production runtime.

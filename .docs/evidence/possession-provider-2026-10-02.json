@@ -1,0 +1,848 @@
+{
+  "date": "2026-10-02",
+  "timezone": "America/Toronto",
+  "model": "gpt-6-luna",
+  "rateAssumptionsUsdPerMillion": {
+    "input": 0.1,
+    "cachedInput": 0.01,
+    "cacheWriteInput": 0.125,
+    "output": 0.5
+  },
+  "billingNote": "Token-based estimates, not a billing receipt. Includes controlled model probes, failed initial live evaluations, successful reruns and the browser follow-up. No paid data subscriptions purchased.",
+  "runs": {
+    "model": [
+      {
+        "caseId": "scottie-pbp-on-off",
+        "prompt": "Compare Toronto Raptors offensive, defensive and net ratings with Scottie Barnes on and off the court in the 2025-26 regular season, with a chart.",
+        "passed": true,
+        "failures": [],
+        "status": "ok",
+        "totalLatencyMs": 14683,
+        "modelUsage": {
+          "calls": 4,
+          "inputTokens": 37133,
+          "outputTokens": 617,
+          "totalTokens": 37750,
+          "cachedInputTokens": 18007,
+          "cacheWriteInputTokens": 18833,
+          "estimatedCostUsd": 0.002872
+        },
+        "toolCalls": [
+          {
+            "toolCallId": "call_FKzwVG4gklxgdirNxqluns6V",
+            "toolName": "resolve_teams",
+            "request": {
+              "names": [
+                "Toronto Raptors"
+              ]
+            },
+            "ok": true,
+            "latencyMs": 1
+          },
+          {
+            "toolCallId": "call_pmRJquzn1LYak3lVu00768vW",
+            "toolName": "analyze_possession_stats",
+            "request": {
+              "mode": "on_off",
+              "teamId": "1610612761",
+              "playerIds": [
+                "1630567"
+              ],
+              "season": "2025-26",
+              "seasonType": "Regular Season",
+              "metric": "netRating",
+              "direction": "desc",
+              "limit": 10,
+              "minPossessions": 0,
+              "minMinutes": 0,
+              "sameGamesOnly": false
+            },
+            "ok": true,
+            "latencyMs": 3
+          }
+        ],
+        "artifacts": [
+          {
+            "type": "table",
+            "rows": 11,
+            "columns": [
+              "metric",
+              "unit",
+              "on",
+              "off",
+              "difference",
+              "minutesOn",
+              "minutesOff"
+            ]
+          },
+          {
+            "type": "bar_chart",
+            "bars": 2
+          }
+        ],
+        "warnings": [
+          {
+            "code": "pbpstats_descriptive_on_off",
+            "message": "On/off differences describe team results with different lineups and opponents; they do not isolate one player\u2019s causal impact."
+          }
+        ],
+        "traceId": "80e5145e-4832-4303-bbf5-5768cb5a9114"
+      },
+      {
+        "caseId": "raptors-pbp-lineup-ranking",
+        "prompt": "Rank Toronto Raptors top 5 lineups by net rating in the 2025-26 regular season, with at least 100 offensive and defensive possessions.",
+        "passed": true,
+        "failures": [],
+        "status": "ok",
+        "totalLatencyMs": 15542,
+        "modelUsage": {
+          "calls": 4,
+          "inputTokens": 36463,
+          "outputTokens": 689,
+          "totalTokens": 37152,
+          "cachedInputTokens": 17885,
+          "cacheWriteInputTokens": 18251,
+          "estimatedCostUsd": 0.002837
+        },
+        "toolCalls": [
+          {
+            "toolCallId": "call_xzeBSGco40DulGqK2co9s78r",
+            "toolName": "resolve_teams",
+            "request": {
+              "names": [
+                "Toronto Raptors"
+              ]
+            },
+            "ok": true,
+            "latencyMs": 0
+          },
+          {
+            "toolCallId": "call_2hiyV3Ic6DhOJ9tGpmK27Z04",
+            "toolName": "analyze_possession_stats",
+            "request": {
+              "mode": "lineups",
+              "teamId": "1610612761",
+              "playerIds": [],
+              "season": "2025-26",
+              "seasonType": "Regular Season",
+              "metric": "netRating",
+              "direction": "desc",
+              "limit": 5,
+              "minPossessions": 100,
+              "minMinutes": 0,
+              "sameGamesOnly": false
+            },
+            "ok": true,
+            "latencyMs": 4
+          }
+        ],
+        "artifacts": [
+          {
+            "type": "table",
+            "rows": 5,
+            "columns": [
+              "lineup",
+              "games",
+              "minutes",
+              "offensivePossessions",
+              "defensivePossessions",
+              "offensiveRating",
+              "defensiveRating",
+              "netRating"
+            ]
+          },
+          {
+            "type": "bar_chart",
+            "bars": 5
+          }
+        ],
+        "warnings": [],
+        "traceId": "57758777-6c88-43d0-829b-464a4a88fb33"
+      }
+    ],
+    "initial_live": [
+      {
+        "caseId": "scottie-pbp-on-off",
+        "prompt": "Compare Toronto Raptors offensive, defensive and net ratings with Scottie Barnes on and off the court in the 2025-26 regular season, with a chart.",
+        "passed": false,
+        "failures": [
+          "artifact_count: 'table' expected 1, received 3",
+          "artifact_count: 'bar_chart' expected 1, received 3"
+        ],
+        "status": "ok",
+        "totalLatencyMs": 22739,
+        "modelUsage": {
+          "calls": 6,
+          "inputTokens": 63574,
+          "outputTokens": 813,
+          "totalTokens": 64387,
+          "cachedInputTokens": 39531,
+          "cacheWriteInputTokens": 23729,
+          "estimatedCostUsd": 0.003799
+        },
+        "toolCalls": [
+          {
+            "toolCallId": "call_JTfvFqATLhDFs4asdyDQMJ66",
+            "toolName": "resolve_teams",
+            "request": {
+              "names": [
+                "Toronto Raptors"
+              ]
+            },
+            "ok": true,
+            "latencyMs": 0
+          },
+          {
+            "toolCallId": "call_DPAA7NPueWIAr21SZPnKrieT",
+            "toolName": "analyze_possession_stats",
+            "request": {
+              "mode": "on_off",
+              "teamId": "1610612761",
+              "playerIds": [
+                "1630567"
+              ],
+              "season": "2025-26",
+              "seasonType": "Regular Season",
+              "metric": "netRating",
+              "direction": "desc",
+              "limit": 10,
+              "minPossessions": 0,
+              "minMinutes": 0,
+              "sameGamesOnly": false
+            },
+            "ok": true,
+            "latencyMs": 1486
+          },
+          {
+            "toolCallId": "call_Fvkfg9k4Qieh8p1WKitA6PpA",
+            "toolName": "analyze_possession_stats",
+            "request": {
+              "mode": "on_off",
+              "teamId": "1610612761",
+              "playerIds": [
+                "1630567"
+              ],
+              "season": "2025-26",
+              "seasonType": "Regular Season",
+              "metric": "offensiveRating",
+              "direction": "desc",
+              "limit": 1,
+              "minPossessions": 0,
+              "minMinutes": 0,
+              "sameGamesOnly": false
+            },
+            "ok": true,
+            "latencyMs": 1
+          },
+          {
+            "toolCallId": "call_oMb1EPLRZoLNcoMT79n8eI49",
+            "toolName": "analyze_possession_stats",
+            "request": {
+              "mode": "on_off",
+              "teamId": "1610612761",
+              "playerIds": [
+                "1630567"
+              ],
+              "season": "2025-26",
+              "seasonType": "Regular Season",
+              "metric": "defensiveRating",
+              "direction": "asc",
+              "limit": 1,
+              "minPossessions": 0,
+              "minMinutes": 0,
+              "sameGamesOnly": false
+            },
+            "ok": true,
+            "latencyMs": 1
+          }
+        ],
+        "artifacts": [
+          {
+            "type": "table",
+            "rows": 11,
+            "columns": [
+              "metric",
+              "unit",
+              "on",
+              "off",
+              "difference",
+              "minutesOn",
+              "minutesOff"
+            ]
+          },
+          {
+            "type": "bar_chart",
+            "bars": 2
+          },
+          {
+            "type": "table",
+            "rows": 11,
+            "columns": [
+              "metric",
+              "unit",
+              "on",
+              "off",
+              "difference",
+              "minutesOn",
+              "minutesOff"
+            ]
+          },
+          {
+            "type": "bar_chart",
+            "bars": 2
+          },
+          {
+            "type": "table",
+            "rows": 11,
+            "columns": [
+              "metric",
+              "unit",
+              "on",
+              "off",
+              "difference",
+              "minutesOn",
+              "minutesOff"
+            ]
+          },
+          {
+            "type": "bar_chart",
+            "bars": 2
+          }
+        ],
+        "warnings": [
+          {
+            "code": "pbpstats_descriptive_on_off",
+            "message": "On/off differences describe team results with different lineups and opponents; they do not isolate one player\u2019s causal impact."
+          }
+        ],
+        "traceId": "4742b2ad-b194-4b42-92ac-167238458bc6"
+      },
+      {
+        "caseId": "raptors-pbp-lineup-ranking",
+        "prompt": "Rank Toronto Raptors top 5 lineups by net rating in the 2025-26 regular season, with at least 100 offensive and defensive possessions.",
+        "passed": false,
+        "failures": [
+          "status: expected 'ok', received 'coverage_gap'",
+          "artifact_count: 'table' expected 1, received 0",
+          "artifact_count: 'bar_chart' expected 1, received 0",
+          "possession_grounding: no verified provider result",
+          "live_tool_failure: analyze_possession_stats: A required PBP Stats numeric value is missing."
+        ],
+        "status": "coverage_gap",
+        "totalLatencyMs": 14789,
+        "modelUsage": {
+          "calls": 3,
+          "inputTokens": 26975,
+          "outputTokens": 162,
+          "totalTokens": 27137,
+          "cachedInputTokens": 17885,
+          "cacheWriteInputTokens": 9081,
+          "estimatedCostUsd": 0.001396
+        },
+        "toolCalls": [
+          {
+            "toolCallId": "call_0tmCcf2lX64uEeqNIARprUF0",
+            "toolName": "resolve_teams",
+            "request": {
+              "names": [
+                "Toronto Raptors"
+              ]
+            },
+            "ok": true,
+            "latencyMs": 1
+          },
+          {
+            "toolCallId": "call_h7nYvhFOA0BZApdplb4gQVSf",
+            "toolName": "analyze_possession_stats",
+            "request": {
+              "mode": "lineups",
+              "teamId": "1610612761",
+              "playerIds": [],
+              "season": "2025-26",
+              "seasonType": "Regular Season",
+              "metric": "netRating",
+              "direction": "desc",
+              "limit": 5,
+              "minPossessions": 100,
+              "minMinutes": 0,
+              "sameGamesOnly": false
+            },
+            "ok": false,
+            "latencyMs": 6561,
+            "error": "A required PBP Stats numeric value is missing."
+          }
+        ],
+        "artifacts": [],
+        "warnings": [
+          {
+            "code": "dynamic_agent_partial_data",
+            "message": "The lineup data needed to rank qualifying lineups was unavailable."
+          }
+        ],
+        "traceId": "f9d6a70f-f588-490f-aef9-88678b8a1163"
+      }
+    ],
+    "fixed_live": [
+      {
+        "caseId": "scottie-pbp-on-off",
+        "prompt": "Compare Toronto Raptors offensive, defensive and net ratings with Scottie Barnes on and off the court in the 2025-26 regular season, with a chart.",
+        "passed": true,
+        "failures": [],
+        "status": "ok",
+        "totalLatencyMs": 14946,
+        "modelUsage": {
+          "calls": 4,
+          "inputTokens": 37463,
+          "outputTokens": 561,
+          "totalTokens": 38024,
+          "cachedInputTokens": 25764,
+          "cacheWriteInputTokens": 11456,
+          "estimatedCostUsd": 0.001994
+        },
+        "toolCalls": [
+          {
+            "toolCallId": "call_3KEzwoHzSWQZ4yoHOpnJBHd6",
+            "toolName": "resolve_teams",
+            "request": {
+              "names": [
+                "Toronto Raptors"
+              ]
+            },
+            "ok": true,
+            "latencyMs": 0
+          },
+          {
+            "toolCallId": "call_7HnlVtrqWqveJRZ5qe0sYZzZ",
+            "toolName": "analyze_possession_stats",
+            "request": {
+              "mode": "on_off",
+              "teamId": "1610612761",
+              "playerIds": [
+                "1630567"
+              ],
+              "season": "2025-26",
+              "seasonType": "Regular Season",
+              "metric": "netRating",
+              "direction": "desc",
+              "limit": 10,
+              "minPossessions": 0,
+              "minMinutes": 0,
+              "sameGamesOnly": false
+            },
+            "ok": true,
+            "latencyMs": 3
+          }
+        ],
+        "artifacts": [
+          {
+            "type": "table",
+            "rows": 11,
+            "columns": [
+              "metric",
+              "unit",
+              "on",
+              "off",
+              "difference",
+              "minutesOn",
+              "minutesOff"
+            ]
+          },
+          {
+            "type": "bar_chart",
+            "bars": 2
+          }
+        ],
+        "warnings": [
+          {
+            "code": "pbpstats_descriptive_on_off",
+            "message": "On/off differences describe team results with different lineups and opponents; they do not isolate one player\u2019s causal impact."
+          }
+        ],
+        "traceId": "e6af5a98-9c5e-49eb-aa63-6f395e78d236"
+      },
+      {
+        "caseId": "raptors-pbp-lineup-ranking",
+        "prompt": "Rank Toronto Raptors top 5 lineups by net rating in the 2025-26 regular season, with at least 100 offensive and defensive possessions.",
+        "passed": true,
+        "failures": [],
+        "status": "ok",
+        "totalLatencyMs": 23156,
+        "modelUsage": {
+          "calls": 4,
+          "inputTokens": 38515,
+          "outputTokens": 2169,
+          "totalTokens": 40684,
+          "cachedInputTokens": 17949,
+          "cacheWriteInputTokens": 19155,
+          "estimatedCostUsd": 0.003799
+        },
+        "toolCalls": [
+          {
+            "toolCallId": "call_V442g38A5X3tIpPiK4HyZz22",
+            "toolName": "resolve_teams",
+            "request": {
+              "names": [
+                "Toronto Raptors"
+              ]
+            },
+            "ok": true,
+            "latencyMs": 0
+          },
+          {
+            "toolCallId": "call_UOuGnCmqGxAekGsn35Ym3EcS",
+            "toolName": "analyze_possession_stats",
+            "request": {
+              "mode": "lineups",
+              "teamId": "1610612761",
+              "playerIds": [],
+              "season": "2025-26",
+              "seasonType": "Regular Season",
+              "metric": "netRating",
+              "direction": "desc",
+              "limit": 5,
+              "minPossessions": 100,
+              "minMinutes": 0,
+              "sameGamesOnly": false
+            },
+            "ok": true,
+            "latencyMs": 17
+          }
+        ],
+        "artifacts": [
+          {
+            "type": "table",
+            "rows": 5,
+            "columns": [
+              "lineup",
+              "games",
+              "minutes",
+              "offensivePossessions",
+              "defensivePossessions",
+              "offensiveRating",
+              "defensiveRating",
+              "netRating"
+            ]
+          },
+          {
+            "type": "bar_chart",
+            "bars": 5
+          }
+        ],
+        "warnings": [
+          {
+            "code": "pbpstats_lineups_sampled",
+            "message": "PBP Stats returned 500 or more lineups and may have capped the response. These rankings cover returned qualifying lineups, not a verified complete population."
+          }
+        ],
+        "traceId": "c0ec5ee0-711f-4a38-b279-542749e21076"
+      }
+    ]
+  },
+  "providerModeChecks": [
+    {
+      "mode": "on_off",
+      "ok": true,
+      "coverage": {
+        "receivedRows": 11,
+        "qualifyingRows": 11,
+        "returnedRows": 11,
+        "possibleProviderCap": false
+      },
+      "sample": {
+        "metric": "Offensive rating",
+        "unit": "points / 100 possessions",
+        "on": 117.259,
+        "off": 113.651,
+        "difference": 3.608000000000004,
+        "minutesOn": 2614,
+        "minutesOff": 1246
+      },
+      "warnings": [
+        {
+          "code": "pbpstats_descriptive_on_off",
+          "message": "On/off differences describe team results with different lineups and opponents; they do not isolate one player\u2019s causal impact."
+        }
+      ],
+      "sources": [
+        {
+          "providerId": "pbpstats",
+          "datasetId": "on_off",
+          "endpointId": "pbpstats:on_off",
+          "sourceUrl": "https://pbpstats.com",
+          "parserVersion": "v1",
+          "isProvisional": false,
+          "cacheStatus": "hit",
+          "sourceStatus": "ok",
+          "stale": false,
+          "latencyMs": 0,
+          "fetchedAt": "2026-10-03T00:32:26.560Z"
+        },
+        {
+          "providerId": "pbpstats",
+          "datasetId": "four_factors",
+          "endpointId": "pbpstats:four_factors",
+          "sourceUrl": "https://pbpstats.com",
+          "parserVersion": "v1",
+          "isProvisional": false,
+          "cacheStatus": "hit",
+          "sourceStatus": "ok",
+          "stale": false,
+          "latencyMs": 0,
+          "fetchedAt": "2026-10-03T00:32:26.560Z"
+        }
+      ]
+    },
+    {
+      "mode": "four_factors",
+      "ok": true,
+      "coverage": {
+        "receivedRows": 8,
+        "qualifyingRows": 8,
+        "returnedRows": 8,
+        "possibleProviderCap": false
+      },
+      "sample": {
+        "metric": "Offense \u00b7 Effective FG%",
+        "unit": "%",
+        "on": 54.468302658486714,
+        "off": 53.69292748433303,
+        "difference": 0.7753751741536807,
+        "minutesOn": 2614,
+        "minutesOff": 1246
+      },
+      "warnings": [
+        {
+          "code": "pbpstats_descriptive_on_off",
+          "message": "On/off differences describe team results with different lineups and opponents; they do not isolate one player\u2019s causal impact."
+        }
+      ],
+      "sources": [
+        {
+          "providerId": "pbpstats",
+          "datasetId": "four_factors",
+          "endpointId": "pbpstats:four_factors",
+          "sourceUrl": "https://pbpstats.com",
+          "parserVersion": "v1",
+          "isProvisional": false,
+          "cacheStatus": "hit",
+          "sourceStatus": "ok",
+          "stale": false,
+          "latencyMs": 0,
+          "fetchedAt": "2026-10-03T00:32:26.560Z"
+        }
+      ]
+    },
+    {
+      "mode": "combinations",
+      "ok": true,
+      "coverage": {
+        "receivedRows": 4,
+        "qualifyingRows": 4,
+        "returnedRows": 4,
+        "possibleProviderCap": false
+      },
+      "sample": {
+        "playersOn": "Scottie Barnes, Immanuel Quickley",
+        "playersOff": "",
+        "minutes": 1686,
+        "offensiveRating": 119.95950245877928,
+        "defensiveRating": 114.1025641025641,
+        "netRating": 5.856938356215181
+      },
+      "warnings": [
+        {
+          "code": "pbpstats_descriptive_on_off",
+          "message": "On/off combinations are descriptive rather than causal. Games can differ across combinations."
+        }
+      ],
+      "sources": [
+        {
+          "providerId": "pbpstats",
+          "datasetId": "combinations",
+          "endpointId": "pbpstats:combinations",
+          "sourceUrl": "https://pbpstats.com",
+          "parserVersion": "v1",
+          "isProvisional": false,
+          "cacheStatus": "miss",
+          "sourceStatus": "ok",
+          "stale": false,
+          "latencyMs": 774,
+          "fetchedAt": "2026-10-03T00:35:35.391Z"
+        }
+      ]
+    },
+    {
+      "mode": "lineups",
+      "ok": true,
+      "coverage": {
+        "receivedRows": 500,
+        "qualifyingRows": 10,
+        "returnedRows": 5,
+        "possibleProviderCap": true
+      },
+      "sample": {
+        "lineup": "Brandon Ingram, Immanuel Quickley, Ochai Agbaji, Scottie Barnes, Sandro Mamukelashvili",
+        "playerIds": "1627742,1630193,1630534,1630567,1630572",
+        "games": 15,
+        "minutes": 81.88333333333334,
+        "offensivePossessions": 167,
+        "defensivePossessions": 166,
+        "possessions": 166,
+        "offensiveRating": 119.76047904191617,
+        "defensiveRating": 101.80722891566265,
+        "netRating": 17.953250126253522
+      },
+      "warnings": [
+        {
+          "code": "pbpstats_lineups_sampled",
+          "message": "PBP Stats returned 500 or more lineups and may have capped the response. These rankings cover returned qualifying lineups, not a verified complete population."
+        }
+      ],
+      "sources": [
+        {
+          "providerId": "pbpstats",
+          "datasetId": "lineups",
+          "endpointId": "pbpstats:lineups",
+          "sourceUrl": "https://pbpstats.com",
+          "parserVersion": "v1",
+          "isProvisional": false,
+          "cacheStatus": "hit",
+          "sourceStatus": "ok",
+          "stale": false,
+          "latencyMs": 0,
+          "fetchedAt": "2026-10-03T00:32:50.665Z"
+        }
+      ]
+    },
+    {
+      "mode": "possession_starts",
+      "ok": true,
+      "coverage": {
+        "receivedRows": 11,
+        "qualifyingRows": 11,
+        "returnedRows": 11,
+        "possibleProviderCap": false
+      },
+      "sample": {
+        "start": "All possessions",
+        "offensiveRating": 116.250309176354,
+        "secondsPerPossession": 14.2410586198368
+      },
+      "warnings": [
+        {
+          "code": "pbpstats_start_context",
+          "message": "Possession-start categories can overlap. This feed does not provide category sample counts; do not sum categories or treat missing values as zero."
+        }
+      ],
+      "sources": [
+        {
+          "providerId": "pbpstats",
+          "datasetId": "possession_starts",
+          "endpointId": "pbpstats:possession_starts",
+          "sourceUrl": "https://pbpstats.com",
+          "parserVersion": "v1",
+          "isProvisional": false,
+          "cacheStatus": "miss",
+          "sourceStatus": "ok",
+          "stale": false,
+          "latencyMs": 1961,
+          "fetchedAt": "2026-10-03T00:35:36.175Z"
+        }
+      ]
+    }
+  ],
+  "browserFollowUp": {
+    "question": "Rank Toronto Raptors's top five lineups by lowest defensive rating in the 2025-26 Regular Season, with at least 100 offensive and defensive possessions and 0 minutes.",
+    "status": "ok",
+    "scope": {
+      "seasons": [
+        "2025-26"
+      ],
+      "playerIds": [],
+      "teamIds": [
+        "1610612761"
+      ],
+      "opponentTeamIds": [],
+      "players": [],
+      "teams": [
+        {
+          "id": "1610612761",
+          "name": "Toronto Raptors"
+        }
+      ],
+      "opponents": [],
+      "shotFilters": [],
+      "seasonTypes": [
+        "Regular Season"
+      ]
+    },
+    "toolCalls": [
+      {
+        "toolCallId": "call_bq4zIpMl2Lm1Z3RrZipgqKfL",
+        "toolName": "resolve_teams",
+        "request": {
+          "names": [
+            "Toronto Raptors"
+          ]
+        },
+        "ok": true,
+        "latencyMs": 1
+      },
+      {
+        "toolCallId": "call_xz1Bn3hZ9c9o791g0RMyobCI",
+        "toolName": "analyze_possession_stats",
+        "request": {
+          "mode": "lineups",
+          "teamId": "1610612761",
+          "playerIds": [],
+          "season": "2025-26",
+          "seasonType": "Regular Season",
+          "metric": "defensiveRating",
+          "direction": "asc",
+          "limit": 5,
+          "minPossessions": 100,
+          "minMinutes": 0,
+          "sameGamesOnly": false
+        },
+        "ok": true,
+        "latencyMs": 19
+      }
+    ],
+    "latencyMs": {
+      "planning": 6958,
+      "retrieval": 0,
+      "compute": 0,
+      "render": 3806,
+      "total": 10793
+    },
+    "modelUsage": {
+      "calls": 4,
+      "inputTokens": 38609,
+      "outputTokens": 892,
+      "totalTokens": 39501,
+      "cachedInputTokens": 18473,
+      "cacheWriteInputTokens": 19735,
+      "estimatedCostUsd": 0.003138
+    }
+  },
+  "totalEstimatedModelCostUsd": 0.019835,
+  "verification": {
+    "unitTestsPassed": 519,
+    "localEvaluationsPassed": 28,
+    "customShotContractsPassed": 7,
+    "nbaEndpointContractsPassed": 30,
+    "typeErrors": 0,
+    "typeWarnings": 0,
+    "productionBuild": "passed",
+    "browserChecks": [
+      "saved research reopened after server restart",
+      "visible progress on generated follow-up",
+      "defensive lineup scope and ordering",
+      "interactive table sort",
+      "keyboard chart inspection",
+      "1440px desktop table and chart each 1120px wide",
+      "390px mobile viewport and document width agree; 358px cards",
+      "temporary viewport override restored"
+    ]
+  }
+}
