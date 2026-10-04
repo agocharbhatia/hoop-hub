@@ -48,7 +48,7 @@
 				{#each bars as bar, index}
 					{@const position = geometry.position(bar.value)}
 					<li class="bar-row" class:inspected={inspectIndex !== null && activeIndex === index} onpointerenter={() => inspectIndex = index}>
-						<span class="bar-label">{#if bar.entity}<EntityAvatar entity={bar.entity} size={24} decorative />{/if}<span>{bar.label}</span></span>
+						<span class="bar-label">{#if order !== 'original'}<span class="rank" aria-label="Position {index + 1}">{index + 1}</span>{/if}{#if bar.entity}<EntityAvatar entity={bar.entity} size={32} decorative />{/if}<span>{bar.label}</span></span>
 						<div class="bar-plot" aria-hidden="true">
 							<span class="zero-line" style:left="{geometry.zero}%"></span>
 							<span class="bar-fill" class:negative={bar.value < 0} style:left="{position.left}%" style:width="{position.width}%"></span>
@@ -82,7 +82,8 @@
 	.bar-row { align-items: center; padding: 0.65rem 0; border-bottom: 1px solid var(--color-border); }
 	.bar-label { display: flex; align-items: center; gap: .5rem; min-width: 0; font-size: 0.8125rem; line-height: 1.5; overflow-wrap: anywhere; }
 	.bar-label > span { min-width: 0; }
-	.bar-value { text-align: right; font-size: 0.8125rem; font-weight: 550; font-variant-numeric: tabular-nums; white-space: nowrap; }
+	.rank { flex: 0 0 18px; font-size: 11px; color: var(--color-muted-foreground); font-variant-numeric: tabular-nums; }
+	.bar-value { text-align: right; font-size: 1.25rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 	.bar-plot { position: relative; height: 1.5rem; min-width: 0; }
 	.zero-line { position: absolute; top: -0.2rem; bottom: -0.2rem; width: 1px; background: var(--color-muted-foreground); opacity: 0.5; }
 	.bar-fill { position: absolute; top: 0.3rem; height: 0.9rem; background: var(--bar-color); border-radius: 0 0.2rem 0.2rem 0; }

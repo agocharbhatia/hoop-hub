@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { QueryAnswerArtifact } from '$lib/contracts/answer-response';
 	import ArtifactTable from './ArtifactTable.svelte';
+	import EntityAvatar from '$lib/components/entities/EntityAvatar.svelte';
+	import { resolvePlayerEntity } from '$lib/entities/entity-media';
 	import { displayMetric, displayCount, rankingMetric, RATING_LABELS } from './possession-presentation';
 	import { createBarGeometry } from './bar-chart-utils';
 
@@ -26,7 +28,7 @@
 			<li class="lineup-row">
 				<span class="rank" aria-label="Rank {rank}">{rank}</span>
 				<div class="lineup-content">
-					<ul class="players" aria-label="Five players">{#each String(row.lineup).split(',').map((name) => name.trim()) as player}<li>{player}</li>{/each}</ul>
+					<ul class="players" aria-label="Five players">{#each String(row.lineup).split(',').map((name) => name.trim()) as player}{@const entity = resolvePlayerEntity({ name: player })}<li>{#if entity}<EntityAvatar {entity} size={24} decorative />{/if}<span>{player}</span></li>{/each}</ul>
 					<div class="rating-details">{#each ['netRating', 'offensiveRating', 'defensiveRating'].filter((key) => key !== metric) as key}<span><abbr title={RATING_LABELS[key]}>{key === 'netRating' ? 'NET' : key === 'offensiveRating' ? 'OFF' : 'DEF'}</abbr> {displayMetric(row[key], { signed: key === 'netRating' })}</span>{/each}</div>
 					<div class="rating-bar" aria-hidden="true"><span class="bar-zero" style:left="{barGeometry.zero}%"></span><span class="bar-fill" style:left="{bar.left}%" style:width="{bar.width}%"></span></div>
 					<p class="lineup-sample">{displayMetric(row.minutes)} min <span>{displayCount(row.games)} games</span><span>{displayCount(row.offensivePossessions)} off / {displayCount(row.defensivePossessions)} def poss</span></p>
@@ -51,7 +53,8 @@
 	@supports (grid-template-columns: subgrid) { .lineup-row { grid-template-columns: subgrid; } }
 	.rank { font-size: 12px; color: var(--color-muted-foreground); font-variant-numeric: tabular-nums; padding-top: 3px; }
 	.players { display: flex; flex-wrap: wrap; gap: 3px 12px; font-size: 13px; line-height: 1.5; }
-	.players li { overflow-wrap: anywhere; }
+	.players li { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+	.players li > span { min-width: 0; }
 	.rating-details { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
 	abbr { text-decoration: none; color: var(--color-muted-foreground); font-size: 10px; margin-right: 3px; }
 	.lineup-sample { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-variant-numeric: tabular-nums; }
