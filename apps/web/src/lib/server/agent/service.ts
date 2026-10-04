@@ -66,7 +66,7 @@ import { createRunProviderFetcher } from './query-runtime';
 import { analyzePossessionStats, buildPossessionAnswer, buildPossessionArtifacts, findPossessionScopeConflict, possessionAnalyticsTool, validatePossessionAnalyticsRequest, verifiedPossessionData, type PossessionAnalyticsRequest } from './possession-analytics';
 import { resolveLatestStartedNbaSeason } from '$lib/server/season-intent';
 import { querySessionStore } from './query-session-store';
-import { awaitWithSignal, createRunEndpointFetcher, describeEndpointActivity } from './query-runtime';
+import { awaitWithSignal, createRunEndpointFetcher, describeEndpointActivity, describeProviderActivity } from './query-runtime';
 import { buildFollowUpSuggestions } from './follow-up-suggestions';
 import { resolveExplicitQuestionPlayers } from './question-identities';
 import { findUnsupportedTacticalClipScope } from './tactical-clip-scope';
@@ -316,7 +316,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			});
 			const runDependencies = { ...dependencies, endpointFetcher: createRunEndpointFetcher(dependencies.endpointFetcher, signal,
 				(endpointId) => emitProgress('fetching', describeEndpointActivity(endpointId))),
-				providerFetcher: createRunProviderFetcher(providerFetcher, signal, (datasetId) => emitProgress('fetching', `Loading PBP Stats ${datasetId.replaceAll('_', ' ')} data`)) };
+				providerFetcher: createRunProviderFetcher(providerFetcher, signal, (datasetId) => emitProgress('fetching', describeProviderActivity(datasetId))) };
 			const traceId = crypto.randomUUID();
 			const messages: DynamicAgentChatMessage[] = [
 				...buildSystemMessages(referenceDate),
@@ -351,15 +351,20 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			let requestedTrendRepair = false;
 			let requestedSplitRepair: WinLossSplitRepair | null = null;
 			const modelUsage = { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0 };
+			const activeToolActivities = new Map<string, Pick<QueryProgress, 'stage' | 'message'>>();
 			const runTool = async (toolCall: DynamicAgentToolCall, trustedReplay?: GroundedResearchRequest) => {
 				signal.throwIfAborted();
 				const activity = describeToolActivity(toolCall.name);
+				activeToolActivities.set(toolCall.id, activity);
 				emitProgress(activity.stage, activity.message);
 				const message = await awaitWithSignal(executeToolCall(toolCall, runDependencies, executionContext, clock.nowMs, semanticExecutor, trustedReplay), signal);
 				signal.throwIfAborted();
 				const artifacts = buildProgressiveArtifacts(executionContext.toolResults);
 				if (artifacts.length) options.onArtifacts?.(artifacts);
-				emitProgress(activity.stage, 'Source step complete');
+				activeToolActivities.delete(toolCall.id);
+				const pendingActivity = activeToolActivities.values().next().value;
+				if (pendingActivity) emitProgress(pendingActivity.stage, pendingActivity.message);
+				else emitProgress('planning', 'Reviewing what we found');
 				return message;
 			};
 			// Resolve identities before launching data tools; independent data tools share a bounded worker batch.
@@ -375,7 +380,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				}
 				return results;
 			};
-			emitProgress('planning', refinement ? 'Applying your research refinement' : 'Understanding your question');
+			emitProgress('planning', refinement ? 'Updating your results' : 'Reading your question');
 			let refinementCompleted = true;
 			if (refinement) {
 				const toolCalls = refinement.requests.map((entry, index) => ({
@@ -408,7 +413,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				}
 
 				const modelStartedAt = clock.nowMs();
-				emitProgress('planning', iteration === 0 ? 'Understanding your question' : 'Checking the results and choosing the next step');
+				emitProgress('planning', iteration === 0 ? 'Reading your question' : 'Checking whether we have everything you asked for');
 				const modelResponse = await awaitWithSignal(dependencies.model.complete({
 					messages,
 					tools: buildToolDefinitions(), signal
@@ -459,7 +464,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			}
 
 			const finalStartedAt = clock.nowMs();
-			emitProgress('writing', 'Writing the answer from verified results');
+			emitProgress('writing', 'Putting your answer together');
 			const finalResponse = terminalResponse ?? await awaitWithSignal(dependencies.model.complete({
 				messages,
 				responseFormat: buildFinalAnswerSchema(), signal
@@ -605,10 +610,10 @@ export function createDefaultTeamDirectoryAdapter(): DynamicAgentTeamDirectory {
 /* Helper functions */
 
 function describeToolActivity(name: string): Pick<QueryProgress, 'stage' | 'message'> {
-	if (name === 'analyze_possession_stats') return { stage: 'fetching', message: 'Loading possession and lineup analytics from PBP Stats' };
-	if (name === 'resolve_players' || name === 'resolve_teams') return { stage: 'resolving', message: 'Resolving player and team identities' };
-	if (name === 'aggregate_endpoint_rows' || name === 'analyze_time_series') return { stage: 'computing', message: 'Calculating the requested statistics' };
-	return { stage: 'fetching', message: name === 'find_video_clips' ? 'Finding matching shots and videos' : 'Checking NBA source data' };
+	if (name === 'analyze_possession_stats') return { stage: 'fetching', message: 'Looking up team performance and lineups' };
+	if (name === 'resolve_players' || name === 'resolve_teams') return { stage: 'resolving', message: 'Finding the players and teams' };
+	if (name === 'aggregate_endpoint_rows' || name === 'analyze_time_series') return { stage: 'computing', message: 'Working out the numbers' };
+	return { stage: 'fetching', message: name === 'find_video_clips' ? 'Finding plays that match your question' : 'Looking up NBA stats' };
 }
 
 /** Common single-player research is complete after one canonical computation, without a second planning loop. */

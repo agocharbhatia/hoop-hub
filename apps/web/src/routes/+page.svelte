@@ -31,7 +31,7 @@
 	let pageError = $state('');
 	let nextCursor = $state<string | undefined>();
 	let historyOpen = $state(false);
-	let progress = $state<QueryProgress>({ stage: 'planning', message: 'Planning your research…', completedTools: 0, elapsedMs: 0 });
+	let progress = $state<QueryProgress>({ stage: 'planning', message: 'Reading your question', completedTools: 0, elapsedMs: 0 });
 	let startedAt = $state(0);
 	let lastUpdateAt = $state(0);
 	let stageStartedAt = $state(0);
@@ -65,7 +65,7 @@
 		messages = [...messages, { id: crypto.randomUUID(), role: 'user', content: question }, { id, role: 'assistant', content: '', phase: 'running' }];
 		input = ''; pageError = ''; isLoading = true;
 		startedAt = lastUpdateAt = stageStartedAt = clock = Date.now();
-		progress = { stage: 'planning', message: 'Planning your research…', completedTools: 0, elapsedMs: 0 };
+		progress = { stage: 'planning', message: 'Reading your question', completedTools: 0, elapsedMs: 0 };
 		const request = new AbortController(); activeRequest = request;
 		await revealLatest(true);
 		try {
@@ -74,7 +74,7 @@
 			if (!response.ok) { const error = await response.json() as { error?: string }; throw new Error(error.error ?? 'The request could not finish. Please try again.'); }
 			const data = await consumeQueryStream(response, {
 				onprogress: (update) => {
-					if (update.stage !== progress.stage || update.completedTools !== progress.completedTools) stageStartedAt = Date.now();
+					if (update.stage !== progress.stage || update.message !== progress.message || update.completedTools !== progress.completedTools) stageStartedAt = Date.now();
 					progress = update; lastUpdateAt = Date.now();
 				},
 				onartifacts: (artifacts) => updateMessage(id, (message) => ({ ...message, data: provisionalResult(reconcileArtifactSnapshot(message.data?.artifacts ?? [], artifacts)) }))

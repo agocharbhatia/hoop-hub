@@ -121,7 +121,7 @@ function streamResearchAnswer(runtime: QueryRouteRuntime, input: QueryAnswerRequ
 	let heartbeat: ReturnType<typeof setInterval> | undefined;
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
-			let progress: QueryProgress = { stage: 'planning', message: 'Understanding your question', completedTools: 0, elapsedMs: 0 };
+			let progress: QueryProgress = { stage: 'planning', message: 'Reading your question', completedTools: 0, elapsedMs: 0 };
 			let updatedAt = Date.now();
 			const send = (event: QueryStreamEvent) => {
 				if (!closed && !signal.aborted) controller.enqueue(encoder.encode(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`));

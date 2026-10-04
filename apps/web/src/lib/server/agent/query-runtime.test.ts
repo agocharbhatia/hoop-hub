@@ -5,6 +5,7 @@ import { createDynamicQueryAgent } from './service';
 import { createQuerySessionStore } from './query-session-store';
 import type { EndpointFetchResult } from '$lib/server/data/adapters/stats-endpoint-client';
 import type { DynamicAgentModelResponse } from './types';
+import type { QueryProgress } from '$lib/contracts/query-progress';
 import type { QueryAnswerArtifact } from '$lib/contracts/answer-response';
 
 /* Test helpers */
@@ -159,6 +160,41 @@ describe('research execution latency and cancellation', () => {
 		const waiting = awaitWithSignal(new Promise(() => {}), controller.signal);
 		controller.abort();
 		await assert.rejects(waiting, { name: 'AbortError' });
+	});
+
+	test('keeps the remaining activity visible when a parallel task finishes', async () => {
+		const gates = [deferred<EndpointFetchResult>(), deferred<EndpointFetchResult>()];
+		const bothStarted = deferred<void>();
+		const firstComplete = deferred<void>();
+		const progress: QueryProgress[] = [];
+		let sourceCalls = 0;
+		let modelCalls = 0;
+		const agent = createDynamicQueryAgent({
+			model: { async complete() {
+				if (modelCalls++ === 0) return { content: null, toolCalls: ['1', '2'].map((id) => ({ id, name: 'analyze_time_series', arguments: JSON.stringify({ endpointId: 'playergamelog', params: { PlayerID: id, Season: '2024-25' }, dateColumn: 'GAME_DATE', valueColumn: 'REB', lastN: 2 }) })) };
+				return { content: JSON.stringify({ answer: 'Verified source results.', artifacts: [], warnings: [] }), toolCalls: [] };
+			} },
+			endpointFetcher: async (request) => {
+				if (++sourceCalls === 2) bothStarted.resolve();
+				return gates[Number(request.params.PlayerID) - 1].promise;
+			},
+			playerDirectory: { ensureAvailable: () => ({ ok: true }), findByNameOrAlias: () => [] },
+			teamDirectory: { findByNameOrAlias: () => [] }, sessionStore: createQuerySessionStore()
+		});
+		const answer = agent.answerQuestion('Get both game logs for 2024-25.', { onProgress(update) {
+			progress.push(update);
+			if (update.completedTools === 1) firstComplete.resolve();
+		} });
+		await bothStarted.promise;
+		gates[0].resolve(endpointResult());
+		await firstComplete.promise;
+		assert.equal(progress.at(-1)?.stage, 'computing', 'the other computation is still in progress');
+		assert.equal(progress.at(-1)?.message, 'Working out the numbers');
+		assert.equal(progress.some((update) => update.message === 'Reviewing what we found'), false);
+		gates[1].resolve(endpointResult());
+		await answer;
+		assert.ok(progress.some((update) => update.message === 'Reviewing what we found'));
+		assert.equal(progress.at(-1)?.message, 'Putting your answer together');
 	});
 
 	test('runs independent populations together, streams verified charts, and reuses a terminal final answer', async () => {

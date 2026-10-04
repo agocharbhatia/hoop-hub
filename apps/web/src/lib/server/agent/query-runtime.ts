@@ -55,14 +55,25 @@ export function createRunProviderFetcher(fetcher: DataProviderFetcher, signal: A
 
 export function describeEndpointActivity(endpointId: string): string {
 	const labels: Record<string, string> = {
-		shotchartdetail: 'Loading the matching shot attempts',
-		videodetailsasset: 'Finding available play videos',
-		playergamelog: 'Loading player game logs',
-		playergamelogs: 'Loading player game logs',
-		teamgamelog: 'Loading team game logs',
-		leagueseasonmatchups: 'Loading tracked player matchups',
-		leaguedashplayerstats: 'Loading league player statistics',
-		leaguedashteamstats: 'Loading league team statistics'
+		shotchartdetail: 'Looking through the shots',
+		videodetailsasset: 'Looking for videos of those plays',
+		playergamelog: 'Looking through player game results',
+		playergamelogs: 'Looking through player game results',
+		teamgamelog: 'Looking through team game results',
+		leagueseasonmatchups: 'Checking the head-to-head matchups',
+		leaguedashplayerstats: 'Looking up player stats across the league',
+		leaguedashteamstats: 'Looking up team stats across the league'
 	};
-	return labels[endpointId] ?? 'Loading NBA source data';
+	return labels[endpointId] ?? 'Looking up NBA stats';
+}
+
+export function describeProviderActivity(datasetId: string): string {
+	const labels: Record<string, string> = {
+		on_off: 'Comparing team performance with the player on and off the court',
+		four_factors: 'Checking shooting, rebounds and turnovers',
+		combinations: 'Checking how these players perform together',
+		lineups: 'Comparing the lineups',
+		possession_starts: 'Checking how the team starts its possessions'
+	};
+	return labels[datasetId] ?? 'Looking up team performance';
 }
