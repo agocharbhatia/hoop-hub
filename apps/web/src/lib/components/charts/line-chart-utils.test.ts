@@ -20,3 +20,11 @@ test('trend axis dates stay on their source day across local time zones', () => 
 	assert.equal(formatLineTick('Mar 23'), 'Mar 23');
 	assert.equal(formatLineTick(3), '3');
 });
+
+test('saved English game dates use compact ticks without treating arbitrary categories as dates', () => {
+	assert.equal(formatLineTick('Mar 14, 2025'), 'Mar 14');
+	assert.equal(formatLineTick('Apr 13, 2025'), 'Apr 13');
+	assert.equal(formatLineTick('Feb 29, 2024'), 'Feb 29');
+	assert.equal(formatLineTick('Feb 29, 2025'), 'Feb 29, 20…');
+	assert.equal(formatLineTick('May flowers'), 'May flowers');
+});
