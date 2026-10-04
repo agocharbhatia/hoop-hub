@@ -12,11 +12,13 @@
 	import ResearchSubjects from './ResearchSubjects.svelte';
 	import type { QueryAnswerResponse, QueryAnswerArtifact } from '$lib/contracts/answer-response';
 	import { presentResearchWarnings } from '$lib/presentation/research-notes';
+	import { presentResearchAnswer } from '$lib/presentation/possession-summary';
 	import { playlistPlayer } from '$lib/presentation/research-subjects';
 
 	let { result, pending = false, incomplete = false, disabled = false, onfollowup }: { result: QueryAnswerResponse; pending?: boolean; incomplete?: boolean; disabled?: boolean; onfollowup?: (question: string) => void } = $props();
 	let selectedEvent = $state<{ gameId: string; eventId: string } | null>(null);
 	let selectionNote = $state('');
+	const answer = $derived(presentResearchAnswer(result));
 	const warnings = $derived(presentResearchWarnings(result));
 	const playlists = $derived(result.artifacts.filter((a) => a.type === 'video_playlist'));
 	const hasShotAndVideo = $derived(playlists.length > 0 && result.artifacts.some((artifact) => artifact.type === 'shot_chart'));
@@ -53,7 +55,7 @@
 
 <div class="research-result space-y-4">
 	<ResearchSubjects {result} />
-	{#if result.answer}<p class="max-w-4xl whitespace-pre-wrap text-sm leading-7 text-foreground/90">{result.answer}</p>{/if}
+	{#if answer}<p class="max-w-4xl whitespace-pre-wrap text-sm leading-7 text-foreground/90">{answer}</p>{/if}
 	{#if pending && result.artifacts.length}<p class="text-[11px] text-muted-foreground">Available evidence · the full answer is still being prepared.</p>{/if}
 	{#if incomplete && result.artifacts.length}<p class="text-[11px] text-amber-200">Partial evidence · the request ended before a final answer was received.</p>{/if}
 	{#if result.effectiveScope}

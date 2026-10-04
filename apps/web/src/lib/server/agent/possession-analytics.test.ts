@@ -4,7 +4,8 @@ import { createDynamicQueryAgent } from './service';
 import { createQuerySessionStore } from './query-session-store';
 import { getQueryTraceById } from '$lib/server/semantic/trace-store';
 import type { ProviderFetchResult } from '$lib/server/data/providers/client';
-import { findPossessionScopeConflict, parsePossessionAnalytics, validatePossessionAnalyticsRequest, type PossessionAnalyticsRequest } from './possession-analytics';
+import type { QueryAnswerAgentToolResult } from '$lib/contracts/answer-response';
+import { buildPossessionAnswer, buildPossessionArtifacts, verifiedPossessionData, findPossessionScopeConflict, parsePossessionAnalytics, validatePossessionAnalyticsRequest, type PossessionAnalyticsRequest } from './possession-analytics';
 
 /* Test helpers */
 
@@ -123,7 +124,9 @@ test('agent replaces fabricated provider prose/artifacts, streams canonical evid
 	const answer = await agent.answerQuestion('Compare Toronto on/off with Scottie Barnes in 2025-26.', { onArtifacts: (artifacts) => progressive.push(artifacts) });
 	assert.equal(answer.status, 'ok');
 	assert.doesNotMatch(answer.answer, /999|causal impact/);
-	assert.match(answer.answer, /117\.26|4\.44/);
+	assert.match(answer.answer, /higher net rating/);
+	assert.doesNotMatch(answer.answer, /117\.26|4\.44|2614/);
+	assert.equal(answer.artifacts[0].type === 'table' && answer.artifacts[0].rows.find((row) => row.metric === 'Offensive rating')?.on, 117.259);
 	assert.equal(answer.citations.length, 1);
 	assert.equal(answer.citations[0].source, 'pbpstats.com');
 	assert.equal(answer.effectiveScope?.teamIds[0], '1610612761');
@@ -154,4 +157,22 @@ test('source-owned lineup coverage warnings suppress duplicate model phrasing', 
 	});
 	const answer = await agent.answerQuestion('Top 5 Toronto lineups in 2025-26.');
 	assert.deepEqual(answer.warnings.map((warning) => warning.code), ['pbpstats_lineups_sampled']);
+});
+
+
+test('legacy on/off metric variants share one canonical population and one takeaway', () => {
+	const data = parsePossessionAnalytics(request(), [source('on_off', onOff), source('four_factors', factors)]);
+	const results = ['offensiveRating', 'defensiveRating', 'netRating'].map((metric) => ({
+		toolName: 'analyze_possession_stats', request: { ...data.request, metric },
+		response: { ok: true, data: { ...data, request: { ...data.request, metric } } }
+	})) as QueryAnswerAgentToolResult[];
+	assert.equal(verifiedPossessionData(results).length, 1);
+	assert.equal(buildPossessionArtifacts(results).length, 2);
+	const summary = buildPossessionAnswer(results);
+	assert.equal(summary.split('\n\n').length, 1);
+	assert.match(summary, /higher net rating/);
+	assert.doesNotMatch(summary, /117\.26|4\.44|2614/);
+	const anotherSeason = { ...data, request: { ...data.request, season: '2024-25' } };
+	results.push({ toolName: 'analyze_possession_stats', request: anotherSeason.request, response: { ok: true, data: anotherSeason } } as unknown as QueryAnswerAgentToolResult);
+	assert.equal(verifiedPossessionData(results).length, 2, 'different seasons must remain separate');
 });

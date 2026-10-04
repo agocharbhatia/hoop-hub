@@ -4,6 +4,8 @@ import type { DataProviderFetcher, ProviderFetchRequest, ProviderFetchResult } f
 import { findPlayerDirectoryEntryById } from '$lib/server/players/player-directory';
 import { findTeamDirectoryEntryById } from '$lib/server/teams/team-directory';
 import type { DynamicAgentToolDefinition } from './types';
+import { stableStringify } from '$lib/server/data/store';
+import { buildPossessionTakeaway } from '$lib/presentation/possession-takeaway';
 
 export type PossessionAnalyticsRequest = {
 	mode: 'on_off' | 'four_factors' | 'combinations' | 'lineups' | 'possession_starts';
@@ -232,35 +234,26 @@ export function verifiedPossessionData(results: QueryAnswerAgentToolResult[]): P
 	const populations = new Map<string, PossessionAnalyticsData>();
 	for (const result of results) if (result.toolName === 'analyze_possession_stats' && result.response.ok) {
 		const data = result.response.data as PossessionAnalyticsData;
-		if (data?.providerId === 'pbpstats' && Array.isArray(data.rows)) populations.set(JSON.stringify(data.request), data);
+		if (data?.providerId === 'pbpstats' && Array.isArray(data.rows)) {
+			const normalized = validatePossessionAnalyticsRequest(data.request as unknown as Record<string, unknown>);
+			populations.set(stableStringify(normalized.ok ? normalized.request : data.request), data);
+		}
 	}
 	return [...populations.values()];
 }
 
-/** Core numerical prose is coupled to canonical populations, including small samples and upstream limits. */
+/** Ground the takeaway in canonical rows while leaving detailed values and sample sizes in the artifacts. */
 export function buildPossessionAnswer(results: QueryAnswerAgentToolResult[]): string {
 	return verifiedPossessionData(results).map((data) => {
-		const request = data.request;
 		if (!data.rows.length) return `${data.title}: PBP Stats returned no qualifying data for this scope.`;
-		if (request.mode === 'on_off') {
-			const ratings = data.rows.filter((row) => ['Offensive rating', 'Defensive rating', 'Net rating'].includes(String(row.metric)));
-			const values = ratings.map((row) => `${row.metric}: ${format(row.on)} on court vs ${format(row.off)} off court (${format(row.difference)} on minus off), in points per 100 possessions.`);
-			const sample = data.rows[0];
-			return `${data.title}\n${values.join('\n')}\nSample: ${format(sample.minutesOn)} minutes on court and ${format(sample.minutesOff)} off court. Lower defensive rating means fewer points allowed.`;
-		}
-		if (request.mode === 'lineups') return `${data.title}\nShowing ${data.rows.length} of ${data.coverage.qualifyingRows} returned qualifying lineups, ranked by ${rankingLabel(request)}. Each has at least ${request.minPossessions} offensive and defensive possessions${request.minMinutes > 0 ? ` and ${request.minMinutes} minutes` : ''}.${data.coverage.possibleProviderCap ? ' The provider may have capped the lineup population.' : ''}`;
-		if (request.mode === 'combinations') return `${data.title}\nShowing ${data.rows.length} on/off combinations${request.minMinutes > 0 ? ` with at least ${request.minMinutes} minutes` : ''}, ranked by ${rankingLabel(request)}. Ratings are points per 100 possessions; lower defensive rating is better.`;
-		if (request.mode === 'four_factors') return `${data.title}\nThe table compares offensive and defensive four factors with the player on/off court. Differences are on minus off; percentage differences are percentage points. Sample: ${format(data.rows[0].minutesOn)} minutes on and ${format(data.rows[0].minutesOff)} off.`;
-		return `${data.title}\nOffense is shown in points per 100 possessions, with seconds per possession. Categories describe how possessions began and can overlap; their sample counts are unavailable.`;
+		return buildPossessionTakeaway(data.request, data.rows, {
+			team: findTeamDirectoryEntryById(data.request.teamId)?.canonicalName ?? `Team ${data.request.teamId}`,
+			players: data.request.playerIds.map((id) => findPlayerDirectoryEntryById(id)?.canonicalName ?? `Player ${id}`)
+		});
 	}).join('\n\n');
 }
 
 /* Helper functions */
-
-function rankingLabel(request: PossessionAnalyticsRequest): string {
-	const metric = { netRating: 'net rating', offensiveRating: 'offensive rating', defensiveRating: 'defensive rating', minutes: 'minutes', possessions: 'possessions' }[request.metric];
-	return `${metric}, ${request.direction === 'asc' ? 'lowest' : 'highest'} first`;
-}
 
 function record(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('PBP Stats returned malformed data.'); return value as Record<string, unknown>; }
 function finite(value: unknown): number | null { if (value === null || value === undefined || typeof value === 'string' && value.trim() === '' || typeof value === 'boolean' || typeof value === 'object') return null; const number = Number(value); return Number.isFinite(number) ? number : null; }
@@ -276,6 +269,5 @@ function compareMetric(a: StatsQueryRow, b: StatsQueryRow, metric: string, direc
 	if (y === null && x !== null) return -1;
 	return x !== null && y !== null && x !== y ? (direction === 'asc' ? x - y : y - x) : JSON.stringify(a).localeCompare(JSON.stringify(b));
 }
-function format(value: unknown): string { const number = finite(value); return number === null ? 'unavailable' : number.toFixed(2); }
 
 /* End helper functions */
