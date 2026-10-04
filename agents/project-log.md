@@ -459,3 +459,10 @@ Removed model cost reservations and mandatory token pricing from request admissi
 - Browser verification exposed cached fallback bytes after the policy repair. A stable, upstream-verified browser playback query repairs old saved playlists while canonical source/event URLs and export provenance remain unchanged. Source links retain opener isolation and the proper referrer.
 - Verified the reported Kawhi event playing beyond five seconds in the app with normal caching, playlist navigation, and one real normalized video/audio export without omissions. Passed 615 existing/default tests plus two subsequent cache-key regressions, zero Svelte errors/warnings, production build/transport startup, and production HTTP boundary smoke. No paid model calls were made.
 - Changes were committed in scoped playback, source-link, server media, cache-repair and evidence updates. See `.docs/CLIP_PLAYBACK_RELIABILITY_2026-10-04.md`; selected-host media acceptance remains a release gate.
+
+## 2026-10-04 — Interactive basketball graphics
+
+- Implemented the Basketball University reference direction: coordinate-derived zone shot summaries, exact-identity comparison heatmaps and compact rankings, plus larger bar values and lineup portraits. Existing shot/density/FG% views, tables, row identities and exports remain available.
+- Heatmap colors use the full returned metric population, not league percentiles. Mixed metrics/units or ambiguous/duplicate subjects retain tables; shared long-form metric labels, differing scopes and game samples remain interpretable.
+- Browser checks at 320/375/1280px verified fit, metric selection, table fallback, keyboard zones and paginated original-event selection. Production saved-research replay reconciled Scottie Barnes' 1-for-2 mid-range result; sparse/single-area queries retain individual-shot defaults.
+- Full local suite passed 623 tests/97 files; subsequent context/default-view checks passed with all 37 chart tests. Final Svelte check and production build/relocated transport passed. Reference screenshots use explicitly synthetic QA data; the temporary review route was removed. See `.docs/GRAPHIC_ARTIFACTS_2026-10-04.md`.
