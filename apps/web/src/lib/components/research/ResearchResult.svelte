@@ -10,12 +10,12 @@
 	import VideoPlaylist from '$lib/components/video/VideoPlaylist.svelte';
 	import ClipExportButton from './ClipExportButton.svelte';
 	import type { QueryAnswerResponse, QueryAnswerArtifact } from '$lib/contracts/answer-response';
-	import { getVisibleWarningMessages } from '$lib/presentation/query-response';
+	import { presentResearchWarnings } from '$lib/presentation/research-notes';
 
 	let { result, pending = false, incomplete = false, disabled = false, onfollowup }: { result: QueryAnswerResponse; pending?: boolean; incomplete?: boolean; disabled?: boolean; onfollowup?: (question: string) => void } = $props();
 	let selectedEvent = $state<{ gameId: string; eventId: string } | null>(null);
 	let selectionNote = $state('');
-	const warnings = $derived(getVisibleWarningMessages(result));
+	const warnings = $derived(presentResearchWarnings(result));
 	const playlists = $derived(result.artifacts.filter((a) => a.type === 'video_playlist'));
 	const hasShotAndVideo = $derived(playlists.length > 0 && result.artifacts.some((artifact) => artifact.type === 'shot_chart'));
 	const displayedArtifacts = $derived(presentationArtifacts(result.artifacts));
@@ -66,9 +66,9 @@
 			{#if result.effectiveScope.shotResult}<span class="rounded border border-border px-2 py-1">Clips · {result.effectiveScope.shotResult === 'any' ? 'makes + misses' : result.effectiveScope.shotResult}</span>{/if}
 		</div>
 	{/if}
-	{#if warnings.length}
+	{#if warnings.alerts.length}
 		<aside class="rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2" aria-label="Result limitations">
-			{#each warnings as warning}<p class="text-xs leading-6 text-amber-200">{warning}</p>{/each}
+			{#each warnings.alerts as warning}<p class="text-xs leading-6 text-amber-200">{warning}</p>{/each}
 		</aside>
 	{/if}
 	<div class="artifact-grid">
@@ -77,9 +77,6 @@
 			{#if artifact.text.trim() !== result.answer.trim()}<p class="artifact-wide whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{artifact.text}</p>{/if}
 		{:else}
 			<section class="artifact-card {visualCount === 1 || narrowVisualCount === 1 || requiresWideArtifact(artifact) || (displayedArtifacts.at(-1)?.index === index && narrowVisualCount % 2 === 1) ? 'artifact-wide' : ''} min-w-0 rounded-xl border border-border bg-card/50 p-3 sm:p-5" aria-label={`Research artifact ${index + 1}`}>
-				{#if 'source' in artifact && artifact.source?.providerId === 'pbpstats'}
-					<p class="mb-3 text-[11px] text-muted-foreground">PBP Stats · {artifact.source.resultSetName.replaceAll('_', ' ')}{artifact.source.sampled ? ' · limited source population' : ''}</p>
-				{/if}
 				{#if artifact.type === 'table' && possessionView(artifact) === 'on_off'}
 					<OnOffComparison {artifact} />
 				{:else if artifact.type === 'table' && possessionView(artifact) === 'lineups'}
@@ -106,10 +103,13 @@
 	{/each}
 	</div>
 	{#if selectionNote}<p role="status" class="text-xs text-muted-foreground">{selectionNote}</p>{/if}
-	{#if result.citations.length}
+	{#if result.citations.length || warnings.notes.length}
 		<details class="text-xs text-muted-foreground">
-			<summary class="cursor-pointer rounded py-2 focus-visible:outline focus-visible:outline-2">Sources · {result.citations.length}</summary>
-			<ul class="space-y-2 py-2">{#each result.citations as citation}<li><span class="font-medium text-foreground/80">{citation.source}</span>{#if citation.detail}<p class="mt-1 leading-5">{citation.detail}</p>{/if}</li>{/each}</ul>
+			<summary class="cursor-pointer rounded py-2 focus-visible:outline focus-visible:outline-2">Sources & notes{#if warnings.coverageLabel}<span class="ml-2 text-foreground/65">· {warnings.coverageLabel}</span>{/if}</summary>
+			<div class="space-y-3 py-2">
+				{#if warnings.notes.length}<ul class="space-y-2" aria-label="Data notes">{#each warnings.notes as note}<li class="leading-5">{note}</li>{/each}</ul>{/if}
+				{#if result.citations.length}<ul class="space-y-2" aria-label="Sources">{#each result.citations as citation}<li><span class="font-medium text-foreground/80">{citation.source}</span>{#if citation.detail}<p class="mt-1 leading-5">{citation.detail}</p>{/if}</li>{/each}</ul>{/if}
+			</div>
 		</details>
 	{/if}
 	{#if !pending && !incomplete && result.followUpSuggestions?.length && onfollowup}

@@ -218,7 +218,6 @@
 					{#if isLoading}<button type="button" onclick={cancelResearch} aria-label="Cancel research" class="rounded-lg border border-amber-300/30 bg-amber-300/5 p-2.5 text-amber-200 hover:bg-amber-300/10"><IconPlayerStop class="size-4" /></button>{:else}<button type="submit" disabled={detailLoading || historyMutating || !input.trim()} aria-label="Send question" class="rounded-lg bg-sky-300 p-2.5 text-slate-950 transition hover:bg-sky-200 disabled:opacity-30"><IconArrowUp class="size-4" /></button>{/if}
 				</form>
 				{#if usage?.limited}<p class="mt-2 text-center text-[11px] text-muted-foreground" title={`Resets ${new Date(usage.resetsAt).toLocaleString()}`}>{Math.max(0, usage.research.limit - usage.research.used)} of {usage.research.limit} questions left today · resets at midnight UTC</p>{/if}
-				<p class="mt-2 text-center text-[10px] text-muted-foreground">{sessionId ? 'Follow-ups retain your scope. Start new research to explore a different question.' : 'Completed research saves automatically. NBA data and video availability vary.'}</p>
 			</footer>
 		</main>
 	</div>

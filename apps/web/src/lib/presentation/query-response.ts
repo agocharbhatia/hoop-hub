@@ -160,10 +160,15 @@ export function getVideoPlaylistArtifacts(payload: QueryAnswerResponse): VideoPl
 }
 
 export function getVisibleWarningMessages(payload: QueryAnswerResponse): string[] {
+	return getVisibleWarnings(payload).map((warning) => warning.message);
+}
+
+/** Retain warning codes so the UI can separate background context from incomplete answers. */
+export function getVisibleWarnings(payload: QueryAnswerResponse): QueryAnswerResponse['warnings'] {
 	return payload.warnings
 		.filter((warning) => !isInternalWarningCode(warning.code))
-		.map((warning) => warning.message.trim())
-		.filter((message) => message.length > 0 && !containsInternalDiagnostic(message));
+		.map((warning) => ({ ...warning, message: warning.message.trim() }))
+		.filter((warning) => warning.message.length > 0 && !containsInternalDiagnostic(warning.message));
 }
 
 function isInternalWarningCode(code: string): boolean {
