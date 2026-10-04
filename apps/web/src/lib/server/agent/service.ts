@@ -70,6 +70,7 @@ import { awaitWithSignal, createRunEndpointFetcher, describeEndpointActivity, de
 import { buildFollowUpSuggestions } from './follow-up-suggestions';
 import { resolveExplicitQuestionPlayers } from './question-identities';
 import { findUnsupportedTacticalClipScope } from './tactical-clip-scope';
+import { findExplicitCustomShotCue, findUnsupportedClipClockScope, validateExplicitClipDistance } from './clip-question-scope';
 import { collectVerifiedTrendPopulations, countUnverifiedTrendScopes, buildVerifiedTrendPopulationAnswer, reconcileVerifiedTrendArtifacts } from './trend-populations';
 import type { QueryProgress } from '$lib/contracts/query-progress';
 import { deriveResearchRefinement, summarizeResearchScope } from './query-refinement';
@@ -471,7 +472,17 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			}), signal);
 			if (!terminalResponse) recordModelUsage(modelUsage, finalResponse);
 			const renderLatencyMs = Math.round(clock.nowMs() - finalStartedAt);
-			const finalOutput = parseFinalOutput(finalResponse);
+			let finalOutput: DynamicAgentFinalOutput;
+			try {
+				finalOutput = parseFinalOutput(finalResponse);
+			} catch (error) {
+				// Completed clip research can be rendered from canonical evidence even when narration is malformed.
+				const recovered = error instanceof DynamicAgentError && error.code === 'invalid_model_output'
+					? recoverVerifiedClipAnswer(question, executionContext.toolResults, explicitPlayers) : null;
+				if (!recovered) throw error;
+				finalOutput = recovered;
+				executionContext.warnings.push({ code: 'dynamic_agent_final_output_recovered', message: 'The final narration was malformed; the complete canonical clip research supplied the answer.' });
+			}
 			const trendRequested = requiresVerifiedTrend(question);
 			const trendPopulations = collectVerifiedTrendPopulations(executionContext.toolResults, executionContext.resolvedPlayers);
 			const trendMissing = trendRequested && trendPopulations.length === 0;
@@ -618,6 +629,7 @@ function describeToolActivity(name: string): Pick<QueryProgress, 'stage' | 'mess
 
 /** Common single-player research is complete after one canonical computation, without a second planning loop. */
 function canFinalizeVerifiedResearch(question: string, results: QueryAnswerAgentToolResult[], players: ToolExecutionContext['resolvedPlayers']): boolean {
+	if (findUnsupportedClipClockScope(question)) return false;
 	if (players.length !== 1 || new Set(question.match(/\b\d{4}-\d{2}\b/g) ?? []).size > 1 || /\b(?:before|after|between|versus last|seasons|on\/off|wins?|losses|home|away|rank|defender|guarded|teammates?|alongside|plus|both|each|respectively|also|another|other)\b|\//i.test(question)) return false;
 	const numbers: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, fifteen: 15, twenty: 20, thirty: 30, forty: 40, fifty: 50, hundred: 100 };
 	const numeral = `(?:\\d+|${Object.keys(numbers).join('|')})`;
@@ -651,6 +663,8 @@ function canFinalizeVerifiedResearch(question: string, results: QueryAnswerAgent
 	const clips = results.filter((result) => result.toolName === 'find_video_clips' && result.response.ok && isPlainObject(result.response.data) &&
 		isPlainObject(result.response.data.shootingSummary) && Array.isArray(result.response.data.researchRows));
 	if (clips.length !== 1 || clips[0].request.playerId !== players[0].id || clips[0].request.eventType !== 'custom_shot' || results.some((result) => result.toolName === 'find_video_clips' && !result.response.ok)) return false;
+	const validatedRequest = parseFindVideoClipsRequest(clips[0].request);
+	if (!validatedRequest.ok || validateExplicitCustomShotCues(question, validatedRequest.request)) return false;
 	if (/\b(?:versus|vs|against)\b/i.test(question) && !clips[0].request.opponentTeamId) return false;
 	return !(/\bplayoffs?\b/i.test(question) && clips[0].request.seasonType !== 'Playoffs') && !(/\bregular season\b/i.test(question) && clips[0].request.seasonType !== 'Regular Season');
 }
@@ -2500,6 +2514,8 @@ async function findVideoClips(
 	dependencies: DynamicQueryAgentDependencies,
 	context: ToolExecutionContext
 ): Promise<{ ok: true; data: unknown } | { ok: false; data?: unknown; error: string }> {
+	const clockScope = findUnsupportedClipClockScope(context.question);
+	if (clockScope) return { ok: false, error: `Clip filtering is unavailable for ${clockScope}. The current clip tool does not preserve that clock constraint; do not return a broader playlist.` };
 	const tacticalScope = findUnsupportedTacticalClipScope(context.question);
 	if (tacticalScope) return { ok: false, error: `Tactical clip filtering is unavailable for ${tacticalScope}. The video source has shot actions, but does not label these possessions; matching clips cannot be verified.` };
 	const namedDefender = findNamedDefenderFallback(request, context.resolvedPlayers, context.question);
@@ -2517,6 +2533,10 @@ async function findVideoClips(
 		return findCustomShotVideoClips(request, dependencies, context);
 	}
 	const directEventType = request.eventType;
+	const customCue = findExplicitCustomShotCue(context.question);
+	if (customCue) return { ok: false, error: `Use eventType custom_shot and its exact canonical filters to preserve ${customCue}; a direct event feed cannot verify this question.` };
+	const distanceError = validateExplicitClipDistance(context.question, undefined);
+	if (distanceError) return { ok: false, error: distanceError };
 	if (!isStandardClipEventType(directEventType)) {
 		return { ok: false, error: `Unsupported direct clip event type '${request.eventType}'.` };
 	}
@@ -2711,6 +2731,8 @@ function validateExplicitCustomShotCues(question: string, request: FindVideoClip
 	if (!filters) {
 		return 'The custom shot request omitted its canonical filters.';
 	}
+	const distanceError = validateExplicitClipDistance(question, filters);
+	if (distanceError) return distanceError;
 	const normalized = question
 		.toLocaleLowerCase()
 		.replaceAll(/[’']/g, '')
@@ -3351,6 +3373,25 @@ function finalizeAggregateStates(states: Record<string, AggregateState>): Record
 			return [key, state.max];
 		})
 	);
+}
+
+/** Recover only scopes the server can prove complete, never guesses from an unfinished compound question. */
+function recoverVerifiedClipAnswer(question: string, results: QueryAnswerAgentToolResult[], players: ToolExecutionContext['resolvedPlayers']): DynamicAgentFinalOutput | null {
+	// Opponent presence alone cannot prove that the model selected the team explicitly named by the user.
+	if (/\b(?:versus|vs|against)\b/i.test(question)) return null;
+	// These scopes are not covered by the explicit custom-cue proof above; leave narration failure visible.
+	const scopeText = question.toLowerCase().replaceAll(/[-–—]/g, ' ').replaceAll(/\bdriving\s+(?:finger\s+roll\s+)?layups?\b/g, '');
+	if (/\b(?:layups?|dunks?|hooks?|floaters?|fadeaways?|turnarounds?|putbacks?|finger\s+roll|alley\s+oop|bank\s+shots?|paint|restricted area|above (?:the )?break|backcourt|overtime|contested|uncontested|wide open|catch and shoot)\b/.test(scopeText) || (/\bjump\s*shots?\b/.test(scopeText) && !/\b(?:pull\s*up|step\s*back)\b/.test(scopeText))) return null;
+	if (!canFinalizeVerifiedResearch(question, results, players)) return null;
+	const result = results.findLast((entry) => entry.toolName === 'find_video_clips' && entry.response.ok);
+	if (!result || !isPlainObject(result.response.data) || !isPlainObject(result.response.data.shootingSummary)) return null;
+	const count = result.response.data.matchingShotEventCount;
+	if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) return null;
+	return {
+		answer: count === 0 ? `No matching shots were found for ${players[0].canonicalName}.`
+			: `Found ${count} matching ${count === 1 ? 'shot' : 'shots'} for ${players[0].canonicalName}. Explore the shot chart and clip list below.`,
+		artifacts: buildProgressiveArtifacts(results), warnings: []
+	};
 }
 
 function parseFinalOutput(response: DynamicAgentModelResponse): DynamicAgentFinalOutput {

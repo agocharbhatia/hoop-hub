@@ -152,8 +152,9 @@ function streamResearchAnswer(runtime: QueryRouteRuntime, input: QueryAnswerRequ
 	return new Response(stream, { headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' } });
 }
 
-function describeQueryError(error: unknown): { name: string } {
-	return { name: error instanceof Error ? error.name : 'UnknownError' };
+function describeQueryError(error: unknown): { name: string; code?: string } {
+	const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
+	return { name: error instanceof Error ? error.name : 'UnknownError', ...(code ? { code } : {}) };
 }
 
 async function getDependencies(): Promise<QueryRouteRuntime> {
