@@ -1,0 +1,13 @@
+# Use with the base Compose file and an amd64 image built outside the 1 GB VM.
+services:
+  app:
+    image: hoop-hub-oracle:local
+    mem_limit: 512m
+    cpus: 1
+    environment:
+      HOOP_HUB_AUTH_MODE: public
+      NODE_OPTIONS: --max-old-space-size=256
+      HOOP_HUB_CONCURRENT_RESEARCH: 1
+  proxy:
+    mem_limit: 96m
+    cpus: 0.25

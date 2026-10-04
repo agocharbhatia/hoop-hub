@@ -1,6 +1,24 @@
 # Oracle Always Free deployment
 
-Selected constraint: hosting must cost $0; card verification is acceptable. Model API usage remains separate. No Oracle resources have been provisioned, and account access is not configured.
+Selected constraint: hosting must cost $0; card verification is acceptable. Model API usage remains separate. Oracle Free Tier access is configured. On 2026-10-04, Toronto rejected both attempted ARM allocations for lack of capacity; an Always Free `VM.Standard.E2.1.Micro` instance was successfully provisioned instead.
+
+## Current deployment
+
+- Instance: `hoop-hub-demo`, Ubuntu 24.04 Minimal, x86_64, approximately 1 GB RAM, default boot volume of about 47 GB.
+- Public IP: `132.145.109.69` (ephemeral). HTTPS: `https://hoop-hub.132.145.109.69.sslip.io`. Caddy obtained a valid Let's Encrypt certificate.
+- SSH accepts only the deployment operator's current IPv4 address; public TCP ports 80/443 are enabled. Port 3000 stays on loopback. Host firewall rules are persisted.
+- The user requested open access without invitations. `deploy/compose.oracle-micro.yaml` selects public visitor sessions, one concurrent research request, a 512 MB application container, and a 96 MB proxy. Each browser retains its own private research identity.
+- Build the `linux/amd64` app image on the development machine, transfer it privately, and load it on the VM. Avoid compiling the application on the 1 GB host.
+- A fresh database is used. The developer's saved research was not transferred. The model key is stored in a protected server environment file. The user confirmed NBA display permission; PBP Stats permission remains unconfirmed and its public integration is disabled.
+- Oracle-to-NBA Stats connectivity returned HTTP 200 during provisioning. The hosted research flow still requires an end-to-end smoke test; liveness alone does not establish readiness.
+
+Run with:
+
+```bash
+sudo docker compose -f compose.yaml -f deploy/compose.oracle-micro.yaml --profile public up -d --no-build
+```
+
+The AMD micro is a modest demo host, not a validated high-concurrency or video-export capacity target. Its public link changes if Oracle replaces the ephemeral IP.
 
 ## Resource plan
 
