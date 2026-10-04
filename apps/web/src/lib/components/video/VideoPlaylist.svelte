@@ -3,6 +3,8 @@
 	import type { VideoPlaylistArtifactView } from '$lib/presentation/query-response';
 	import EntityAvatar from '$lib/components/entities/EntityAvatar.svelte';
 	import type { EntityMedia } from '$lib/entities/entity-media';
+	import type { VideoAvailability } from '$lib/contracts/video-availability';
+	import { checkVideoAvailability } from '$lib/presentation/video-availability';
 
 	type EventIdentity = { gameId: string; eventId: string };
 	let { artifact, player = null, selectedEvent = null, onselectevent }: {
@@ -17,8 +19,15 @@
 	let pendingAutoplay = $state(false);
 	let playbackError = $state<string | null>(null);
 	let videoElement = $state<HTMLVideoElement | null>(null);
+	let checkedUrl = $state<string | null>(null);
+	let availability = $state<VideoAvailability | null>(null);
+	let checkVersion = $state(0);
+	let unavailableUrls = $state(new Set<string>());
+	let consecutiveSkipped = 0;
 	const clips = $derived(artifact.clips);
 	const currentClip = $derived(clips[currentIndex]);
+	const checkingVideo = $derived(Boolean(currentClip) && checkedUrl !== currentClip?.url);
+	const blockedVideo = $derived(availability?.status === 'unavailable' || availability?.reason === 'rate_limited');
 	const selectionUnavailable = $derived(selectedEvent !== null && !clips.some((clip) =>
 		clip.gameId === selectedEvent?.gameId && clip.eventId === selectedEvent?.eventId));
 
@@ -33,10 +42,49 @@
 	});
 
 	$effect(() => {
+		const clip = currentClip;
+		checkVersion;
+		if (!clip) return;
+		const cancellation = new AbortController();
+		untrack(() => {
+			checkedUrl = null;
+			availability = null;
+			void checkVideoAvailability(clip, cancellation.signal).then((result) => {
+				if (cancellation.signal.aborted) return;
+				availability = result;
+				checkedUrl = clip.url;
+				if (result.status === 'unavailable') {
+					unavailableUrls = new Set([...unavailableUrls, clip.url]);
+					// Stop after a few missing clips so an unavailable source cannot trigger a full-playlist request burst.
+					if (isChainPlaying && consecutiveSkipped < 3 && currentIndex < clips.length - 1) {
+						consecutiveSkipped += 1;
+						playClip(currentIndex + 1, true);
+					} else {
+						isChainPlaying = false;
+						pendingAutoplay = false;
+					}
+				} else if (result.reason === 'rate_limited') {
+					isChainPlaying = false;
+					pendingAutoplay = false;
+				} else {
+					consecutiveSkipped = 0;
+					if (result.reason === 'unrecognized' && unavailableUrls.has(clip.url)) {
+						const updated = new Set(unavailableUrls);
+						updated.delete(clip.url);
+						unavailableUrls = updated;
+					}
+				}
+			}).catch(() => { /* An abandoned selection must not update the next clip. */ });
+		});
+		return () => cancellation.abort();
+	});
+
+	$effect(() => {
 		const selection = selectedEvent;
 		const index = selection ? clips.findIndex((clip) => clip.gameId === selection.gameId && clip.eventId === selection.eventId) : -1;
 		if (index >= 0) untrack(() => {
-			if (index !== currentIndex || !videoElement || videoElement.paused) playClip(index, true, false);
+			if (index !== currentIndex) playClip(index, true, false);
+			else if (!checkingVideo && !blockedVideo && videoElement?.paused) void startPlayback();
 		});
 		else if (selection) untrack(() => {
 			// Stop the old event so an unavailable selection cannot appear to play a different shot.
@@ -51,13 +99,14 @@
 		if (clips.length === 0) return;
 		const nextIndex = Math.max(0, Math.min(clips.length - 1, index));
 		const sourceWillChange = nextIndex !== currentIndex;
+		if (!sourceWillChange && blockedVideo && notify) checkVersion += 1;
 		currentIndex = nextIndex;
 		isChainPlaying = autoplay;
-		pendingAutoplay = autoplay && sourceWillChange;
+		pendingAutoplay = autoplay;
 		playbackError = null;
 		const clip = clips[nextIndex];
 		if (notify && clip.gameId && clip.eventId) onselectevent?.({ gameId: clip.gameId, eventId: clip.eventId });
-		if (autoplay && !sourceWillChange) void startPlayback();
+		if (autoplay && !sourceWillChange && !checkingVideo && !blockedVideo) void startPlayback();
 	}
 
 	async function startPlayback() {
@@ -90,6 +139,13 @@
 		playbackError = 'This clip could not load. Try another clip or open its source.';
 	}
 
+	function playAll() {
+		consecutiveSkipped = 0;
+		const first = clips.findIndex((clip) => !unavailableUrls.has(clip.url));
+		if (first >= 0) playClip(first, true);
+		else playbackError = 'NBA footage is unavailable for the clips checked so far. Try again later.';
+	}
+
 	/* Helper functions */
 
 	function formatGameDate(gameDate: string | null): string {
@@ -109,13 +165,29 @@
 
 	{#if artifact.coverage}
 		<p class="mb-3 text-xs tabular-nums text-muted-foreground">
-			{artifact.coverage.returnedClipCount} clips · {artifact.coverage.matchingShotEventCount} matching events
-			{#if artifact.coverage.missingVideoCount > 0} · {artifact.coverage.missingVideoCount} unavailable{/if}
-			{#if artifact.coverage.playlistCapped} · showing {artifact.coverage.returnedClipCount} of {artifact.coverage.joinedClipCount} available{/if}
+			{artifact.coverage.returnedClipCount} clip links · {artifact.coverage.matchingShotEventCount} matching plays
+			{#if artifact.coverage.missingVideoCount > 0} · {artifact.coverage.missingVideoCount} without a video link{/if}
+			{#if artifact.coverage.playlistCapped} · showing {artifact.coverage.returnedClipCount} of {artifact.coverage.joinedClipCount} links{/if}
 		</p>
 	{/if}
 
 	{#if currentClip}
+		{#if checkingVideo || blockedVideo}
+			<div class="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-6 text-center" role="status">
+				{#if checkingVideo}
+					<p class="text-sm text-muted-foreground">Checking this clip…</p>
+				{:else if availability?.reason === 'rate_limited'}
+					<p class="text-sm font-medium">NBA videos are temporarily busy</p>
+					<p class="max-w-sm text-xs leading-5 text-muted-foreground">Wait a moment, then choose the clip again.</p>
+				{:else if availability?.reason === 'nba_unavailable'}
+					<p class="text-sm font-medium">Footage unavailable from NBA</p>
+					<p class="max-w-sm text-xs leading-5 text-muted-foreground">This play is in the stats, but NBA’s video link has no footage. Try another clip.</p>
+				{:else}
+					<p class="text-sm font-medium">This clip couldn’t load from NBA</p>
+					<p class="max-w-sm text-xs leading-5 text-muted-foreground">Try another clip or open the source link below.</p>
+				{/if}
+			</div>
+		{:else}
 		{#key currentClip.url}
 			<!-- svelte-ignore a11y_media_has_caption -->
 			<video
@@ -125,12 +197,13 @@
 				controls playsinline preload="metadata"
 				oncanplay={() => { if (pendingAutoplay) void startPlayback(); }}
 				onplay={() => { isChainPlaying = true; playbackError = null; }}
-				onpause={() => { if (videoElement && !videoElement.ended) isChainPlaying = false; }}
+				onpause={() => { if (!checkingVideo && videoElement && !videoElement.ended) isChainPlaying = false; }}
 				onended={handleEnded}
 				onerror={handlePlaybackError}
 				class="aspect-video w-full rounded-lg border border-border bg-black"
 			></video>
 		{/key}
+		{/if}
 
 		<p class="mt-2 flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
 			<span>{currentClip.description || 'NBA play'}</span>
@@ -139,7 +212,7 @@
 		<div class="mt-3 flex flex-wrap items-center gap-2">
 			<button type="button" class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:bg-accent disabled:opacity-40" disabled={currentIndex === 0} onclick={() => playClip(currentIndex - 1, isChainPlaying)}>Previous</button>
 			<button type="button" class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:bg-accent disabled:opacity-40" disabled={currentIndex === clips.length - 1} onclick={() => playClip(currentIndex + 1, isChainPlaying)}>Next</button>
-			<button type="button" class="rounded-md bg-foreground px-3 py-1.5 text-xs text-background transition-opacity hover:opacity-80" onclick={() => playClip(0, true)}>Play all</button>
+			<button type="button" class="rounded-md bg-foreground px-3 py-1.5 text-xs text-background transition-opacity hover:opacity-80" onclick={playAll}>Play all</button>
 			<a href={currentClip.url} target="_blank" rel="noopener noreferrer" class="ml-auto text-xs text-muted-foreground underline underline-offset-4">Open source</a>
 		</div>
 	{:else}
@@ -157,6 +230,7 @@
 					onclick={() => playClip(index, true)}>
 					<span class="w-5 shrink-0 text-right tabular-nums opacity-60">{index + 1}</span>
 					<span class="min-w-0 flex-1 truncate">{clip.description || 'NBA play'}</span>
+					{#if unavailableUrls.has(clip.url)}<span class="shrink-0 text-[10px] text-muted-foreground">Unavailable</span>{/if}
 					{#if clip.gameDate}<span class="shrink-0 tabular-nums opacity-60">{formatGameDate(clip.gameDate)}</span>{/if}
 				</button></li>
 			{/each}
