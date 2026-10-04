@@ -83,7 +83,7 @@ describe('parseVideoDetailsAssetClips', () => {
 		assert.equal(parsed.data.totalAvailable, 1);
 	});
 
-	test('caps returned clips at 40 with a truncated flag', () => {
+	test('returns the full feed by default and applies an explicitly requested cap', () => {
 		const videoUrls = Array.from({ length: 45 }, (_, index) => ({ murl: `https://videos.nba.com/clip-${index}.mp4`, mth: null }));
 		const playlist = Array.from({ length: 45 }, (_, index) => ({
 			gi: `00425001${String(index).padStart(2, '0')}`,
@@ -99,9 +99,14 @@ describe('parseVideoDetailsAssetClips', () => {
 		if (!parsed.ok) {
 			assert.fail(parsed.error);
 		}
-		assert.equal(parsed.data.clips.length, 40);
+		assert.equal(parsed.data.clips.length, 45);
 		assert.equal(parsed.data.totalAvailable, 45);
-		assert.equal(parsed.data.truncated, true);
+		assert.equal(parsed.data.truncated, false);
+		const capped = parseVideoDetailsAssetClips(buildPayload(videoUrls, playlist), 40);
+		if (!capped.ok) assert.fail(capped.error);
+		assert.equal(capped.data.clips.length, 40);
+		assert.equal(capped.data.totalAvailable, 45);
+		assert.equal(capped.data.truncated, true);
 	});
 
 	test('returns a clean parser error for malformed payloads', () => {

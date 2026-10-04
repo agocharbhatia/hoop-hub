@@ -1,5 +1,3 @@
-const MAX_VIDEO_DETAILS_ASSET_CLIPS = 40;
-
 export type VideoDetailsAssetClip = {
 	url: string;
 	description: string;
@@ -20,7 +18,7 @@ export type ParsedVideoDetailsAssetClips = {
  */
 export function parseVideoDetailsAssetClips(
 	payload: unknown,
-	maxClips: number | null = MAX_VIDEO_DETAILS_ASSET_CLIPS
+	maxClips: number | null = null
 ): { ok: true; data: ParsedVideoDetailsAssetClips } | { ok: false; error: string } {
 	const payloadShape = readVideoDetailsAssetShape(payload);
 	if (!payloadShape.ok) {

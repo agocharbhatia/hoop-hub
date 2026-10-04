@@ -89,7 +89,6 @@ const DEFAULT_WALL_CLOCK_MS = 60_000;
 const MAX_RESULT_SET_ROWS = 150;
 const MAX_AGGREGATE_GROUPS = 100;
 const MAX_SELECTED_ROWS = 500;
-const MAX_VIDEO_PLAYLIST_CLIPS = 40;
 const TOOL_NAMES: QueryAnswerAgentToolName[] = [
 	'resolve_players',
 	'resolve_teams',
@@ -731,7 +730,7 @@ function buildSystemMessages(now: Date): DynamicAgentChatMessage[] {
 		{
 			role: 'system',
 			content:
-				'Use find_video_clips when the user asks to see or watch plays/clips. Use the efficient direct eventType for made_three, made_field_goal, assist, block, steal, rebound, or turnover. Never broaden made_three to made_field_goal. For exact shot descriptions such as pull-up, step-back, layup, shot zone, make/miss, distance, or period combinations, use eventType custom_shot and pass canonical customShot filters; never approximate them with a broader direct event. custom_shot joins the full shot log to videos by game and event id. opponentTeamId filters by the opposing TEAM only; there is no named-defender field. Do not silently replace a named defender with their team. Explain that limitation and ask whether the user wants team-level clips instead. When clips are found, emit a video_playlist artifact containing only the clips returned by the tool and keep prose short. Use matchingShotEventCount, joinedClipCount, missingVideoCount, and playlistCapped exactly. Do not add a warning when missingVideoCount is zero; when it is positive, state one concise video-availability limitation.'
+				'Use find_video_clips when the user asks to see or watch plays/clips. Use the efficient direct eventType for made_three, made_field_goal, assist, block, steal, rebound, or turnover. Never broaden made_three to made_field_goal. For exact shot descriptions such as pull-up, step-back, layup, shot zone, make/miss, distance, or period combinations, use eventType custom_shot and pass canonical customShot filters; never approximate them with a broader direct event. custom_shot joins the full shot log to videos by game and event id. opponentTeamId filters by the opposing TEAM only; there is no named-defender field. Do not silently replace a named defender with their team. Explain that limitation and ask whether the user wants team-level clips instead. The server creates complete video playlists and shot charts from exact source rows; their arrays are intentionally omitted from your tool summary. Omit model-written video_playlist and shot_chart copies for this tool and keep prose short. Use matchingShotEventCount, joinedClipCount, missingVideoCount, and playlistCapped exactly. Joined clips are source video links, not proof that footage is playable. Do not add a warning when missingVideoCount is zero; when it is positive, state one concise video-availability limitation.'
 		},
 		{
 			role: 'system',
@@ -1412,8 +1411,15 @@ async function executeToolCall(
 		role: 'tool',
 		toolCallId: toolCall.id,
 		name: toolName,
-		content: JSON.stringify(response)
+		content: JSON.stringify(buildModelToolResponse(toolName, response))
 	};
+}
+
+/** Keeps model reasoning independent of playlist size while the server retains every exact artifact row. */
+function buildModelToolResponse(toolName: QueryAnswerAgentToolName, response: { ok: boolean; data?: unknown; error?: string }): unknown {
+	if (toolName !== 'find_video_clips' || !response.ok || !isPlainObject(response.data)) return response;
+	const data = Object.fromEntries(Object.entries(response.data).filter(([key]) => !['clips', 'researchRows', 'joinedEventIds'].includes(key)));
+	return { ...response, data: { ...data, artifactsProvidedByServer: ['video_playlist', ...(Array.isArray(response.data.researchRows) ? ['shot_chart'] : [])] } };
 }
 
 function parseToolRequest(toolCall: DynamicAgentToolCall): ParsedToolRequest {
@@ -2546,7 +2552,7 @@ async function findVideoClips(
 
 	context.successfulEndpointCalls += 1;
 	const matchingClips = parsed.data.clips.filter((clip) => clipMatchesEventType(clip.description, directEventType));
-	const clips = matchingClips.slice(0, MAX_VIDEO_PLAYLIST_CLIPS);
+	const clips = matchingClips;
 	return {
 		ok: true,
 		data: {
@@ -2628,7 +2634,7 @@ async function findCustomShotVideoClips(
 		};
 	}
 
-	const joined = joinCustomShotEventsToVideos(filtered.data, videoResult.payload, MAX_VIDEO_PLAYLIST_CLIPS);
+	const joined = joinCustomShotEventsToVideos(filtered.data, videoResult.payload);
 	if (!joined.ok) {
 		context.failedEndpointCalls += 1;
 		return { ok: false, error: joined.error };
@@ -3647,6 +3653,11 @@ function readVideoPlaylistClips(
 }
 
 function reconcileFilteredShotCharts(artifacts: QueryAnswerArtifact[], toolResults: QueryAnswerAgentToolResult[]): QueryAnswerArtifact[] {
+	// Custom clip research owns a complete shot population even when narration omits its server-built chart.
+	if (!artifacts.some((artifact) => artifact.type === 'shot_chart') && toolResults.some((result) =>
+		result.toolName === 'find_video_clips' && result.response.ok && isPlainObject(result.response.data) && Array.isArray(result.response.data.researchRows))) {
+		artifacts = [...artifacts, { type: 'shot_chart', title: 'Matching shot attempts', shots: [] }];
+	}
 	const requestedCharts = artifacts.filter((artifact) => artifact.type === 'shot_chart');
 	if (requestedCharts.length === 0) return artifacts;
 	const populations = new Map<string, Extract<QueryAnswerArtifact, { type: 'shot_chart' }>>();

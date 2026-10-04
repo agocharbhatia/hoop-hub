@@ -208,7 +208,7 @@ export function filterCustomShotEvents(
 export function joinCustomShotEventsToVideos(
 	filtered: FilteredCustomShotEvents,
 	videoPayload: unknown,
-	playlistCap: number
+	playlistCap: number | null = null
 ): { ok: true; data: CustomShotClipJoinData } | { ok: false; error: string } {
 	const parsedVideos = parseVideoDetailsAssetClips(videoPayload, null);
 	if (!parsedVideos.ok) {
@@ -231,8 +231,8 @@ export function joinCustomShotEventsToVideos(
 	const joinedClips = filtered.events
 		.map((event) => videosByEvent.get(buildEventKey(event.gameId, event.eventId)) ?? null)
 		.filter((clip): clip is VideoDetailsAssetClip => clip !== null);
-	const normalizedCap = Math.max(0, Math.floor(playlistCap));
-	const clips = joinedClips.slice(0, normalizedCap);
+	const normalizedCap = playlistCap === null ? null : Math.max(0, Math.floor(playlistCap));
+	const clips = normalizedCap === null ? joinedClips : joinedClips.slice(0, normalizedCap);
 
 	return {
 		ok: true,
