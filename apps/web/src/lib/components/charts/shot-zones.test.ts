@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shotZone, summarizeShotZones } from './shot-zones';
+import { preferredShotView, shotZone, summarizeShotZones } from './shot-zones';
+
+test('sparse or single-area questions open on shots while broad samples open on zones', () => {
+	const single = { index: 0, shot: { locX: 0, locY: 10, made: true } };
+	assert.equal(preferredShotView([single]), 'shots');
+	assert.equal(preferredShotView(Array.from({ length: 60 }, (_, index) => ({ ...single, index }))), 'shots');
+	assert.equal(preferredShotView(Array.from({ length: 60 }, (_, index) => ({ index, shot: { locX: 0, locY: [10, 100, 300][index % 3], made: true } }))), 'zones');
+});
 
 test('zone denominators retain misses, source indices and explicit two-point values at the arc', () => {
 	const shots = [
@@ -28,4 +35,3 @@ test('zone boundaries classify paint, corners and untyped threes without losing 
 	assert.equal(shotZone({ index: 3, shot: { locX: 0, locY: 237.5, made: false } }), 'above');
 	assert.equal(shotZone({ index: 4, shot: { locX: NaN, locY: 0, made: false } }), null);
 });
-

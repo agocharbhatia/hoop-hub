@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import ShotZoneSummary from './ShotZoneSummary.svelte';
+	import { preferredShotView } from './shot-zones';
 	import type { QueryAnswerArtifact } from '$lib/contracts/answer-response';
 	import { binShots, describeShot, isOnCourt, summarizeShots, SHOT_COURT as COURT, type IndexedShot, type Shot, type ShotBin } from './shot-chart-utils';
 
@@ -17,7 +18,7 @@
 	const componentId = $props.id();
 	const MADE_COLOR = '#3987e5';
 	const MISS_COLOR = '#e66767';
-	let view = $state<View>('zones');
+	let view = $state<View>('shots');
 	let outcome = $state<Outcome>('all');
 	let minimumAttempts = $state(3);
 	let inspectedIndex = $state<number | null>(null);
@@ -33,6 +34,11 @@
 	const inspectedShot = $derived(visibleShots.find((entry) => entry.index === inspectedIndex) ?? null);
 	const externalSelection = $derived(visibleShots.find(({ shot }) => selectedEvent !== null && shot.gameId === selectedEvent.gameId && shot.eventId === selectedEvent.eventId));
 	const focusedIndex = $derived(inspectedShot?.index ?? externalSelection?.index ?? visibleShots[0]?.index);
+
+	$effect(() => {
+		const initialView = preferredShotView(shots);
+		untrack(() => { view = initialView; outcome = 'all'; inspectedIndex = null; hoveredBin = null; });
+	});
 
 	// An event chosen in a playlist must become visible and inspectable even after a local outcome filter.
 	$effect(() => {

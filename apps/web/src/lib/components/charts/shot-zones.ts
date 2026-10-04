@@ -41,3 +41,8 @@ export function summarizeShotZones(shots: readonly IndexedShot[]): ShotZoneSumma
 	for (const zone of zones) zone.percentage = zone.attempts ? zone.makes / zone.attempts * 100 : null;
 	return zones;
 }
+
+/** Sparse or single-area queries are easier to inspect as events than as a mostly empty zone graphic. */
+export function preferredShotView(shots: readonly IndexedShot[]): 'shots' | 'zones' {
+	return shots.length >= 20 && summarizeShotZones(shots).filter((zone) => zone.attempts > 0).length >= 3 ? 'zones' : 'shots';
+}
