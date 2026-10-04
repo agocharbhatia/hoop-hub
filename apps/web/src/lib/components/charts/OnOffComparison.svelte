@@ -13,7 +13,7 @@
 
 	/* Metric label helpers */
 	function label(row: StatsQueryRow): string { return String(row.metric).replace(/^(Offense|Defense) · /, '').replace(/%$/, ''); }
-	function unit(row: StatsQueryRow): string { return row.unit === '%' ? 'Percent' : String(row.unit ?? ''); }
+	function unit(row: StatsQueryRow): string { return row.unit === '%' ? '' : String(row.unit ?? ''); }
 	/* End metric label helpers */
 </script>
 
@@ -21,13 +21,13 @@
 	<section class="comparison-group" aria-label={name}>
 		{#if name !== 'Ratings'}<h4>{name}</h4>{/if}
 		<div role="table" aria-label={name}>
-		<div class="comparison-head" role="row"><span role="columnheader">Metric</span><span role="columnheader">On court</span><span role="columnheader">Off court</span><span role="columnheader">Change</span></div>
+		<div class="comparison-head" role="row"><span role="columnheader">Metric</span><span role="columnheader">On court</span><span role="columnheader">Off court</span><span role="columnheader" title="On court minus off court">Change</span></div>
 		{#each rows as row}
 			<div class="comparison-row" role="row" class:net-rating={row.metric === 'Net rating'}>
-				<div class="metric-label" role="rowheader"><span>{label(row)}</span><small>{unit(row)}</small></div>
+				<div class="metric-label" role="rowheader"><span>{label(row)}</span>{#if unit(row)}<small>{unit(row)}</small>{/if}</div>
 				<div class="value" role="cell"><small aria-hidden="true">On court</small><span>{displayMetric(row.on, { percentage: row.unit === '%' })}</span></div>
 				<div class="value off-value" role="cell"><small aria-hidden="true">Off court</small><span>{displayMetric(row.off, { percentage: row.unit === '%' })}</span></div>
-				<div class="value change-value" role="cell"><small aria-hidden="true">Change</small><span>{displayMetric(row.difference, { signed: true })}{#if row.unit === '%' && typeof row.difference === 'number'}<em> pp</em>{/if}</span></div>
+				<div class="value change-value" role="cell" title="On court minus off court"><small aria-hidden="true">Change</small><span>{displayMetric(row.difference, { signed: true })}{#if row.unit === '%' && typeof row.difference === 'number'}<abbr title="Percentage points"> pp</abbr>{/if}</span></div>
 			</div>
 		{/each}
 		</div>
@@ -45,7 +45,6 @@
 			<div class="factor-groups">{#if offense.length}{@render metricGroup(offense, 'Offense')}{/if}{#if defense.length}{@render metricGroup(defense, 'Defense')}{/if}</div>
 		</details>
 	{/if}
-	<p class="comparison-note">Change is on minus off. Percentage changes use percentage points (pp). Display values are rounded.</p>
 	{#if artifact.rows.length && (minutesOn === null || minutesOff === null)}<details class="samples"><summary>Samples by metric</summary>{#each artifact.rows as row}<p>{row.metric}: {displayMetric(row.minutesOn)} min on, {displayMetric(row.minutesOff)} min off</p>{/each}</details>{/if}
 	<details class="full-data"><summary>Full data table</summary><div class="full-table"><ArtifactTable {artifact} title="On/off data" /></div></details>
 </section>
@@ -54,7 +53,7 @@
 	.on-off-comparison { container-type: inline-size; }
 	.comparison-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 	h3 { font-size: 14px; font-weight: 600; }
-	.comparison-title > span, .sample, .comparison-note, .samples { color: var(--color-muted-foreground); font-size: 12px; }
+	.comparison-title > span, .sample, .samples { color: var(--color-muted-foreground); font-size: 12px; }
 	.sample { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin: 8px 0 18px; }
 	.sample span { color: var(--color-foreground); font-variant-numeric: tabular-nums; }
 	.comparison-head, .comparison-row { display: grid; grid-template-columns: minmax(130px, 1.7fr) repeat(3, minmax(70px, 1fr)); column-gap: 12px; }
@@ -68,7 +67,7 @@
 	.value small { display: none; }
 	.off-value { color: var(--color-muted-foreground); }
 	.change-value { font-weight: 500; }
-	.change-value em { font-size: 10px; font-weight: 400; font-style: normal; color: var(--color-muted-foreground); }
+	.change-value abbr { font-size: 10px; font-weight: 400; text-decoration: none; color: var(--color-muted-foreground); }
 	.net-rating { background: var(--color-accent); border-radius: 8px; }
 	h4 { font-weight: 500; font-size: 12px; margin-bottom: 10px; }
 	.factors { margin-top: 14px; border-top: 1px solid var(--color-border); }
@@ -76,7 +75,6 @@
 	summary > span { margin-left: 8px; color: var(--color-muted-foreground); font-size: 11px; }
 	summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
 	.factor-groups { display: grid; gap: 20px; padding-top: 6px; }
-	.comparison-note { font-size: 10px; line-height: 1.6; margin-top: 14px; }
 	.empty { padding: 20px 0; font-size: 12px; color: var(--color-muted-foreground); }
 	.full-data { margin-top: 12px; border-top: 1px solid var(--color-border); }
 	.full-table { padding-top: 8px; }

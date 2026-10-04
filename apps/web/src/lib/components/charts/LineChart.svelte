@@ -6,6 +6,7 @@
 
 	type LineChartArtifact = Extract<QueryAnswerArtifact, { type: 'line_chart' }>;
 	let { artifact }: { artifact: LineChartArtifact } = $props();
+	const componentId = $props.id();
 
 	const HEIGHT = 260;
 	const MARGIN = { top: 18, right: 16, bottom: 30, left: 48 };
@@ -120,11 +121,10 @@
 					<circle cx={point.x} cy={point.y} r="4" fill={entry.color} stroke="var(--color-card)" stroke-width="2" />
 				{/if}
 			{/each}
-			<rect bind:this={plotElement} role="slider" tabindex={xValues.length ? 0 : -1} aria-label="Inspect {artifact.xLabel.toLowerCase()} values" aria-valuemin={0} aria-valuemax={Math.max(0, xValues.length - 1)} aria-valuenow={activeIndex} aria-valuetext={xValues.length ? `${xValues[activeIndex]}: ${inspectedRows.map((row) => `${row.name} ${row.value === undefined ? 'No value' : formatChartNumber(row.value)}`).join(', ')}` : 'No points'} onfocus={() => inspectedIndex = activeIndex} onkeydown={handleChartKey} onpointermove={(event) => { if (event.pointerType === 'mouse') inspectPointer(event); }} onpointerdown={inspectPointer} x={MARGIN.left} y={MARGIN.top} width={plotWidth} height={HEIGHT - MARGIN.top - MARGIN.bottom} fill="transparent" />
+			<rect bind:this={plotElement} role="slider" tabindex={xValues.length ? 0 : -1} aria-label="Inspect {artifact.xLabel.toLowerCase()} values" aria-describedby="{componentId}-help" aria-valuemin={0} aria-valuemax={Math.max(0, xValues.length - 1)} aria-valuenow={activeIndex} aria-valuetext={xValues.length ? `${xValues[activeIndex]}: ${inspectedRows.map((row) => `${row.name} ${row.value === undefined ? 'No value' : formatChartNumber(row.value)}`).join(', ')}` : 'No points'} onfocus={() => inspectedIndex = activeIndex} onkeydown={handleChartKey} onpointermove={(event) => { if (event.pointerType === 'mouse') inspectPointer(event); }} onpointerdown={inspectPointer} x={MARGIN.left} y={MARGIN.top} width={plotWidth} height={HEIGHT - MARGIN.top - MARGIN.bottom} fill="transparent" />
 		</svg>
 		{#if seriesPaths.length === 0}<p class="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">{allSeriesPaths.length ? 'Choose a series above to view it.' : 'No data points to display.'}</p>{/if}
 	</div>
-	<p class="text-xs text-muted-foreground">{artifact.xLabel}</p>
 	{#if xValues.length && seriesPaths.length}
 		<div class="inspection-panel" aria-label="Selected chart values">
 			<div class="inspection-heading">
@@ -141,7 +141,7 @@
 			</dl>
 		</div>
 	{/if}
-	<p class="mt-2 text-xs leading-5 text-muted-foreground">Tap or hover to inspect. Use the buttons or arrow keys to move between points{allSeriesPaths.length > 1 ? '. Select a series to show or hide it' : ''}.</p>
+	<p id="{componentId}-help" class="sr-only">Use arrow keys to inspect points, or Home and End to move to the first and last point.</p>
 </figure>
 
 <style>

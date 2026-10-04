@@ -18,7 +18,7 @@
 
 <section class="lineup-ranking" aria-label="Lineup rankings">
 	<div class="ranking-header"><h3>Lineup rankings</h3><span>{artifact.rows.length} returned</span></div>
-	<p class="ranking-context">{RATING_LABELS[metric]}, {ascending ? 'lowest' : 'highest'} first.{#if metric.includes('Rating')}{' '}Ratings are points per 100 possessions.{:else if metric === 'possessions'}{' '}Minimum of offensive and defensive possessions.{/if}</p>
+	<p class="ranking-context"><span title={metric.includes('Rating') ? 'Points per 100 possessions' : metric === 'possessions' ? 'Minimum of offensive and defensive possessions' : undefined}>{RATING_LABELS[metric]}</span> · {ascending ? 'Lowest' : 'Highest'} first</p>
 	{#if artifact.rows.length > 5}<label class="filter">Filter lineups<input type="search" bind:value={search} oninput={() => page = 0} placeholder="Player name" /></label>{/if}
 	<ol class="lineup-list">
 		{#each visible as { row, rank }}
@@ -35,7 +35,6 @@
 			</li>
 		{:else}<li class="empty">{search ? 'No lineups match this player.' : 'No qualifying lineups in this sample.'}</li>{/each}
 	</ol>
-	{#if artifact.rows.length}<p class="scale-note">Bars share a zero baseline. Display values are rounded.</p>{/if}
 	{#if rows.length > limit}<nav class="pagination" aria-label="Lineup pages"><span>{currentPage * limit + 1}-{Math.min((currentPage + 1) * limit, rows.length)} of {rows.length}</span><button disabled={currentPage === 0} onclick={() => page = currentPage - 1}>Previous</button><button disabled={(currentPage + 1) * limit >= rows.length} onclick={() => page = currentPage + 1}>Next</button></nav>{/if}
 	<details class="full-data"><summary>Full data table</summary><div class="full-table"><ArtifactTable {artifact} title="Lineup data" /></div></details>
 </section>
@@ -59,7 +58,6 @@
 	.rating-bar { position: relative; height: 9px; margin: 10px 0; }
 	.bar-zero { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--color-muted-foreground); }
 	.bar-fill { position: absolute; inset-block: 0; background: #3987e5; border-radius: 2px; }
-	.scale-note { color: var(--color-muted-foreground); font-size: 10px; margin: 4px 0 12px; }
 	.primary-rating { text-align: right; font-variant-numeric: tabular-nums; }
 	.primary-rating > span { display: block; font-size: 23px; letter-spacing: -.04em; font-weight: 500; }
 	.primary-rating small { display: block; font-size: 10px; }

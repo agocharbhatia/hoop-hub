@@ -5,6 +5,7 @@
 
 	type BarChartArtifact = Extract<QueryAnswerArtifact, { type: 'bar_chart' }>;
 	let { artifact }: { artifact: BarChartArtifact } = $props();
+	const componentId = $props.id();
 
 	let inspectIndex = $state<number | null>(null);
 	let order = $state<'original' | 'descending' | 'ascending'>('original');
@@ -38,7 +39,7 @@
 	</figcaption>
 
 	{#if bars.length}
-		<div class="comparison" role="slider" tabindex="0" aria-label="{artifact.title}: inspect {artifact.yLabel} by {artifact.xLabel}" aria-orientation="vertical" aria-valuemin={0} aria-valuemax={bars.length - 1} aria-valuenow={activeIndex} aria-valuetext={inspected ? `${inspected.label}: ${formatChartNumber(inspected.value)} ${artifact.yLabel}` : ''} onfocus={() => inspectIndex = 0} onblur={() => inspectIndex = null} onkeydown={handleChartKey} onpointerleave={() => inspectIndex = null}>
+		<div class="comparison" role="slider" tabindex="0" aria-label="{artifact.title}: inspect {artifact.yLabel} by {artifact.xLabel}" aria-describedby="{componentId}-help" aria-orientation="vertical" aria-valuemin={0} aria-valuemax={bars.length - 1} aria-valuenow={activeIndex} aria-valuetext={inspected ? `${inspected.label}: ${formatChartNumber(inspected.value)} ${artifact.yLabel}` : ''} onfocus={() => inspectIndex = 0} onblur={() => inspectIndex = null} onkeydown={handleChartKey} onpointerleave={() => inspectIndex = null}>
 			<ol class="bar-list" aria-label={artifact.xLabel}>
 				{#each bars as bar, index}
 					{@const position = geometry.position(bar.value)}
@@ -56,7 +57,7 @@
 				<div class="scale-labels"><span>{formatChartNumber(geometry.min)}</span>{#if geometry.zero > 12 && geometry.zero < 88}<span class="zero-tick" style:left="{geometry.zero}%">0</span>{/if}<span>{formatChartNumber(geometry.max)}</span></div>
 			</div>
 		</div>
-		<p class="chart-help">Bars start at zero. Use arrow keys to inspect when focused.</p>
+		<p id="{componentId}-help" class="sr-only">Use arrow keys to inspect bars, or Home and End to move to the first and last bar.</p>
 	{:else}
 		<p class="empty-state">No values to display.</p>
 	{/if}
@@ -86,7 +87,6 @@
 	.scale-row { margin-top: 0.5rem; }
 	.scale-labels { grid-column: 2; display: flex; position: relative; justify-content: space-between; font-size: 0.6875rem; line-height: 1.5; font-variant-numeric: tabular-nums; color: var(--color-muted-foreground); }
 	.zero-tick { position: absolute; transform: translateX(-50%); }
-	.chart-help { margin-top: 0.75rem; font-size: 0.6875rem; line-height: 1.5; color: var(--color-muted-foreground); }
 	.empty-state { padding: 2rem 0; text-align: center; font-size: 0.8125rem; color: var(--color-muted-foreground); }
 	@container bar-chart (max-width: 35rem) {
 		.bar-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.35rem; padding: 0.75rem 0; }
