@@ -1,0 +1,183 @@
+{
+  "capturedAt": "2026-10-04T03:32:13.954Z",
+  "source": "Saved research replay plus labeled synthetic matchup fixture in isolated SQLite. No model or stats API calls; official CDN portraits/logos and saved video metadata loaded in browser.",
+  "checks": [
+    {
+      "baselineFooter": false,
+      "case": "saved lineups",
+      "notes": [
+        "Sources & notes· Limited lineup coverage",
+        "Sources & notes· Limited lineup coverage"
+      ],
+      "scopeReminder": false,
+      "scrollWidth": 1316,
+      "visibleLimitations": 0,
+      "width": 1316
+    },
+    {
+      "case": "saved Kawhi clips",
+      "playlistHeading": "Kawhi Leonard — pull-up three-point makes, 2025–26 regular season",
+      "portraits": [
+        {
+          "loaded": true,
+          "size": 48,
+          "src": "https://cdn.nba.com/headshots/nba/latest/260x190/202695.png"
+        },
+        {
+          "loaded": true,
+          "size": 36,
+          "src": "https://cdn.nba.com/headshots/nba/latest/260x190/202695.png"
+        }
+      ],
+      "scrollWidth": 1316,
+      "width": 1316
+    },
+    {
+      "case": "saved clips responsive",
+      "scrollWidth": 320,
+      "subjectsWidth": 288,
+      "videoWidth": 262,
+      "width": 320
+    },
+    {
+      "case": "saved clips responsive",
+      "scrollWidth": 375,
+      "subjectsWidth": 343,
+      "videoWidth": 317,
+      "width": 375
+    },
+    {
+      "case": "saved clips responsive",
+      "scrollWidth": 768,
+      "subjectsWidth": 704,
+      "videoWidth": 662,
+      "width": 768
+    },
+    {
+      "case": "saved clips responsive",
+      "scrollWidth": 1024,
+      "subjectsWidth": 704,
+      "videoWidth": 662,
+      "width": 1024
+    },
+    {
+      "case": "matchup responsive",
+      "images": [
+        {
+          "loaded": true,
+          "width": 48
+        },
+        {
+          "loaded": true,
+          "width": 48
+        }
+      ],
+      "scrollWidth": 320,
+      "subjects": " NJ OffenseNikola Jokicvs. VW DefenseVictor Wembanyama ",
+      "width": 320
+    },
+    {
+      "case": "matchup responsive",
+      "images": [
+        {
+          "loaded": true,
+          "width": 48
+        },
+        {
+          "loaded": true,
+          "width": 48
+        }
+      ],
+      "scrollWidth": 375,
+      "subjects": " NJ OffenseNikola Jokicvs. VW DefenseVictor Wembanyama ",
+      "width": 375
+    },
+    {
+      "case": "matchup responsive",
+      "images": [
+        {
+          "loaded": true,
+          "width": 48
+        },
+        {
+          "loaded": true,
+          "width": 48
+        }
+      ],
+      "scrollWidth": 768,
+      "subjects": " NJ OffenseNikola Jokicvs. VW DefenseVictor Wembanyama ",
+      "width": 768
+    },
+    {
+      "case": "matchup responsive",
+      "images": [
+        {
+          "loaded": true,
+          "width": 48
+        },
+        {
+          "loaded": true,
+          "width": 48
+        }
+      ],
+      "scrollWidth": 1024,
+      "subjects": " NJ OffenseNikola Jokicvs. VW DefenseVictor Wembanyama ",
+      "width": 1024
+    },
+    {
+      "case": "matchup responsive",
+      "images": [
+        {
+          "loaded": true,
+          "width": 48
+        },
+        {
+          "loaded": true,
+          "width": 48
+        }
+      ],
+      "scrollWidth": 1316,
+      "subjects": " NJ OffenseNikola Jokicvs. VW DefenseVictor Wembanyama ",
+      "width": 1316
+    },
+    {
+      "case": "saved on-off cleanup",
+      "footerBoilerplate": false,
+      "images": [
+        "https://cdn.nba.com/headshots/nba/latest/260x190/1630567.png",
+        "https://cdn.nba.com/logos/nba/1610612761/primary/L/logo.svg"
+      ],
+      "scrollWidth": 1316,
+      "visibleAlerts": 0,
+      "width": 1316
+    },
+    {
+      "case": "generic bar avatars",
+      "clippedLabels": 0,
+      "portraitCount": 7,
+      "scrollWidth": 320,
+      "width": 320
+    },
+    {
+      "case": "generic bar avatars",
+      "clippedLabels": 0,
+      "portraitCount": 7,
+      "scrollWidth": 375,
+      "width": 375
+    },
+    {
+      "case": "generic bar avatars",
+      "clippedLabels": 0,
+      "portraitCount": 7,
+      "scrollWidth": 768,
+      "width": 768
+    },
+    {
+      "case": "generic bar avatars",
+      "clippedLabels": 0,
+      "portraitCount": 7,
+      "scrollWidth": 1316,
+      "width": 1316
+    }
+  ]
+}

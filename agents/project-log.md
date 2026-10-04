@@ -442,3 +442,12 @@ Removed model cost reservations and mandatory token pricing from request admissi
 - Independent review caught possession-ranked metric omission, unequal auto-sized lineup tracks and hidden mobile comparison headers; fixes retain source semantics and accessible labels.
 - Final checks: 556 tests/84 files, zero Svelte errors/warnings, production build/relocated transport startup and production HTTP smoke passed. Saved-response browser replay at 320–1440px verified no document overflow/clipped category names, sorting/exact values, chart navigation/series toggles and court density/FG% views. No paid external model calls were made.
 - Implementation and corrections committed in scoped chart, comparison, table, trend and court changes. See `.docs/ARTIFACT_DESIGN_REFINEMENT_2026-10-03.md` and its screenshot/measurement evidence. Local production preview refreshed at `http://127.0.0.1:4173/`.
+
+## 2026-10-03 — Cleaner responses and grounded NBA imagery
+
+- Removed repeated chart instructions, baseline/rounding notes, provider eyebrows, composer reminders and export helper text. Background methodology and citations share expandable Sources & notes; incomplete/stale/unsupported answers stay explicit. Browser replay exposed older duplicate lineup coverage wording, now narrowly suppressed alongside the provider-owned note.
+- Added exact directory-backed player headshots/team logos with a generated compact client index, drift tests, fixed-size lazy images, no-referrer requests and accessible initials fallbacks. No current roster assignments are exposed or inferred for historical results.
+- Added participant portraits and grounded matchup roles, including saved canonical rows without raw tool results. Clip headers use their own validated player; generic tables/bar labels decorate recognized names without changing sorting or event identities.
+- Confirmed contextual follow-ups already derive from verified scopes and supported deterministic refinements. They retain their existing behavior.
+- Final validation: 569 tests/87 files, zero Svelte errors/warnings, production build plus relocated transport startup, independent review and browser checks at 320–1316px. Saved on/off/lineup/clip replay plus a labeled synthetic matchup fixture verified loaded images, correct roles, removed duplicate banners/footers and no overflow. No model or stats API calls were made.
+- Scoped commits and screenshots are recorded in `.docs/RESEARCH_UI_CLEANUP_2026-10-03.md`. User preview refreshed at `http://127.0.0.1:4173/`.
