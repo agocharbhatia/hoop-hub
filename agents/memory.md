@@ -31,7 +31,7 @@ This file contains durable engineering rules. It is not a roadmap or issue track
 - Time-series analysis sorts by canonical date before window comparisons and artifacts.
 - Charts must represent the same filtered population and values quoted in the answer.
 - Standard clip events map to exact NBA video measures. Custom shots filter the full shot log and join only on `(GAME_ID, GAME_EVENT_ID)`. Query playlists retain every joined link; model summaries omit full video and shot arrays, while exports retain their separate bounded limit.
-- A source video link and HTTP 200 do not prove footage availability. Selected-clip checks identify only verified unavailable media fingerprints, and unknown assets remain unverified. Never invent a replacement URL or substitute another event.
+- A source video link and HTTP 200 do not prove footage availability. NBA media depends on request context: research documents send only their origin, server probes/exports use consistent public GET headers, and native playback must not be gated by a bare HEAD fallback. A stable browser-only cache version repairs old fallback bytes while saved event/asset URLs remain canonical. Never substitute another event or infer global footage absence from a diagnostic response.
 - Missing or malformed video join keys remain missing; never admit unrelated clips to fill a playlist.
 - Named-defender requests must not silently degrade to opponent-team filtering.
 

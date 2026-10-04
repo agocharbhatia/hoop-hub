@@ -1,0 +1,307 @@
+{
+  "capturedAt": "2026-10-04T04:19:33.986Z",
+  "runtime": "v22.19.0",
+  "event": {
+    "gameId": "0022500164",
+    "eventId": "51"
+  },
+  "probes": [
+    {
+      "name": "bare GET",
+      "url": "https://videos.nba.com/nba/pbp/media/2025/11/03/0022500164/51/091c5e7e-2501-020f-a545-85ef2a1cd887_960x540.mp4",
+      "method": "GET",
+      "requestHeaders": {
+        "range": "bytes=0-1023"
+      },
+      "status": 206,
+      "responseHeaders": {
+        "content-type": "video/mp4",
+        "content-length": "1024",
+        "content-range": "bytes 0-1023/31580089",
+        "etag": "\"2dd8e05a98fc6949fa7ec979b0905464:1754501139.183376\"",
+        "last-modified": "Wed, 06 Aug 2025 17:25:47 GMT"
+      }
+    },
+    {
+      "name": "HEAD with app context",
+      "url": "https://videos.nba.com/nba/pbp/media/2025/11/03/0022500164/51/091c5e7e-2501-020f-a545-85ef2a1cd887_960x540.mp4",
+      "method": "HEAD",
+      "requestHeaders": {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "referer": "http://127.0.0.1:4173/",
+        "sec-fetch-dest": "video",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      },
+      "status": 200,
+      "responseHeaders": {
+        "content-type": "video/mp4",
+        "content-length": "5613822",
+        "content-range": null,
+        "etag": "\"786b30614df00e093f29f8bf32b4c8a4\"",
+        "last-modified": "Tue, 04 Nov 2025 03:53:23 GMT"
+      }
+    },
+    {
+      "name": "bounded GET with app context",
+      "url": "https://videos.nba.com/nba/pbp/media/2025/11/03/0022500164/51/091c5e7e-2501-020f-a545-85ef2a1cd887_960x540.mp4",
+      "method": "GET",
+      "requestHeaders": {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "range": "bytes=0-1023",
+        "referer": "http://127.0.0.1:4173/",
+        "sec-fetch-dest": "video",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      },
+      "status": 206,
+      "responseHeaders": {
+        "content-type": "video/mp4",
+        "content-length": "1024",
+        "content-range": "bytes 0-1023/5613822",
+        "etag": "\"786b30614df00e093f29f8bf32b4c8a4\"",
+        "last-modified": "Tue, 04 Nov 2025 03:53:23 GMT"
+      }
+    },
+    {
+      "name": "bounded GET with local fallback context",
+      "url": "https://videos.nba.com/nba/pbp/media/2025/11/03/0022500164/51/091c5e7e-2501-020f-a545-85ef2a1cd887_960x540.mp4",
+      "method": "GET",
+      "requestHeaders": {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "range": "bytes=0-1023",
+        "referer": "http://localhost/",
+        "sec-fetch-dest": "video",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      },
+      "status": 206,
+      "responseHeaders": {
+        "content-type": "video/mp4",
+        "content-length": "1024",
+        "content-range": "bytes 0-1023/5613822",
+        "etag": "\"786b30614df00e093f29f8bf32b4c8a4\"",
+        "last-modified": "Tue, 04 Nov 2025 03:53:23 GMT"
+      }
+    },
+    {
+      "name": "bare poster GET",
+      "url": "https://videos.nba.com/nba/pbp/media/2025/11/03/0022500164/51/091c5e7e-2501-020f-a545-85ef2a1cd887_960x540.jpg",
+      "method": "GET",
+      "requestHeaders": {
+        "range": "bytes=0-1023"
+      },
+      "status": 206,
+      "responseHeaders": {
+        "content-type": "image/jpeg",
+        "content-length": "1024",
+        "content-range": "bytes 0-1023/140770",
+        "etag": "\"ba8bbfe93bac917e9db14e31d1ac4d27\"",
+        "last-modified": "Tue, 04 Nov 2025 03:53:13 GMT"
+      }
+    },
+    {
+      "name": "poster GET with app context",
+      "url": "https://videos.nba.com/nba/pbp/media/2025/11/03/0022500164/51/091c5e7e-2501-020f-a545-85ef2a1cd887_960x540.jpg",
+      "method": "GET",
+      "requestHeaders": {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "range": "bytes=0-1023",
+        "referer": "http://127.0.0.1:4173/",
+        "sec-fetch-dest": "video",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      },
+      "status": 206,
+      "responseHeaders": {
+        "content-type": "image/jpeg",
+        "content-length": "1024",
+        "content-range": "bytes 0-1023/140770",
+        "etag": "\"ba8bbfe93bac917e9db14e31d1ac4d27\"",
+        "last-modified": "Tue, 04 Nov 2025 03:53:13 GMT"
+      }
+    },
+    {
+      "name": "bare HEAD",
+      "method": "HEAD",
+      "url": "https://videos.nba.com/nba/pbp/media/2025/11/03/0022500164/51/091c5e7e-2501-020f-a545-85ef2a1cd887_960x540.mp4",
+      "requestHeaders": {},
+      "status": 200,
+      "responseHeaders": {
+        "content-type": "video/mp4",
+        "content-length": "31580089",
+        "content-range": null,
+        "etag": "\"2dd8e05a98fc6949fa7ec979b0905464:1754501139.183376\"",
+        "last-modified": "Wed, 06 Aug 2025 17:25:47 GMT"
+      }
+    },
+    {
+      "name": "browser GET with only referrer removed",
+      "method": "GET",
+      "url": "https://videos.nba.com/nba/pbp/media/2025/11/03/0022500164/51/091c5e7e-2501-020f-a545-85ef2a1cd887_960x540.mp4",
+      "requestHeaders": {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "range": "bytes=0-1023",
+        "sec-fetch-dest": "video",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      },
+      "status": 206,
+      "responseHeaders": {
+        "content-type": "video/mp4",
+        "content-length": "1024",
+        "content-range": "bytes 0-1023/31580089",
+        "etag": "\"2dd8e05a98fc6949fa7ec979b0905464:1754501139.183376\"",
+        "last-modified": "Wed, 06 Aug 2025 17:25:47 GMT"
+      }
+    },
+    {
+      "name": "export GET context, cancelled before body consumption",
+      "url": "https://videos.nba.com/nba/pbp/media/2025/11/03/0022500164/51/091c5e7e-2501-020f-a545-85ef2a1cd887_960x540.mp4",
+      "method": "GET",
+      "requestHeaders": {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "referer": "http://127.0.0.1:4173/",
+        "sec-fetch-dest": "video",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      },
+      "status": 200,
+      "responseHeaders": {
+        "content-type": "video/mp4",
+        "content-length": "5613822",
+        "content-range": null,
+        "etag": "\"786b30614df00e093f29f8bf32b4c8a4\"",
+        "last-modified": "Tue, 04 Nov 2025 03:53:23 GMT"
+      }
+    },
+    {
+      "name": "Oct 31 event389 with app referrer",
+      "url": "https://videos.nba.com/nba/pbp/media/2025/10/31/0022500027/389/747a0515-4a68-eada-2fab-029e02c28598_960x540.mp4",
+      "method": "GET",
+      "requestHeaders": {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "range": "bytes=0-1023",
+        "referer": "http://127.0.0.1:4173/",
+        "sec-fetch-dest": "video",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      },
+      "status": 206,
+      "responseHeaders": {
+        "content-type": "video/mp4",
+        "content-length": "1024",
+        "content-range": "bytes 0-1023/6723540",
+        "etag": "\"cba627b45a741b33f2025f712dee57bc\"",
+        "last-modified": "Sat, 01 Nov 2025 04:02:43 GMT",
+        "vary": null,
+        "cache-control": null,
+        "x-refer-debug": null
+      }
+    },
+    {
+      "name": "Oct 31 event389 without referrer",
+      "url": "https://videos.nba.com/nba/pbp/media/2025/10/31/0022500027/389/747a0515-4a68-eada-2fab-029e02c28598_960x540.mp4",
+      "method": "GET",
+      "requestHeaders": {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "range": "bytes=0-1023",
+        "sec-fetch-dest": "video",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      },
+      "status": 206,
+      "responseHeaders": {
+        "content-type": "video/mp4",
+        "content-length": "1024",
+        "content-range": "bytes 0-1023/31580089",
+        "etag": "\"2dd8e05a98fc6949fa7ec979b0905464:1754501139.183376\"",
+        "last-modified": "Wed, 06 Aug 2025 17:25:47 GMT",
+        "vary": null,
+        "cache-control": null,
+        "x-refer-debug": "True"
+      }
+    },
+    {
+      "name": "Nov23 original canonical GET",
+      "url": "https://videos.nba.com/nba/pbp/media/2025/11/23/0022500278/216/63141117-653a-fe60-62dd-2bc593b097e1_960x540.mp4",
+      "method": "GET",
+      "requestHeaders": {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "range": "bytes=0-1023",
+        "referer": "http://127.0.0.1:4173/",
+        "sec-fetch-dest": "video",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      },
+      "status": 206,
+      "responseHeaders": {
+        "content-type": "video/mp4",
+        "content-length": "1024",
+        "content-range": "bytes 0-1023/3860324",
+        "etag": "\"6ac4bde94e79a1e8512a4575e2f16dc2\"",
+        "last-modified": "Sun, 23 Nov 2025 23:54:13 GMT",
+        "vary": null,
+        "cache-control": null,
+        "x-refer-debug": null
+      }
+    },
+    {
+      "name": "Nov23 stable referrer-v1 cache version GET",
+      "url": "https://videos.nba.com/nba/pbp/media/2025/11/23/0022500278/216/63141117-653a-fe60-62dd-2bc593b097e1_960x540.mp4?hoop_hub_media=referrer-v1",
+      "method": "GET",
+      "requestHeaders": {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "range": "bytes=0-1023",
+        "referer": "http://127.0.0.1:4173/",
+        "sec-fetch-dest": "video",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+      },
+      "status": 206,
+      "responseHeaders": {
+        "content-type": "video/mp4",
+        "content-length": "1024",
+        "content-range": "bytes 0-1023/3860324",
+        "etag": "\"6ac4bde94e79a1e8512a4575e2f16dc2\"",
+        "last-modified": "Sun, 23 Nov 2025 23:54:13 GMT",
+        "vary": null,
+        "cache-control": null,
+        "x-refer-debug": null
+      }
+    }
+  ],
+  "browserVerification": {
+    "cacheEnabled": true,
+    "playbackCacheVersion": "referrer-v1",
+    "reportedEvent": {
+      "gameId": "0022500164",
+      "eventId": "51",
+      "durationSeconds": 10.033333,
+      "inspectedAtSeconds": 5.722135,
+      "width": 960,
+      "height": 540
+    },
+    "previouslyCachedEvent": {
+      "gameId": "0022500278",
+      "eventId": "216",
+      "fallbackDurationSeconds": 15.015,
+      "repairedDurationSeconds": 6.666667,
+      "repairedWidth": 960,
+      "repairedHeight": 540
+    },
+    "navigation": "Next and Play all selected their correct versioned event sources",
+    "screenshot": "nba-referrer-fixed-kawhi-playback.png"
+  },
+  "realExportVerification": {
+    "gameId": "0022500164",
+    "eventId": "51",
+    "completedClips": 1,
+    "totalClips": 1,
+    "omissions": 0,
+    "durationSeconds": 10.016553,
+    "width": 854,
+    "height": 480,
+    "hasAudio": true
+  }
+}

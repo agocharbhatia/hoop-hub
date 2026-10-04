@@ -451,3 +451,11 @@ Removed model cost reservations and mandatory token pricing from request admissi
 - Confirmed contextual follow-ups already derive from verified scopes and supported deterministic refinements. They retain their existing behavior.
 - Final validation: 569 tests/87 files, zero Svelte errors/warnings, production build plus relocated transport startup, independent review and browser checks at 320–1316px. Saved on/off/lineup/clip replay plus a labeled synthetic matchup fixture verified loaded images, correct roles, removed duplicate banners/footers and no overflow. No model or stats API calls were made.
 - Scoped commits and screenshots are recorded in `.docs/RESEARCH_UI_CLEANUP_2026-10-03.md`. User preview refreshed at `http://127.0.0.1:4173/`.
+
+## 2026-10-04 — Correct NBA media request context and cached fallback playback
+
+- Corrected the earlier unavailable-footage conclusion: the same exact media URL returns real footage with the app origin, and NBA's fallback when its referrer is omitted. The poster can still load. Research HTML now sends only an origin-only external referrer; login/API privacy and other security headers remain intact.
+- Removed misleading server HEAD playback blocking. Diagnostic availability now uses bounded GET ranges; exports share proper public request headers without cookies, credentials or research URL paths. Native media events from replaced elements are ignored.
+- Browser verification exposed cached fallback bytes after the policy repair. A stable, upstream-verified browser playback query repairs old saved playlists while canonical source/event URLs and export provenance remain unchanged. Source links retain opener isolation and the proper referrer.
+- Verified the reported Kawhi event playing beyond five seconds in the app with normal caching, playlist navigation, and one real normalized video/audio export without omissions. Passed 615 existing/default tests plus two subsequent cache-key regressions, zero Svelte errors/warnings, production build/transport startup, and production HTTP boundary smoke. No paid model calls were made.
+- Changes were committed in scoped playback, source-link, server media, cache-repair and evidence updates. See `.docs/CLIP_PLAYBACK_RELIABILITY_2026-10-04.md`; selected-host media acceptance remains a release gate.
