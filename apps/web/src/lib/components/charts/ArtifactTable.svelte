@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { QueryAnswerArtifact } from '$lib/contracts/answer-response';
 	import type { StatsQueryRow } from '$lib/contracts/semantic-query';
+	import EntityAvatar from '$lib/components/entities/EntityAvatar.svelte';
+	import { resolvePlayerEntity, resolveTeamEntity, type EntityMedia } from '$lib/entities/entity-media';
 	import { buildTablePresentation, formatTableCell, sortTableRows, tableColumnLabel, tableMetricUnit, type SortDirection } from './table-utils';
 
 	type TableArtifact = Extract<QueryAnswerArtifact, { type: 'table' }>;
@@ -30,6 +32,7 @@
 	const lastPage = $derived(Math.max(0, Math.ceil(sortedRows.length / PAGE_SIZE) - 1));
 	const currentPage = $derived(Math.min(page, lastPage));
 	const visibleRows = $derived(sortedRows.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE));
+	const rowEntities = $derived(new Map(visibleRows.map(({ row, index }) => [index, identityEntity(row)] as const)));
 	const numericColumns = $derived(new Set(artifact.columns.filter((column) => artifact.rows.some((row) => typeof row[column] === 'number'))));
 	const hasActions = $derived(presentation.detailColumns.length > 0 || Boolean(onselectrow));
 
@@ -51,6 +54,12 @@
 		return formatTableCell(row[column], { row, column, exact });
 	}
 
+	/** Only decorate an exact subject name; a date, lineup or numeric statistic must not become an identity. */
+	function identityEntity(row: StatsQueryRow): EntityMedia | null {
+		const value = presentation.identityColumn ? row[presentation.identityColumn] : null;
+		return typeof value === 'string' ? resolvePlayerEntity({ name: value }) ?? resolveTeamEntity({ name: value }) : null;
+	}
+
 	/* End interaction and presentation helpers */
 </script>
 
@@ -61,6 +70,11 @@
 {#snippet evidence(row: StatsQueryRow, index: number)}
 	{@const selectable = canSelectRow(row, index)}
 	{#if onselectrow}<button type="button" class="row-button" disabled={!selectable} onclick={() => onselectrow?.(row, index)} aria-label="{selectable ? rowLabel : 'Event unavailable'}, row {index + 1}">{selectable ? rowLabel : 'No event ID'}</button>{/if}
+{/snippet}
+
+{#snippet identityValue(row: StatsQueryRow, column: string, index: number)}
+	{@const entity = rowEntities.get(index)}
+	<span class="identity-value">{#if entity}<EntityAvatar {entity} size={24} decorative />{/if}<span class="identity-text">{cell(row, column)}</span></span>
 {/snippet}
 
 <section class="artifact-table" aria-label={title}>
@@ -96,7 +110,7 @@
 			<tbody>
 				{#each visibleRows as { row, index } (index)}
 					<tr>
-						{#each presentation.primaryColumns as column}<td class:numeric={numericColumns.has(column)} class:identity={column === presentation.identityColumn} title={String(row[column] ?? 'Unavailable')}>{cell(row, column)}{#if tableMetricUnit(row, column)}<span class="metric-unit">{tableMetricUnit(row, column)}</span>{/if}</td>{/each}
+						{#each presentation.primaryColumns as column}<td class:numeric={numericColumns.has(column)} class:identity={column === presentation.identityColumn} title={String(row[column] ?? 'Unavailable')}>{#if column === presentation.identityColumn}{@render identityValue(row, column, index)}{:else}{cell(row, column)}{/if}{#if tableMetricUnit(row, column)}<span class="metric-unit">{tableMetricUnit(row, column)}</span>{/if}</td>{/each}
 						{#if hasActions}<td class="action-cell"><div class="row-actions">{#if presentation.detailColumns.length}<button type="button" class="details-button" aria-expanded={expandedRows.has(index)} onclick={() => toggleRow(index)}>{expandedRows.has(index) ? 'Less' : `More (${presentation.detailColumns.length})`}</button>{/if}{@render evidence(row, index)}</div></td>{/if}
 					</tr>
 					{#if expandedRows.has(index) && presentation.detailColumns.length}<tr class="detail-row"><td colspan={presentation.primaryColumns.length + Number(hasActions)}><dl class="field-grid">{#each presentation.detailColumns as column}<div>{@render field(row, column)}</div>{/each}</dl></td></tr>{/if}
@@ -109,7 +123,7 @@
 	<div class="mobile-view">
 		{#each visibleRows as { row, index } (index)}
 			<article class="mobile-row">
-				{#if presentation.identityColumn}<h4>{cell(row, presentation.identityColumn)}</h4>{#if tableMetricUnit(row, presentation.identityColumn)}<p class="mobile-unit">{tableMetricUnit(row, presentation.identityColumn)}</p>{/if}{/if}
+				{#if presentation.identityColumn}<h4>{@render identityValue(row, presentation.identityColumn, index)}</h4>{#if tableMetricUnit(row, presentation.identityColumn)}<p class="mobile-unit">{tableMetricUnit(row, presentation.identityColumn)}</p>{/if}{/if}
 				<dl class="field-grid">{#each presentation.primaryColumns.filter((column) => column !== presentation.identityColumn) as column}<div>{@render field(row, column)}</div>{/each}</dl>
 				{#if expandedRows.has(index) && presentation.detailColumns.length}<dl class="field-grid extra-fields">{#each presentation.detailColumns as column}<div>{@render field(row, column)}</div>{/each}</dl>{/if}
 				{#if hasActions}<div class="row-actions">{#if presentation.detailColumns.length}<button type="button" class="details-button" aria-expanded={expandedRows.has(index)} onclick={() => toggleRow(index)}>{expandedRows.has(index) ? 'Fewer fields' : `${presentation.detailColumns.length} more fields`}</button>{/if}{@render evidence(row, index)}</div>{/if}
@@ -145,6 +159,9 @@
 	th, td { padding: .625rem .75rem; border-bottom: 1px solid var(--color-border); vertical-align: middle; overflow-wrap: anywhere; }
 	th.identity, td.identity { width: 28%; }
 	td.identity { line-height: 1.5; }
+	.identity-value { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+	.numeric .identity-value { justify-content: flex-end; }
+	.identity-text { min-width: 0; overflow-wrap: anywhere; }
 	tbody tr:last-child td { border-bottom: none; }
 	tbody tr:hover { background: color-mix(in oklch, var(--color-foreground) 2%, transparent); }
 	.numeric { text-align: right; font-variant-numeric: tabular-nums; }

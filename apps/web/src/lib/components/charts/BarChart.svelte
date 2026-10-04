@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { QueryAnswerArtifact } from '$lib/contracts/answer-response';
+	import EntityAvatar from '$lib/components/entities/EntityAvatar.svelte';
+	import { resolvePlayerEntity, resolveTeamEntity } from '$lib/entities/entity-media';
 	import { CHART_SERIES_COLORS, formatChartNumber } from './chart-utils';
 	import { createBarGeometry } from './bar-chart-utils';
 
@@ -10,7 +12,9 @@
 	let inspectIndex = $state<number | null>(null);
 	let order = $state<'original' | 'descending' | 'ascending'>('original');
 	const bars = $derived.by(() => {
-		const entries = artifact.bars.filter((bar) => Number.isFinite(bar.value));
+		const entries = artifact.bars.filter((bar) => Number.isFinite(bar.value)).map((bar) => ({
+			...bar, entity: resolvePlayerEntity({ name: bar.label }) ?? resolveTeamEntity({ name: bar.label })
+		}));
 		return order === 'original' ? entries : [...entries].sort((a, b) => (a.value - b.value) * (order === 'ascending' ? 1 : -1));
 	});
 	const geometry = $derived(createBarGeometry(bars.map((bar) => bar.value)));
@@ -44,7 +48,7 @@
 				{#each bars as bar, index}
 					{@const position = geometry.position(bar.value)}
 					<li class="bar-row" class:inspected={inspectIndex !== null && activeIndex === index} onpointerenter={() => inspectIndex = index}>
-						<span class="bar-label">{bar.label}</span>
+						<span class="bar-label">{#if bar.entity}<EntityAvatar entity={bar.entity} size={24} decorative />{/if}<span>{bar.label}</span></span>
 						<div class="bar-plot" aria-hidden="true">
 							<span class="zero-line" style:left="{geometry.zero}%"></span>
 							<span class="bar-fill" class:negative={bar.value < 0} style:left="{position.left}%" style:width="{position.width}%"></span>
@@ -76,7 +80,8 @@
 	.bar-list { margin: 0; padding: 0; list-style: none; }
 	.bar-row, .scale-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 4.5rem; column-gap: 1rem; }
 	.bar-row { align-items: center; padding: 0.65rem 0; border-bottom: 1px solid var(--color-border); }
-	.bar-label { font-size: 0.8125rem; line-height: 1.5; overflow-wrap: anywhere; }
+	.bar-label { display: flex; align-items: center; gap: .5rem; min-width: 0; font-size: 0.8125rem; line-height: 1.5; overflow-wrap: anywhere; }
+	.bar-label > span { min-width: 0; }
 	.bar-value { text-align: right; font-size: 0.8125rem; font-weight: 550; font-variant-numeric: tabular-nums; white-space: nowrap; }
 	.bar-plot { position: relative; height: 1.5rem; min-width: 0; }
 	.zero-line { position: absolute; top: -0.2rem; bottom: -0.2rem; width: 1px; background: var(--color-muted-foreground); opacity: 0.5; }
