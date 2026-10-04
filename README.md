@@ -2,7 +2,7 @@
 
 AI-powered NBA natural-language search engine.
 
-Hoop Hub is currently a single Bun + SvelteKit app that answers grounded NBA stats questions through a dynamic tool-loop agent for natural-language asks plus a structured semantic stats route, backed by official NBA endpoint retrieval, SQLite caching, and semantic traces.
+Hoop Hub is a single SvelteKit app built and developed with Bun, with Node HTTP and built-in SQLite for production. It answers grounded NBA stats questions through a dynamic tool-loop agent and a structured semantic stats route, backed by official NBA endpoint retrieval, caching, and owned research traces.
 
 ## Current Scope
 
@@ -44,7 +44,7 @@ Detailed implementation context for future agents lives in [agents/current-state
 - [x] Add grounded derived/computed metric execution (`aggregate_endpoint_rows` filters/groups/aggregates full result sets server-side)
 - [x] Add richer visualization artifacts (line, bar, and half-court shot chart components render agent artifacts in the UI)
 - [x] Add bounded server-session grounding, exact shot refinements and canonical season comparisons
-- [ ] Persist research across server restarts and support broader compound refinements
+- [x] Persist private research across server restarts, with grounded follow-ups and multi-player trends
 - [x] Add the dynamic-agent evaluation harness and performance gates
 - [x] Clip retrieval and playlist output (`find_video_clips` over `videodetailsasset` + sequential playlist player in the UI)
 - [x] Exact custom-shot playlists (`shotchartdetail` event filters joined to playable clips by game/event id)
@@ -52,13 +52,14 @@ Detailed implementation context for future agents lives in [agents/current-state
 - [x] Sample-qualified defender matchup leaderboards across shooting, volume, possession, scoring, assist, and turnover metrics
 - [x] Expand the deterministic eval matrix, track model usage/cost inputs, and run a scheduled dynamic-agent live canary
 - [ ] Retire legacy planner/orchestrator compatibility code
-- [ ] Add production deployment, observability, authentication, quotas, and server-grade storage
+- [x] Prepare invite-only Docker deployment, authentication, ownership, quotas, spending guards, feedback and backup/restore
+- [ ] Select the host, verify hosted model/data/media flows, and expand SLOs and storage/workers as measured demand grows
 
 ## Local Setup
 
 ### Requirements
 
-- Node `22.12.0+` (see [`.nvmrc`](.nvmrc))
+- Node `22.19.0+` (see [`.nvmrc`](.nvmrc))
 - Bun
 
 ### Install + Run
@@ -174,9 +175,15 @@ Raw leaderboards qualify and rank the full retrieved population before returning
 
 `POST /api/query` accepts `{ question, sessionId? }` and returns `sessionId`, `researchTurnId`, grounded follow-up suggestions, and effective scope when grounding succeeds. With `Accept: text/event-stream`, it emits current activity, elapsed time, cumulative verified artifacts, and a final result or typed error. Cancellation reaches model requests and NBA subprocesses. Independent tool calls run in bounded parallel batches and equivalent successful endpoint requests share one retrieval within an answer.
 
-The UI retains the session for follow-ups and starts fresh with **New research**. Narrow edits such as “Show only the misses,” “Only fourth quarter,” and “Compare that with 2023-24” replay validated requests server-side. General follow-ups use bounded context and require broader model evaluation. SQLite persists both validated grounding and rendered history across restarts; the default retention is 90 days, configurable with `HOOP_HUB_RESEARCH_RETENTION_DAYS`. Storage is bounded to 100 sessions, 50 turns per session, 1 MiB per displayed turn, and 256 MiB in total. Expired IDs return 409. Saved research can be reopened, renamed, or deleted through the sidebar and `/api/research` routes.
+The UI retains the session for follow-ups and starts fresh with **New research**. Narrow edits such as “Show only the misses,” “Only fourth quarter,” and “Compare that with 2023-24” replay validated requests server-side. General follow-ups use bounded context and require broader model evaluation. SQLite persists both validated grounding and rendered history across restarts; the default retention is 90 days, configurable with `HOOP_HUB_RESEARCH_RETENTION_DAYS`. Each account is bounded to 100 sessions, 50 turns per session, 1 MiB per displayed answer and 16 MiB of saved-answer payloads, with questions and bounded grounding stored separately. Expired IDs return 409. Saved research can be reopened, renamed, or deleted through the sidebar and `/api/research` routes.
 
 Implicit “this season” resolves to the latest season whose published opening tip has occurred. Explicit future seasons stay explicit. Opening evidence is centralized in `src/lib/server/season-intent.ts`; update its official NBA dates when a new season is announced.
+
+## Invite beta
+
+Use [`.docs/BETA_DEPLOYMENT.md`](.docs/BETA_DEPLOYMENT.md) and [`deploy/beta.env.example`](deploy/beta.env.example) for the portable Docker/Compose setup, invitations, conservative model budgets, health/readiness, feedback, backups and recovery. The deployment runs one app process with persistent volumes and an optional Caddy HTTPS proxy. Local development remains available on loopback; production research is private to invited accounts.
+
+The package is prepared locally. Sharing still requires a host/domain, configured model credentials/prices, applicable source display permission and hosted model/NBA/video acceptance. No paid specialist provider is required for the initial pilot.
 
 Saved playlists offer **Export compiled clips**. The server validates each selected game/event against the saved result, downloads only allowed NBA media, normalizes it with `ffmpeg`/`ffprobe`, and produces one MP4. Missing clips are listed as omissions. Install both binaries or set `HOOP_HUB_FFMPEG_PATH` and `HOOP_HUB_FFPROBE_PATH`; `HOOP_HUB_EXPORT_DIR` optionally overrides storage. Exports have one worker, a ten-job queue, a 40-clip limit, bounded bytes/time, and 24-hour download retention. This local queue does not provide distributed worker coordination.
 

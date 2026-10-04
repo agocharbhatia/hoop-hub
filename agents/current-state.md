@@ -37,7 +37,7 @@ This file is the short source of truth for future agents. Use it before relying 
 
 - Traces should expose canonicalized execution state through `resolvedQuery`, not raw caller input when normalization/resolution changed it.
 - The production natural-language route accepts an optional UUID `sessionId` and returns the active session plus effective scope. It retains bounded, validated tool requests for follow-ups, with deterministic makes/misses, quarter, and season-comparison refinements.
-- The default session store persists validated grounding and rendered research in SQLite across restarts. Default retention is 90 days, with bounds of 100 sessions, 50 turns/session, 1 MiB/turn and 256 MiB total; `HOOP_HUB_RESEARCH_RETENTION_DAYS` controls retention. `/api/research` supports paginated reopening, renaming and deletion. The in-memory store remains an injectable test factory.
+- The default session store persists validated grounding and rendered research in SQLite across restarts. Default retention is 90 days, with per-account bounds of 100 sessions, 50 turns/session, 1 MiB/displayed answer and 16 MiB saved-answer payloads; questions and bounded grounding are separate. `HOOP_HUB_RESEARCH_RETENTION_DAYS` controls retention. `/api/research` supports paginated reopening, renaming and deletion. The in-memory store remains an injectable test factory.
 - Results expose player, opponent, shot definition and season/quarter labels from validated requests. Failed unrelated questions retain prior context internally without presenting that old scope as the new answer.
 - Trend averages/direction use server computation. Multiple verified player/metric/season/window populations stay separate; unlike metrics use separate charts and a canonical comparison table. Failed attempted scopes produce partial-coverage warnings.
 - `Accept: text/event-stream` on `/api/query` provides current activity, elapsed time and verified artifacts before the final answer. Independent tools run in bounded parallel batches, successful endpoint requests share per-answer retrievals, and cancellation reaches model requests/NBA subprocesses. Common fully scoped single-player computations can skip an extra planning round.
@@ -56,7 +56,8 @@ This file is the short source of truth for future agents. Use it before relying 
 - broader dynamic-agent endpoint coverage, eval corpus growth, and model prompt hardening
 - starter/bench, clutch, opponent-specific possession scopes, broader playoff evaluation, and verified complete lineup populations
 - event-level primary-defender and tactical coverage labels; aggregate matchup feeds cannot establish guarding on a shot
-- distributed export workers and production authentication/quotas/backups
+- selected-host model/data/video acceptance, off-host backup destination and measured production SLOs
+- distributed export workers, multiple-replica storage and broader real-data holdout coverage
 
 Clip retrieval now has direct-event and exact custom-shot paths. Standard event intents still map straight to `videodetailsasset` context measures (`made_three` -> `FG3M`, `made_field_goal` -> `FGM`, plus direct assist/block/steal/rebound/turnover measures). `custom_shot` fetches the full `shotchartdetail` log, applies canonical result/value/zone/zone-area/action-family/period/distance filters, then makes at most one broad video request and joins only on `(GAME_ID, GAME_EVENT_ID)`. The 40-clip cap is applied after joining, and tool data exposes matching/joined/missing counts, invalid keys, cap state, returned event ids, and applied filters. `src/lib/server/agent/custom-shot-clips.ts` owns the deterministic filter/join logic; `video-clips.ts` can parse an uncapped feed for this path.
 
@@ -73,6 +74,11 @@ Saved playlists can now compile into one downloadable MP4 through `/api/clip-exp
 Derived/computed metrics now run through the agent's `aggregate_endpoint_rows` tool (server-side filter/group/aggregate over full result sets), and line/bar/shot-chart artifacts render as real chart components (`src/lib/components/charts/`, QA page at `/dev/charts`). The player directory re-seeds stored DBs whenever the checked-in snapshot version changes.
 
 ## Verification Surface
+
+- Invite beta preparation: `src/lib/server/beta/`, central authentication/CSRF/body-size hooks, account-owned history/traces/exports, atomic daily/burst/concurrency admission, conservative persisted model charges, answer feedback and minimal readiness.
+- Production uses the adapter-node output on Node 22.19+ with a built-in SQLite driver; Bun keeps its native driver for development and operator commands. This avoids Bun's Node HTTP disconnect-event gap for streamed POST requests. Do not switch production back to Bun HTTP without rerunning the actual cancellation regression.
+- `bun run build` packages a Node startup module and relocatable private NBA transport assets. Docker adds FFmpeg, non-root/read-only operation, private persistent volumes and an optional Caddy HTTPS/streaming proxy.
+- `bun run beta:smoke` tests the actual production HTTP boundary against synthetic loopback fixtures. `bun run beta:container-smoke` tests the locally built image with disposable volumes. See `.docs/BETA_DEPLOYMENT.md` for configuration, invitations, feedback, consistent backups and restore. No host has been selected or public link issued.
 
 - Default repo verification remains:
   - `cd apps/web && bun run check`

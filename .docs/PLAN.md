@@ -70,7 +70,7 @@ Status: operational foundation completed 2026-07-10; production-scale storage an
 - Refresh scheduled/live/final game states correctly instead of treating the first snapshot as permanently authoritative.
 - Add historical backfill and data-quality checks for schema drift, missing subjects, duplicates, and row-count anomalies.
 - Materialize common shot/event indexes so clip searches do not repeatedly scan full raw logs.
-- Move production state from local SQLite to a server-grade store when multi-user deployment begins.
+- Move state to a server-grade store when measured demand or multiple app replicas require it. The invited single-process beta uses owned SQLite state with atomic admission and persistent volumes.
 
 Exit criteria: supported answers remain reproducible during upstream outages and expose accurate freshness and completeness.
 
@@ -122,7 +122,12 @@ Exit criteria: users can inspect, refine, save, share, and export grounded resea
 
 ### Phase 7 — Production readiness
 
-- Add authentication, quotas, rate limiting, secret management, request isolation, monitoring, backups, restore drills, and deployment/rollback runbooks.
+Status: invite-beta implementation prepared 2026-10-03; host selection and hosted acceptance remain deployment gates.
+
+- Shipped invite activation/sign-in/revocation, account-owned research/traces/exports, durable quotas and conservative model spending reservations.
+- Shipped server-only configuration, safe request/model timing logs, health/readiness, answer feedback, bounded retention and consistent database snapshots with verified restore.
+- Prepared the Node production server, non-root read-only Docker/Compose runtime, persistent volumes, optional Caddy streaming/HTTPS proxy and operator deployment/rollback runbook.
+- Verify the selected host/domain, external data permissions, model/NBA egress, real media and off-host recovery before sharing invitations.
 - Establish latency, availability, correctness, freshness, and cost SLOs.
 - Load-test the production-shaped system and scale ingestion/query workers independently.
 

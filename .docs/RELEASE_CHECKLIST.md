@@ -64,3 +64,15 @@ Live checks remain separate from deterministic PR CI because OpenAI and NBA avai
 - Do not claim live readiness when live checks were skipped or blocked; record the blocker.
 - Do not treat browser autoplay restrictions as missing media, but verify the user-facing fallback.
 - Record any newly discovered regression as an automated test or eval before release.
+
+## Invite beta deployment gate
+
+The portable package and operator commands are documented in [BETA_DEPLOYMENT.md](BETA_DEPLOYMENT.md). Host selection is separate from local implementation readiness.
+
+- `bun run beta:smoke` passes against the actual Node production build with isolated accounts and a loopback model fixture. Verify progress before result, disconnect cancellation, quotas, private history/traces/exports, CSRF/body limits, feedback and restart persistence.
+- Build `hoop-hub-beta:local` and run `bun run beta:container-smoke`. Verify the non-root read-only runtime, persistent volumes, invitations, session survival across container recreation and snapshot restore.
+- Validate Compose/Caddy configuration and keep direct app traffic private. Configure the exact HTTPS origin, trusted proxy address and server-only key/model/prices.
+- Confirm source display permission before enabling external research; confirm PBP Stats separately. A passing readiness endpoint does not establish these rights or live connectivity.
+- Run the real-model/NBA/media/browser checks through the chosen host and proxy before sending invites. Retain the results and classify any upstream failures explicitly.
+- Verify an off-host backup destination and a disposable restore. Database snapshots exclude compiled media.
+- Start with a small invited pilot; establish latency/cost/coverage measurements before broader sharing or multiple replicas.

@@ -1,6 +1,6 @@
 # Hoop Hub Web App
 
-The Bun + SvelteKit application containing the UI, API routes, dynamic agent, structured semantic runtime, data adapters, evaluation harness, and nightly bootstrap.
+The SvelteKit application containing the UI, API routes, dynamic agent, structured semantic runtime, data adapters, evaluation harness, and nightly bootstrap. Bun owns development/builds/operator commands; production uses Node 22.19+ HTTP and built-in SQLite.
 
 ## Commands
 
@@ -17,6 +17,8 @@ bun run nightly:bootstrap -- --slate-date 2026-04-01
 bun run nightly:bootstrap -- --fixture-data --slate-date 2026-04-01
 bun run nightly:audit -- --slate-date 2026-04-01
 bun run build
+bun run beta:smoke
+bun run beta:container-smoke
 ```
 
 Default tests and local evals are deterministic. Model eval uses the configured OpenAI model against strictly scoped synthetic fixtures. Live eval additionally requires NBA connectivity. Both paid modes are separate from ordinary CI.
@@ -35,19 +37,26 @@ Production builds package the NBA subprocess transports as private server assets
 - `HOOP_HUB_EVAL_INPUT_COST_PER_MILLION` and `HOOP_HUB_EVAL_OUTPUT_COST_PER_MILLION` — required current model prices used to enforce the eval budget and estimate cost.
 - `HOOP_HUB_EVAL_CACHED_INPUT_COST_PER_MILLION` and `HOOP_HUB_EVAL_CACHE_WRITE_COST_PER_MILLION` — optional prices for provider-reported cache usage.
 
-## Public routes
+## API routes
 
 - `GET /api/health`
+- `GET /api/ready` — public minimal deployment readiness.
 - `POST /api/query` — primary natural-language dynamic-agent route.
 - `POST /api/stats/query` — structured semantic query route.
 - `GET /api/stats/capabilities` — structured runtime capabilities.
 - `GET /api/query-trace/:traceId` — dynamic or structured execution trace.
+- `GET /api/research` and owned session routes — private saved research.
+- `GET /api/usage` — the signed-in account's daily allowance.
+- `POST /api/feedback` — report a problem on an owned saved answer.
+
+Invite mode authenticates every research, trace and export route. Credential endpoints share login throttles and same-origin request checks. See [../../.docs/BETA_DEPLOYMENT.md](../../.docs/BETA_DEPLOYMENT.md) for production start/configuration and operator commands; `beta:container-smoke` needs the locally built `hoop-hub-beta:local` image.
 
 ## Runtime map
 
 - `src/lib/server/agent/` owns the dynamic tool loop, tracking-derived player matchups and defender leaderboards, exact custom-shot joins, endpoint aggregation, time-series analysis, and video retrieval.
 - `src/lib/server/semantic/` owns the structured stored-data runtime and capabilities, including player win/loss and home/away splits.
 - `src/lib/server/data/` owns cataloged NBA retrieval, caching, storage, and source-call metadata.
+- `src/lib/server/beta/` owns identity, admission, persistent budget reservations, feedback, readiness and database snapshots.
 - `src/lib/server/nightly/` owns resumable bootstrap/materialization.
 - `nightly:audit` validates run completion, request/cache agreement, JSON/checksum integrity, and finalized/provisional/stale/unavailable freshness.
 - `src/lib/server/players/` and `src/lib/server/teams/` own canonical identity resolution.
