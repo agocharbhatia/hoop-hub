@@ -6,6 +6,7 @@ import { dirname, resolve } from 'node:path';
 import type { QueryAnswerPlannedToolRequest } from '$lib/contracts/answer-response';
 import type { DataFreshnessMode, TraceSourceCall } from '$lib/contracts/chat';
 import { computePayloadChecksum, stableStringify } from './cache-key';
+import { NodeSqliteDatabase } from './node-sqlite';
 
 function buildDefaultDbFile(): string {
 	const cwd = process.cwd();
@@ -368,10 +369,10 @@ function loadSqliteConstructor(): SqliteDatabaseConstructor | null {
 		if (moduleValue?.default?.Database) {
 			return moduleValue.default.Database;
 		}
-	} catch {
-		return null;
-	}
-
+	} catch { /* Node uses its built-in SQLite driver; Bun retains its existing driver. */ }
+	try {
+		if (createRequire(import.meta.url)('node:sqlite').DatabaseSync) return NodeSqliteDatabase;
+	} catch { /* Legacy non-server environments may still use the injectable memory store. */ }
 	return null;
 }
 
@@ -541,7 +542,7 @@ export class DataStore {
 
 	/** Authentication and quotas must fail closed instead of falling back to volatile memory. */
 	requireSqlite(): SqliteDatabase {
-		if (!this.sqlite) throw new Error('Persistent beta storage requires the Bun runtime.');
+		if (!this.sqlite) throw new Error('Persistent beta storage requires Bun or Node 22.19+.');
 		return this.sqlite;
 	}
 
