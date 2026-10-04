@@ -39,6 +39,7 @@
 	/* Presentation helpers */
 	function requiresWideArtifact(artifact: QueryAnswerArtifact): boolean {
 		if (possessionView(artifact)) return false;
+		if (artifact.type === 'shot_chart') return !hasShotAndVideo;
 		return artifact.type === 'table' && (buildTablePresentation(artifact.columns, artifact.rows).primaryColumns.length > 5 || (hasShotAndVideo && artifact.rows.length <= 3));
 	}
 

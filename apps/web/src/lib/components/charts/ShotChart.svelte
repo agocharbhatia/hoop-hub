@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
+	import ShotZoneSummary from './ShotZoneSummary.svelte';
 	import type { QueryAnswerArtifact } from '$lib/contracts/answer-response';
 	import { binShots, describeShot, isOnCourt, summarizeShots, SHOT_COURT as COURT, type IndexedShot, type Shot, type ShotBin } from './shot-chart-utils';
 
 	type ShotChartArtifact = Extract<QueryAnswerArtifact, { type: 'shot_chart' }>;
-	type View = 'shots' | 'density' | 'percentage';
+	type View = 'zones' | 'shots' | 'density' | 'percentage';
 	type Outcome = 'all' | 'made' | 'missed';
 
 	let { artifact, onselectshot, selectedEvent = null }: {
@@ -16,12 +17,12 @@
 	const componentId = $props.id();
 	const MADE_COLOR = '#3987e5';
 	const MISS_COLOR = '#e66767';
-	let view = $state<View>('shots');
+	let view = $state<View>('zones');
 	let outcome = $state<Outcome>('all');
 	let minimumAttempts = $state(3);
 	let inspectedIndex = $state<number | null>(null);
 	let hoveredBin = $state<ShotBin | null>(null);
-	let chartElement: SVGSVGElement;
+	let chartElement = $state<SVGSVGElement>();
 
 	const shots = $derived(artifact.shots.map((shot, index) => ({ shot, index })).filter(({ shot }) => isOnCourt(shot)));
 	const summary = $derived(summarizeShots(artifact.shots));
@@ -103,12 +104,15 @@
 			<p class="mt-1 text-xs tabular-nums text-muted-foreground">{summary.makes}/{summary.attempts} FG{summary.percentage === null ? '' : ` · ${summary.percentage.toFixed(1)}%`}{#if artifact.source?.sampled} · <abbr title="FG% and heatmaps describe a plotted sample of the matching attempts">Sample</abbr>{/if}</p>
 		</div>
 		<div class="segmented" aria-label="Court view">
-			{#each [['shots', 'Shots'], ['density', 'Density'], ['percentage', 'FG%']] as [value, label]}
+			{#each [['zones', 'Zones'], ['shots', 'Shots'], ['density', 'Density'], ['percentage', 'FG%']] as [value, label]}
 				<button type="button" aria-pressed={view === value} class:active={view === value} onclick={() => { view = value as View; hoveredBin = null; }}>{label}</button>
 			{/each}
 		</div>
 	</figcaption>
 
+	{#if view === 'zones'}
+		<ShotZoneSummary {shots} onselectshot={(shot, index) => { view = 'shots'; outcome = 'all'; selectShot({ shot, index }); }} />
+	{:else}
 	<div class="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs">
 		<div class="segmented" aria-label="Shot outcome">
 			{#each [['all', 'All attempts'], ['made', 'Makes'], ['missed', 'Misses']] as [value, label]}
@@ -193,11 +197,13 @@
 			<p class="font-medium tabular-nums">{binDescription(hoveredBin)}</p>
 		{/if}
 	</div>
+	{/if}
 	<p id="{componentId}-help" class="sr-only">{view === 'shots' ? `Use arrow keys to inspect shots.${onselectshot ? ' Press Enter or Space to find a matching clip.' : ''}` : 'Focus a court area to inspect its count and sample size.'}</p>
 	{#if shots.length < artifact.shots.length}<details class="coordinate-note mt-2 text-xs text-muted-foreground"><summary>{artifact.shots.length - shots.length} attempts not plotted</summary><p class="mt-1 leading-5">Attempts without half-court coordinates are included in the FG summary.</p></details>{/if}
 </figure>
 
 <style>
+	.shot-artifact { container: shot-artifact / inline-size; }
 	.segmented { display: flex; flex-wrap: wrap; max-width: 100%; gap: 2px; padding: 3px; border: 1px solid var(--color-border); border-radius: 9px; background: rgba(0,0,0,.08); }
 	.segmented button { min-height: 40px; border-radius: 6px; padding: 6px 9px; color: var(--color-muted-foreground); font-size: 12px; cursor: pointer; transition: color .15s, background .15s; }
 	.segmented button.active { background: var(--color-card); color: var(--color-foreground); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
