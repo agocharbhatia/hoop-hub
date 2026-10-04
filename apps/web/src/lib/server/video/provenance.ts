@@ -1,3 +1,5 @@
+import { videoPlaybackUrl } from '$lib/contracts/video-media-url';
+
 /** Exact event provenance restricts server-side video requests to official NBA assets. */
 export function isCanonicalNbaVideo(clip: { url?: unknown; gameId?: unknown; eventId?: unknown }): boolean {
 	if (typeof clip.url !== 'string' || clip.url.length > 1_024 || typeof clip.gameId !== 'string' || typeof clip.eventId !== 'string') return false;
@@ -11,3 +13,18 @@ export function isCanonicalNbaVideo(clip: { url?: unknown; gameId?: unknown; eve
 		return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
 	} catch { return false; }
 }
+
+/* Verified media redirect helpers */
+
+/** Reuses the playback cache repair only after a redirect still proves the original event. */
+export function verifiedNbaMediaRedirect(location: string, currentUrl: string, clip: { gameId: string; eventId: string }): string | null {
+	try {
+		const target = new URL(location, currentUrl);
+		// Accept only our exact internal cache key; arbitrary or duplicate query parameters remain rejected.
+		if (target.search === '?hoop_hub_media=referrer-v1') target.search = '';
+		if (!isCanonicalNbaVideo({ ...clip, url: target.href })) return null;
+		return videoPlaybackUrl(target.href);
+	} catch { return null; }
+}
+
+/* End verified media redirect helpers */

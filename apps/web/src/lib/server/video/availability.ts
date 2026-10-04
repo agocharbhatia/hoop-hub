@@ -1,5 +1,6 @@
 import type { VideoAvailability, VideoAvailabilityRequest } from '$lib/contracts/video-availability';
-import { isCanonicalNbaVideo } from './provenance';
+import { videoPlaybackUrl } from '$lib/contracts/video-media-url';
+import { isCanonicalNbaVideo, verifiedNbaMediaRedirect } from './provenance';
 import { buildNbaMediaRequestHeaders } from './media-request';
 
 // Captured from the actual NBA unavailable slate on 2026-10-03 and visually verified at 2 seconds.
@@ -82,7 +83,7 @@ export function isVideoAvailabilityRequest(value: unknown): value is VideoAvaila
 }
 
 async function probeClip(clip: VideoAvailabilityRequest, fetchImpl: typeof fetch, signal: AbortSignal, mediaOrigin?: string): Promise<VideoAvailability> {
-	let url = clip.url;
+	let url = videoPlaybackUrl(clip.url);
 	try {
 		for (let redirects = 0; redirects <= 2; redirects++) {
 			// NBA's HEAD response can be a slate even when GET serves the exact footage.
@@ -92,8 +93,9 @@ async function probeClip(clip: VideoAvailabilityRequest, fetchImpl: typeof fetch
 			if (![301, 302, 303, 307, 308].includes(response.status)) return classifyNbaMediaResponse(response);
 			const location = response.headers.get('location');
 			if (!location || redirects === 2) return UNKNOWN;
-			url = new URL(location, url).href;
-			if (!isCanonicalNbaVideo({ ...clip, url })) return UNKNOWN;
+			const target = verifiedNbaMediaRedirect(location, url, clip);
+			if (!target) return UNKNOWN;
+			url = target;
 		}
 	} catch { return UNKNOWN; }
 	return UNKNOWN;

@@ -104,15 +104,16 @@ test('clip download rejects redirects outside NBA provenance and oversized media
 
 test('export GETs preserve public app request context across verified media redirects', async () => {
 	const directory = mkdtempSync(join(tmpdir(), 'hoop-context-export-'));
-	const requests: RequestInit[] = []; const omissions: string[] = [];
+	const requests: RequestInit[] = []; const urls: string[] = []; const omissions: string[] = [];
 	try {
 		await assert.rejects(() => compilePlaylist({ clips: [clips[0]], outputPath: join(directory, 'result.mp4'), signal: AbortSignal.timeout(10_000),
 			onClipCompleted: () => assert.fail('Oversized media was compiled'), onOmission: (_clip, reason) => omissions.push(reason)
 		}, { mediaOrigin: 'http://localhost/', fetchImpl: (async (_url, init) => {
-			requests.push(init!);
+			requests.push(init!); urls.push(String(_url));
 			return requests.length === 1 ? new Response(null, { status: 302, headers: { location: clips[0].url.replace('clip.mp4', 'clip-1280x720.mp4') } }) : new Response('media', { headers: { 'content-length': String(67_108_865) } });
 		}) as typeof fetch }), /None of the selected/);
 		assert.match(omissions[0], /download limit/); assert.equal(requests.length, 2);
+		assert.deepEqual(urls, [clips[0].url, clips[0].url.replace('clip.mp4', 'clip-1280x720.mp4')].map(url => `${url}?hoop_hub_media=referrer-v1`));
 		for (const request of requests) {
 			assert.equal(request.method, 'GET');
 			const headers = new Headers(request.headers);

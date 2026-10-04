@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { classifyNbaMediaResponse, createVideoAvailabilityService, isVideoAvailabilityRequest } from './availability';
-import { isCanonicalNbaVideo } from './provenance';
+import { isCanonicalNbaVideo, verifiedNbaMediaRedirect } from './provenance';
 import { POST, _setVideoAvailabilityServiceForTests } from '../../../routes/api/video-availability/+server';
 import { LOCAL_PRINCIPAL } from '$lib/server/beta/context';
 
@@ -67,7 +67,7 @@ test('media provenance excludes arbitrary hosts, credentials, mismatched events,
 test('selected-clip checks use bounded GET requests, cancel bodies, deduplicate and cache', async () => {
 	let now = 1_000; let calls = 0; let cancelled = 0;
 	const service = createVideoAvailabilityService({ nowMs: () => now, mediaOrigin: 'http://localhost/', fetchImpl: (async (_url, init) => {
-		calls++; assert.equal(init?.method, 'GET'); assert.equal(init?.redirect, 'manual');
+		calls++; assert.equal(String(_url), `${clip.url}?hoop_hub_media=referrer-v1`); assert.equal(init?.method, 'GET'); assert.equal(init?.redirect, 'manual');
 		const headers = new Headers(init?.headers);
 		assert.equal(headers.get('range'), 'bytes=0-1023');
 		assert.equal(headers.get('referer'), 'http://localhost/');
@@ -159,4 +159,13 @@ test('availability route requires authentication and a small canonical request b
 		assert.equal(response.status, 200); assert.equal(calls, 1);
 		assert.deepEqual(await response.json(), { status: 'unavailable', reason: 'nba_unavailable' });
 	} finally { _setVideoAvailabilityServiceForTests(null); }
+});
+
+test('verified redirects preserve the repair key without accepting other parameters or events', () => {
+	const repaired = `${clip.url}?hoop_hub_media=referrer-v1`;
+	assert.equal(verifiedNbaMediaRedirect(repaired, repaired, clip), repaired);
+	assert.equal(verifiedNbaMediaRedirect('?hoop_hub_media=referrer-v1', repaired, clip), repaired);
+	for (const location of [repaired + '&extra=1', repaired + '&hoop_hub_media=referrer-v1', repaired.replace('/51/', '/52/'), repaired.replace('videos.nba.com', 'example.com'), `${clip.url}?hoop_hub_media=other`]) {
+		assert.equal(verifiedNbaMediaRedirect(location, repaired, clip), null);
+	}
 });

@@ -3,7 +3,8 @@ import { mkdir, open, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { QueryAnswerArtifact } from '$lib/contracts/answer-response';
 import { classifyNbaMediaResponse } from '$lib/server/video/availability';
-import { isCanonicalNbaVideo } from '$lib/server/video/provenance';
+import { videoPlaybackUrl } from '$lib/contracts/video-media-url';
+import { isCanonicalNbaVideo, verifiedNbaMediaRedirect } from '$lib/server/video/provenance';
 import { buildNbaMediaRequestHeaders } from '$lib/server/video/media-request';
 
 export type ExportClip = Extract<QueryAnswerArtifact, { type: 'video_playlist' }>['clips'][number] & { gameId: string; eventId: string };
@@ -66,7 +67,7 @@ export async function compilePlaylist(input: CompilePlaylistInput, options: { ff
 
 async function downloadClip(clip: ExportClip, destination: string, remainingBytes: number, signal: AbortSignal, fetchImpl: typeof fetch, onBytes: (bytes: number) => void, mediaOrigin?: string): Promise<number> {
 	if (!isCanonicalExportClip(clip)) throw new Error('Clip media provenance is not verified.');
-	let url = clip.url;
+	let url = videoPlaybackUrl(clip.url);
 	let response: Response | undefined;
 	const downloadSignal = AbortSignal.any([signal, AbortSignal.timeout(90_000)]);
 	for (let redirects = 0; redirects <= 3; redirects += 1) {
@@ -75,8 +76,9 @@ async function downloadClip(clip: ExportClip, destination: string, remainingByte
 		const location = response.headers.get('location');
 		await response.body?.cancel();
 		if (!location) throw new Error('Clip source returned an invalid redirect.');
-		url = new URL(location, url).href;
-		if (!isCanonicalExportClip({ ...clip, url })) throw new Error('Clip source redirected outside verified NBA media.');
+		const target = verifiedNbaMediaRedirect(location, url, clip);
+		if (!target) throw new Error('Clip source redirected outside verified NBA media.');
+		url = target;
 	}
 	if (!response?.ok || !response.body) throw new Error(`Clip source is unavailable (HTTP ${response?.status ?? 'error'}).`);
 	if (classifyNbaMediaResponse(response).reason === 'nba_unavailable') {
