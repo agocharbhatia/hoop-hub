@@ -5,7 +5,7 @@ export class BetaError extends Error {
 /** Invalid production settings stop admission instead of silently disabling a guard. */
 export function getBetaConfig() {
 	const mode = process.env.HOOP_HUB_AUTH_MODE ?? (process.env.NODE_ENV === 'production' ? 'invite' : 'local');
-	if (mode !== 'invite' && mode !== 'local') throw new Error('HOOP_HUB_AUTH_MODE must be invite or local.');
+	if (mode !== 'invite' && mode !== 'local' && mode !== 'public') throw new Error('HOOP_HUB_AUTH_MODE must be invite, public or local.');
 	return {
 		mode,
 		origin: process.env.ORIGIN ?? process.env.HOOP_HUB_APP_ORIGIN,

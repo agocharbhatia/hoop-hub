@@ -1,5 +1,5 @@
 import { json, redirect, type Handle } from '@sveltejs/kit';
-import { AUTH_COOKIE, authenticate } from '$lib/server/beta/auth';
+import { AUTH_COOKIE, SESSION_SECONDS, authenticate, createGuest } from '$lib/server/beta/auth';
 import { BetaError, getBetaConfig } from '$lib/server/beta/config';
 import { LOCAL_PRINCIPAL, withPrincipal } from '$lib/server/beta/context';
 
@@ -12,8 +12,18 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const api = path.startsWith('/api/');
 	const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(event.request.method);
 	if (config.mode === 'local' && !['localhost', '127.0.0.1', '[::1]'].includes(event.url.hostname)) return json({ error: 'Local mode is available on loopback only.' }, { status: 403 });
-	if (config.mode === 'invite' && path.startsWith('/dev/')) return new Response('Not found', { status: 404 });
-	const user = config.mode === 'local' ? LOCAL_PRINCIPAL : authenticate(event.cookies.get(AUTH_COOKIE));
+	if (config.mode !== 'local' && path.startsWith('/dev/')) return new Response('Not found', { status: 404 });
+	let user = config.mode === 'local' ? LOCAL_PRINCIPAL : authenticate(event.cookies.get(AUTH_COOKIE));
+	if (!user && config.mode === 'public' && event.request.method === 'GET' && path === '/') {
+		try {
+			const guest = createGuest(event.getClientAddress());
+			event.cookies.set(AUTH_COOKIE, guest.token, { path: '/', httpOnly: true, secure: event.url.protocol === 'https:', sameSite: 'lax', maxAge: SESSION_SECONDS });
+			user = guest.principal;
+		} catch (error) {
+			if (error instanceof BetaError) return new Response(error.message, { status: error.status, headers: { 'Retry-After': String(error.retryAfter) } });
+			throw error;
+		}
+	}
 	event.locals.user = user;
 	if (!user && !PUBLIC_ROUTES.has(path) && !path.startsWith('/_app/')) {
 		if (api) return json({ error: 'Sign in to continue your research.', code: 'sign_in_required' }, { status: 401 });
@@ -25,7 +35,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		try { event.request = await boundedRequest(event.request); }
 		catch (error) { if (error instanceof BetaError) return json({ error: error.message }, { status: error.status, headers: { Connection: 'close' } }); throw error; }
 	}
-	if (config.mode === 'invite' && ['/api/query', '/api/stats/query', '/api/clip-exports'].includes(path) && mutating && (process.env.HOOP_HUB_DATA_USE !== 'public' || process.env.HOOP_HUB_NBA_PUBLIC_DISPLAY_ALLOWED !== '1')) return json({ error: 'Research is not enabled for this demo yet. Please contact your inviter.', code: 'demo_not_ready' }, { status: 503 });
+	if (config.mode !== 'local' && ['/api/query', '/api/stats/query', '/api/clip-exports'].includes(path) && mutating && (process.env.HOOP_HUB_DATA_USE !== 'public' || process.env.HOOP_HUB_NBA_PUBLIC_DISPLAY_ALLOWED !== '1')) return json({ error: 'Research is not enabled for this demo yet. Please try again later.', code: 'demo_not_ready' }, { status: 503 });
 	const started = performance.now();
 	const requestId = crypto.randomUUID();
 	const response = await withPrincipal({ ...(user ?? LOCAL_PRINCIPAL), requestId }, () => resolve(event));
@@ -37,7 +47,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 	response.headers.set('X-Request-Id', requestId);
 	if (!path.startsWith('/_app/')) response.headers.set('Cache-Control', 'private, no-store');
-	if (config.mode === 'invite' && api && path !== '/api/health' && path !== '/api/ready') {
+	if (config.mode !== 'local' && api && path !== '/api/health' && path !== '/api/ready') {
 		// Logs contain neither prompts, identities, session tokens nor arbitrary error text.
 		console.info(JSON.stringify({ event: 'request', requestId, route: event.route.id, status: response.status, durationMs: Math.round(performance.now() - started) }));
 	}

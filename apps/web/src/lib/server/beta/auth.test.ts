@@ -4,13 +4,27 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DataStore } from '$lib/server/data/store/data-store';
-import { authenticate, createInvite, redeemInvite, revokeUser, signIn, signOut, throttleLogin } from './auth';
+import { authenticate, createGuest, createInvite, redeemInvite, revokeUser, signIn, signOut, throttleLogin } from './auth';
 import { BetaStore } from './store';
 
 /* Authentication fixture helpers */
 const PASSWORD = 'an unusually long test passphrase';
 function fixture() { const data = new DataStore({ dbPath: ':memory:' }); return { data, store: new BetaStore(data) }; }
 /* End authentication fixture helpers */
+
+test('public visitors receive separate persistent identities and expiring opaque sessions', () => {
+	const { data, store } = fixture();
+	try {
+		const first = createGuest('192.0.2.1', store, 1000);
+		const second = createGuest('192.0.2.1', store, 1000);
+		assert.notEqual(first.principal.userId, second.principal.userId);
+		assert.equal(first.principal.mode, 'public');
+		assert.equal(authenticate(first.token, new BetaStore(data), 2000)?.userId, first.principal.userId);
+		assert.equal(authenticate(first.token, store, 1000 + 15 * 86_400_000), null);
+		assert.equal(authenticate('forged', store, 2000), null);
+		assert.equal(store.db.query<{ token_hash: string }>('SELECT token_hash FROM beta_sessions WHERE user_id=?').get(first.principal.userId)?.token_hash === first.token, false);
+	} finally { data.close(); }
+});
 
 test('invitations bind identity, store only token hashes, and cannot be redeemed twice', async () => {
 	const { data, store } = fixture();

@@ -9,7 +9,7 @@ let activeModelCalls = 0;
 /** Hold the permit until the underlying work settles, including after a streaming disconnect. */
 export function admitResearch(store: BetaStore = getBetaStore(), now = Date.now()) {
 	const principal = currentPrincipal();
-	if (principal?.mode !== 'invite') return { run: <T>(work: () => T) => work(), release() {} };
+	if (!principal || principal.mode === 'local') return { run: <T>(work: () => T) => work(), release() {} };
 	const config = getBetaConfig();
 	if (activeResearch.has(principal.userId)) throw new BetaError('Your previous research is still finishing. Please wait a moment.', 429, 'research_running', 5);
 	if (activeResearch.size >= config.concurrentResearch) throw new BetaError('All research slots are busy. Try again shortly.', 429, 'research_busy', 10);
@@ -30,7 +30,7 @@ export function admitResearch(store: BetaStore = getBetaStore(), now = Date.now(
 
 export function admitExport(store: BetaStore = getBetaStore(), now = Date.now()): void {
 	const principal = currentPrincipal();
-	if (principal?.mode !== 'invite') return;
+	if (!principal || principal.mode === 'local') return;
 	store.consumeCounter(`export-day:${principal.userId}:${utcDay(now)}`, getBetaConfig().exportsPerDay, nextDay(now), now);
 }
 
@@ -40,7 +40,7 @@ export function guardModel(model: DynamicAgentAdapter): DynamicAgentAdapter {
 		supportsDirectFinalAnswer: model.supportsDirectFinalAnswer,
 		async complete(input) {
 			const principal = currentPrincipal();
-			if (principal?.mode !== 'invite') return model.complete(input);
+			if (!principal || principal.mode === 'local') return model.complete(input);
 			if (!principal.runId) throw new BetaError('Research admission is required.', 503, 'admission_required');
 			if (activeModelCalls >= getBetaConfig().concurrentResearch) throw new BetaError('The answer service is busy. Please retry shortly.', 429, 'model_busy', 5);
 			const started = performance.now();
@@ -62,7 +62,7 @@ export function usageSummary(store: BetaStore = getBetaStore(), now = Date.now()
 	const config = getBetaConfig();
 	const day = utcDay(now);
 	return {
-		limited: principal?.mode === 'invite', resetsAt: new Date(nextDay(now)).toISOString(),
+		limited: Boolean(principal && principal.mode !== 'local'), resetsAt: new Date(nextDay(now)).toISOString(),
 		research: { used: store.counter(`research-day:${principal?.userId ?? 'local'}:${day}`), limit: config.researchPerDay },
 		exports: { used: store.counter(`export-day:${principal?.userId ?? 'local'}:${day}`), limit: config.exportsPerDay }
 	};

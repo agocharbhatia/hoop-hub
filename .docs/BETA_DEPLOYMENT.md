@@ -53,6 +53,8 @@ Do not start sending invites until the deployed URL passes the hosted checks bel
 
 ## Invite, reset and revoke
 
+For an open demo, set `HOOP_HUB_AUTH_MODE=public` in the deployment's Compose environment. Opening `/` creates an opaque, HttpOnly, 14-day visitor session without an email or password. Each browser owns separate saved research; API requests cannot choose another visitor's identity. Request, export, and concurrency limits still apply. Clearing browser storage or letting the session expire loses access to that visitor's workspace. Invite mode remains available for deployments that require accounts.
+
 ```bash
 docker compose exec app bun --bun scripts/beta-admin.ts invite tester@example.com "Tester name"
 docker compose exec app bun --bun scripts/beta-admin.ts revoke tester@example.com

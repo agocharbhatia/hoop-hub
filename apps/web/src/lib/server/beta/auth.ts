@@ -63,7 +63,18 @@ export function authenticate(token: string | undefined, store: BetaStore = getBe
 	if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
 	const user = store.db.query<User>(`SELECT u.* FROM beta_sessions s JOIN beta_users u ON u.id=s.user_id
 		WHERE s.token_hash=@hash AND s.expires_at>@now AND u.status='active'`).get({ hash: hashToken(token), now });
-	return user ? { userId: user.id, email: user.email, name: user.name, mode: 'invite' } : null;
+	return user ? { userId: user.id, email: user.email, name: user.name, mode: user.id.startsWith('guest-') ? 'public' : 'invite' } : null;
+}
+
+/** A browser gets its own saved research without collecting an email or requiring sign-in. */
+export function createGuest(ip: string, store: BetaStore = getBetaStore(), now = Date.now()) {
+	return store.db.transaction(() => {
+		throttleLogin(ip, undefined, store, now);
+		const id = `guest-${randomUUID()}`;
+		store.db.query("INSERT INTO beta_users(id,email,name,status,created_at) VALUES (@id,@email,'Your research workspace','active',@now)")
+			.run({ id, email: `${id}@visitor.invalid`, now });
+		return issueSession(id, store, now);
+	}).immediate();
 }
 
 export function signOut(token: string | undefined, store: BetaStore = getBetaStore()): void {

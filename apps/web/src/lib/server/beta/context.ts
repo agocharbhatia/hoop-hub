@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-export type ResearchPrincipal = { userId: string; email: string; name: string; mode: 'local' | 'invite'; requestId?: string; runId?: string };
+export type ResearchPrincipal = { userId: string; email: string; name: string; mode: 'local' | 'invite' | 'public'; requestId?: string; runId?: string };
 const requestContext = new AsyncLocalStorage<ResearchPrincipal>();
 
 /** Carries ownership through parallel tools, streaming responses and async model calls. */

@@ -15,7 +15,7 @@ export function readinessChecks(options: { store?: BetaStore; refresh?: boolean 
 		try { checks.push({ name, ok: true, detail: work() }); }
 		catch { checks.push({ name, ok: false, detail: `Configure or repair ${name}; see the beta deployment runbook.` }); }
 	};
-	check('invite authentication', () => { if (getBetaConfig().mode !== 'invite') throw new Error(); return 'Invite-only access enabled.'; });
+	check('visitor isolation', () => { if (getBetaConfig().mode === 'local') throw new Error(); return 'Separate authenticated visitor workspaces enabled.'; });
 	check('persistent storage', () => {
 		const store = options.store ?? getBetaStore();
 		if (store.data.dbPath === ':memory:') throw new Error();

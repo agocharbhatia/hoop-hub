@@ -15,6 +15,18 @@ async function withSettings(work: () => unknown) {
 }
 /* End admission fixture helpers */
 
+test('public visitors use the same global admission and per-workspace limits', async () => withSettings(() => {
+	const data = new DataStore({ dbPath: ':memory:' }); const store = new BetaStore(data);
+	try {
+		withPrincipal({ ...principal, mode: 'public' }, () => {
+			const permit = admitResearch(store);
+			assert.equal(usageSummary(store).limited, true);
+			withPrincipal({ ...principal, mode: 'public', userId: 'another-visitor' }, () => assert.throws(() => admitResearch(store), /slots/));
+			permit.release();
+		});
+	} finally { data.close(); }
+}));
+
 test('daily quotas, per-user concurrency and global concurrency are enforced before execution', async () => withSettings(() => {
 	const data = new DataStore({ dbPath: ':memory:' }); const store = new BetaStore(data);
 	try {
