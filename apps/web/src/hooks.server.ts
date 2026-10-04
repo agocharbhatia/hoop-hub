@@ -30,7 +30,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const requestId = crypto.randomUUID();
 	const response = await withPrincipal({ ...(user ?? LOCAL_PRINCIPAL), requestId }, () => resolve(event));
 	response.headers.set('X-Content-Type-Options', 'nosniff');
-	response.headers.set('Referrer-Policy', 'no-referrer');
+	// NBA clip delivery needs a referrer; external media receives only the app origin, never the research URL.
+	const researchDocument = user && !api && !PUBLIC_ROUTES.has(path) && response.headers.get('content-type')?.startsWith('text/html');
+	response.headers.set('Referrer-Policy', researchDocument ? 'strict-origin-when-cross-origin' : 'no-referrer');
 	response.headers.set('X-Frame-Options', 'DENY');
 	response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 	response.headers.set('X-Request-Id', requestId);
