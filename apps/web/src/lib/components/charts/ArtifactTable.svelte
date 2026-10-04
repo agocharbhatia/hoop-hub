@@ -1,4 +1,7 @@
 <script lang="ts">
+	import ComparisonHeatmap from './ComparisonHeatmap.svelte';
+	import CompactRanking from './CompactRanking.svelte';
+	import { comparisonPresentation } from './comparison-presentation';
 	import type { QueryAnswerArtifact } from '$lib/contracts/answer-response';
 	import type { StatsQueryRow } from '$lib/contracts/semantic-query';
 	import EntityAvatar from '$lib/components/entities/EntityAvatar.svelte';
@@ -16,6 +19,8 @@
 
 	const PAGE_SIZE = 20;
 	let search = $state('');
+	let layout = $state<'visual' | 'table'>('visual');
+	const comparison = $derived(comparisonPresentation(artifact));
 	let sortColumn = $state<string | null>(null);
 	let sortDirection = $state<SortDirection>('ascending');
 	let page = $state(0);
@@ -90,10 +95,16 @@
 		</dl>
 	{/if}
 	<div class="table-tools">
+		{#if comparison && !onselectrow}<div class="view-toggle" aria-label="Result presentation"><button type="button" aria-pressed={layout === 'visual'} onclick={() => layout = 'visual'}>{artifact.shape === 'ranking' ? 'Ranking' : 'Heatmap'}</button><button type="button" aria-pressed={layout === 'table'} onclick={() => layout = 'table'}>Table</button></div>{/if}
 		<label class="sort-control"><span>Sort by</span><select value={sortColumn ?? ''} onchange={(event) => { sortColumn = event.currentTarget.value || null; page = 0; }}><option value="">Source order</option>{#each presentation.columns as column}<option value={column}>{tableColumnLabel(column)}</option>{/each}</select></label>
 		{#if sortColumn}<button class="direction-button" type="button" onclick={() => sortDirection = sortDirection === 'ascending' ? 'descending' : 'ascending'} aria-label="Change to {sortDirection === 'ascending' ? 'descending' : 'ascending'} order">{sortDirection === 'ascending' ? 'Ascending ↑' : 'Descending ↓'}</button>{/if}
 		<label class="precision-control"><input type="checkbox" bind:checked={exact} /><span>Exact values</span></label>
 	</div>
+	{#if comparison && !onselectrow && layout === 'visual'}
+		{#if !visibleRows.length}<p class="empty-message">{search ? 'No rows match this filter.' : 'No results in this table.'}</p>
+		{:else if artifact.shape === 'ranking'}<CompactRanking offset={currentPage * PAGE_SIZE} rows={visibleRows} population={artifact.rows} identity={comparison.identity} metrics={comparison.metrics} {exact} />
+		{:else}<ComparisonHeatmap rows={visibleRows} population={artifact.rows} identity={comparison.identity} metrics={comparison.metrics} {exact} />{/if}
+	{:else}
 	<div class="desktop-view">
 		<table>
 			<caption class="sr-only">{title}. Column headers sort the results. Additional fields expand within each row.</caption>
@@ -130,12 +141,16 @@
 			</article>
 		{:else}<p class="empty-message">{search ? 'No rows match this filter.' : 'No results in this table.'}</p>{/each}
 	</div>
+	{/if}
 	{#if sortedRows.length > PAGE_SIZE || search}
 		<div class="table-pagination"><p aria-live="polite">{sortedRows.length ? currentPage * PAGE_SIZE + 1 : 0}-{Math.min((currentPage + 1) * PAGE_SIZE, sortedRows.length)} of {sortedRows.length}{search ? ' matching rows' : ' rows'}</p>{#if sortedRows.length > PAGE_SIZE}<div><button type="button" class="page-button" disabled={currentPage === 0} onclick={() => page = currentPage - 1}>Previous</button><button type="button" class="page-button" disabled={currentPage === lastPage} onclick={() => page = currentPage + 1}>Next</button></div>{/if}</div>
 	{/if}
 </section>
 
 <style>
+	.view-toggle { display: flex; border: 1px solid var(--color-border); padding: 2px; border-radius: 8px; }
+	.view-toggle button { cursor: pointer; padding: 6px 10px; min-height: 40px; border-radius: 6px; }
+	.view-toggle button[aria-pressed="true"] { background: rgba(57,135,229,.12); color: var(--color-foreground); }
 	.artifact-table { container: result-table / inline-size; min-width: 0; font-size: .8125rem; }
 	.table-heading, .result-count, .table-tools, .table-pagination, .table-pagination > div { display: flex; align-items: center; gap: .625rem; }
 	.table-heading { justify-content: space-between; flex-wrap: wrap; gap: .75rem; margin-bottom: .75rem; }
