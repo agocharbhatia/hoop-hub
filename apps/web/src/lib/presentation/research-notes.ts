@@ -19,7 +19,10 @@ export function presentResearchWarnings(result: QueryAnswerResponse): {
 	let coverageLabel: string | null = null;
 	const canCollapse = result.status === 'ok' && result.artifacts.some((artifact) => artifact.type !== 'text_block');
 	const hasVideoCoverage = result.artifacts.some((artifact) => artifact.type === 'video_playlist' && artifact.coverage);
-	for (const warning of getVisibleWarnings(result)) {
+	const visible = getVisibleWarnings(result);
+	const hasLineupNote = visible.some((warning) => warning.code === 'pbpstats_lineups_sampled');
+	for (const warning of visible) {
+		if (canCollapse && hasLineupNote && warning.code === 'dynamic_agent_partial_data' && isLegacyLineupNote(warning.message)) continue;
 		if (canCollapse && (BACKGROUND_NOTE_CODES.has(warning.code) || (warning.code === 'video_coverage_partial' && hasVideoCoverage))) {
 			notes.add(warning.message);
 			if (warning.code === 'pbpstats_lineups_sampled') coverageLabel = 'Limited lineup coverage';
@@ -30,3 +33,16 @@ export function presentResearchWarnings(result: QueryAnswerResponse): {
 	}
 	return { alerts: [...alerts], notes: [...notes].filter((message) => !alerts.has(message)), coverageLabel };
 }
+
+// --- Saved-response compatibility helpers ---
+
+/** Older saved answers can contain model wording of the same provider-owned coverage note. */
+function isLegacyLineupNote(message: string): boolean {
+	const sentences = message.split(/[.;]/).map((part) => part.trim()).filter(Boolean);
+	return sentences.length > 0 && sentences.every((sentence) =>
+		/^the provider may have capped the lineup population$/i.test(sentence)
+		|| /^(?:the )?(?:returned top (?:five|\d+)|rankings) (?:are |is )?not verified against (?:every|all)(?: qualifying)? lineups?$/i.test(sentence)
+	);
+}
+
+// --- End saved-response compatibility helpers ---
