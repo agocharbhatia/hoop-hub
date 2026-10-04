@@ -30,7 +30,8 @@ This file contains durable engineering rules. It is not a roadmap or issue track
 - Derived statistics use full internal result sets. Public row display caps must never become computation caps.
 - Time-series analysis sorts by canonical date before window comparisons and artifacts.
 - Charts must represent the same filtered population and values quoted in the answer.
-- Standard clip events map to exact NBA video measures. Custom shots filter the full shot log, join only on `(GAME_ID, GAME_EVENT_ID)`, and apply the product cap after the join.
+- Standard clip events map to exact NBA video measures. Custom shots filter the full shot log and join only on `(GAME_ID, GAME_EVENT_ID)`. Query playlists retain every joined link; model summaries omit full video and shot arrays, while exports retain their separate bounded limit.
+- A source video link and HTTP 200 do not prove footage availability. Selected-clip checks identify only verified unavailable media fingerprints, and unknown assets remain unverified. Never invent a replacement URL or substitute another event.
 - Missing or malformed video join keys remain missing; never admit unrelated clips to fill a playlist.
 - Named-defender requests must not silently degrade to opponent-team filtering.
 
