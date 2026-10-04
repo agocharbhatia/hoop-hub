@@ -3,6 +3,7 @@
 	import type { VideoPlaylistArtifactView } from '$lib/presentation/query-response';
 	import EntityAvatar from '$lib/components/entities/EntityAvatar.svelte';
 	import type { EntityMedia } from '$lib/entities/entity-media';
+	import { videoPlaybackUrl } from '$lib/presentation/video-playback';
 
 	type EventIdentity = { gameId: string; eventId: string };
 	let { artifact, player = null, selectedEvent = null, onselectevent }: {
@@ -19,6 +20,7 @@
 	let videoElement = $state<HTMLVideoElement | null>(null);
 	const clips = $derived(artifact.clips);
 	const currentClip = $derived(clips[currentIndex]);
+	const playbackUrl = $derived(currentClip ? videoPlaybackUrl(currentClip.url) : undefined);
 	const selectionUnavailable = $derived(selectedEvent !== null && !clips.some((clip) =>
 		clip.gameId === selectedEvent?.gameId && clip.eventId === selectedEvent?.eventId));
 
@@ -125,7 +127,7 @@
 			<!-- svelte-ignore a11y_media_has_caption -->
 			<video
 				bind:this={videoElement}
-				src={currentClip.url}
+				src={playbackUrl}
 				poster={currentClip.thumbnailUrl ?? undefined}
 				controls playsinline preload="metadata"
 				oncanplay={(event) => { if (event.currentTarget === videoElement && pendingAutoplay) void startPlayback(); }}
@@ -145,7 +147,7 @@
 			<button type="button" class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:bg-accent disabled:opacity-40" disabled={currentIndex === 0} onclick={() => playClip(currentIndex - 1, isChainPlaying)}>Previous</button>
 			<button type="button" class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:bg-accent disabled:opacity-40" disabled={currentIndex === clips.length - 1} onclick={() => playClip(currentIndex + 1, isChainPlaying)}>Next</button>
 			<button type="button" class="rounded-md bg-foreground px-3 py-1.5 text-xs text-background transition-opacity hover:opacity-80" onclick={playAll}>Play all</button>
-			<a href={currentClip.url} target="_blank" rel="noopener" referrerpolicy="strict-origin-when-cross-origin" class="ml-auto text-xs text-muted-foreground underline underline-offset-4">Open source</a>
+			<a href={playbackUrl} target="_blank" rel="noopener" referrerpolicy="strict-origin-when-cross-origin" class="ml-auto text-xs text-muted-foreground underline underline-offset-4">Open source</a>
 		</div>
 	{:else}
 		<div class="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No video is available for these matching events.</div>
