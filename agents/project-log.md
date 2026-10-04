@@ -433,3 +433,12 @@ This is chronological implementation history, not a current roadmap. For shipped
 ## 2026-10-03 — Remove beta dollar spending caps
 
 Removed model cost reservations and mandatory token pricing from request admission and readiness at the user’s request. Retained account request quotas, concurrency controls and model timing/token traces. Legacy ledger tables remain compatible with existing databases; operator status no longer reports obsolete spending totals.
+
+## 2026-10-03 — Responsive research artifact refinement
+
+- Applied the explicitly requested design-taste skill contextually to the existing Svelte research workspace. Reviewed Cleaning the Glass, Dunks & Threes and Datawrapper presentation references; retained app typography, dark tokens and navigation.
+- Replaced verified PBP on/off table-plus-chart duplication with grouped comparisons, inline percentages/percentage-point changes and shared minute samples. Lineup rankings preserve all five names, the requested metric, sample denominators and a shared bar scale. Full source tables remain expandable.
+- Generic bars wrap full labels; tables prioritize useful columns and labeled narrow-screen rows, preserve raw sorting and expose exact precision. Known units fold into values; unknown units remain explicit. Trends use actual card dimensions, short date ticks and full HTML inspection values. Court controls have 40px mobile targets.
+- Independent review caught possession-ranked metric omission, unequal auto-sized lineup tracks and hidden mobile comparison headers; fixes retain source semantics and accessible labels.
+- Final checks: 556 tests/84 files, zero Svelte errors/warnings, production build/relocated transport startup and production HTTP smoke passed. Saved-response browser replay at 320–1440px verified no document overflow/clipped category names, sorting/exact values, chart navigation/series toggles and court density/FG% views. No paid external model calls were made.
+- Implementation and corrections committed in scoped chart, comparison, table, trend and court changes. See `.docs/ARTIFACT_DESIGN_REFINEMENT_2026-10-03.md` and its screenshot/measurement evidence. Local production preview refreshed at `http://127.0.0.1:4173/`.

@@ -1,0 +1,321 @@
+{
+  "capturedAt": "2026-10-04T03:12:26.302Z",
+  "source": "Isolated replay of saved research; external model and data calls disabled",
+  "checks": [
+    {
+      "case": "lineups",
+      "clippedNames": 0,
+      "documentWidth": 320,
+      "tracks": [
+        [
+          164,
+          164,
+          164,
+          164,
+          164
+        ],
+        [
+          164,
+          164,
+          164,
+          164,
+          164
+        ]
+      ],
+      "width": 320
+    },
+    {
+      "case": "lineups",
+      "clippedNames": 0,
+      "documentWidth": 768,
+      "tracks": [
+        [
+          552,
+          552,
+          552,
+          552,
+          552
+        ],
+        [
+          552,
+          552,
+          552,
+          552,
+          552
+        ]
+      ],
+      "width": 768
+    },
+    {
+      "case": "lineups",
+      "clippedNames": 0,
+      "documentWidth": 1024,
+      "tracks": [
+        [
+          552,
+          552,
+          552,
+          552,
+          552
+        ],
+        [
+          552,
+          552,
+          552,
+          552,
+          552
+        ]
+      ],
+      "width": 1024
+    },
+    {
+      "case": "lineups",
+      "clippedNames": 0,
+      "documentWidth": 1440,
+      "tracks": [
+        [
+          968,
+          968,
+          968,
+          968,
+          968
+        ],
+        [
+          968,
+          968,
+          968,
+          968,
+          968
+        ]
+      ],
+      "width": 1440
+    },
+    {
+      "case": "expanded exact lineup table",
+      "documentWidth": 320,
+      "firstRow": "Brandon Ingram, Jakob Poeltl, Immanuel Quickley, Scottie Barnes, Ja'Kobe Walter Games13Minutes80.365Off. possessions164Def. possessions169Net rating7.623755231635158  2 more fields",
+      "visibleRows": 10,
+      "width": 320
+    },
+    {
+      "case": "categorical and signed bars",
+      "documentWidth": 320,
+      "labels": [
+        {
+          "clipped": false,
+          "text": "Brandon Ingram, Immanuel Quickley, Ochai Agbaji, Scottie Barnes, Sandro Mamukelashvili"
+        },
+        {
+          "clipped": false,
+          "text": "Scottie Barnes, Sandro Mamukelashvili, Gradey Dick, Ja'Kobe Walter, Jamal Shead"
+        },
+        {
+          "clipped": false,
+          "text": "Brandon Ingram, Scottie Barnes, Sandro Mamukelashvili, Ja'Kobe Walter, Jamal Shead"
+        },
+        {
+          "clipped": false,
+          "text": "Brandon Ingram, Jakob Poeltl, RJ Barrett, Immanuel Quickley, Scottie Barnes"
+        },
+        {
+          "clipped": false,
+          "text": "Brandon Ingram, Jakob Poeltl, Immanuel Quickley, Scottie Barnes, Ja'Kobe Walter"
+        },
+        {
+          "clipped": false,
+          "text": "Negative sample"
+        },
+        {
+          "clipped": false,
+          "text": "Zero sample"
+        },
+        {
+          "clipped": false,
+          "text": "Positive sample"
+        }
+      ],
+      "signedValues": "Synthetic signed comparisonPoints per 100 possessions Order OriginalHighest firstLowest first Negative sample   -3.7Zero sample   0Positive sample   8.3 -3.708.3 Bars start at zero. Use arrow keys to inspect when focused.",
+      "width": 320
+    },
+    {
+      "case": "categorical bars and generic unit table",
+      "clippedLabels": 0,
+      "documentWidth": 375,
+      "width": 375
+    },
+    {
+      "case": "categorical bars and generic unit table",
+      "clippedLabels": 0,
+      "documentWidth": 768,
+      "width": 768
+    },
+    {
+      "case": "categorical bars and generic unit table",
+      "clippedLabels": 0,
+      "documentWidth": 1024,
+      "width": 1024
+    },
+    {
+      "case": "categorical bars and generic unit table",
+      "clippedLabels": 0,
+      "documentWidth": 1440,
+      "width": 1440
+    },
+    {
+      "case": "saved trends",
+      "charts": [
+        {
+          "height": 260,
+          "renderedWidth": 262,
+          "tickFont": "12px",
+          "tickHeight": 15.5,
+          "viewBox": "0 0 262 260"
+        },
+        {
+          "height": 260,
+          "renderedWidth": 262,
+          "tickFont": "12px",
+          "tickHeight": 15.5,
+          "viewBox": "0 0 262 260"
+        }
+      ],
+      "documentWidth": 320,
+      "selectedValues": [
+        "Nikola Jokic · 2024-25 · Regular Season · 10 games · latest 10 games7",
+        "Victor Wembanyama · 2024-25 · Regular Season · 10 games · latest 10 games2"
+      ],
+      "width": 320
+    },
+    {
+      "case": "saved trends",
+      "charts": [
+        {
+          "height": 260,
+          "renderedWidth": 317,
+          "tickFont": "12px",
+          "tickHeight": 15.5,
+          "viewBox": "0 0 317 260"
+        },
+        {
+          "height": 260,
+          "renderedWidth": 317,
+          "tickFont": "12px",
+          "tickHeight": 15.5,
+          "viewBox": "0 0 317 260"
+        }
+      ],
+      "documentWidth": 375,
+      "selectedValues": [
+        "Nikola Jokic · 2024-25 · Regular Season · 10 games · latest 10 games7",
+        "Victor Wembanyama · 2024-25 · Regular Season · 10 games · latest 10 games2"
+      ],
+      "width": 375
+    },
+    {
+      "case": "saved trends",
+      "charts": [
+        {
+          "height": 260,
+          "renderedWidth": 662,
+          "tickFont": "12px",
+          "tickHeight": 15.5,
+          "viewBox": "0 0 662 260"
+        },
+        {
+          "height": 260,
+          "renderedWidth": 662,
+          "tickFont": "12px",
+          "tickHeight": 15.5,
+          "viewBox": "0 0 662 260"
+        }
+      ],
+      "documentWidth": 768,
+      "selectedValues": [
+        "Nikola Jokic · 2024-25 · Regular Season · 10 games · latest 10 games7",
+        "Victor Wembanyama · 2024-25 · Regular Season · 10 games · latest 10 games2"
+      ],
+      "width": 768
+    },
+    {
+      "case": "saved trends",
+      "charts": [
+        {
+          "height": 260,
+          "renderedWidth": 662,
+          "tickFont": "12px",
+          "tickHeight": 15.5,
+          "viewBox": "0 0 662 260"
+        },
+        {
+          "height": 260,
+          "renderedWidth": 662,
+          "tickFont": "12px",
+          "tickHeight": 15.5,
+          "viewBox": "0 0 662 260"
+        }
+      ],
+      "documentWidth": 1024,
+      "selectedValues": [
+        "Nikola Jokic · 2024-25 · Regular Season · 10 games · latest 10 games7",
+        "Victor Wembanyama · 2024-25 · Regular Season · 10 games · latest 10 games2"
+      ],
+      "width": 1024
+    },
+    {
+      "case": "saved trends",
+      "charts": [
+        {
+          "height": 260,
+          "renderedWidth": 510,
+          "tickFont": "12px",
+          "tickHeight": 15.5,
+          "viewBox": "0 0 510 260"
+        },
+        {
+          "height": 260,
+          "renderedWidth": 510,
+          "tickFont": "12px",
+          "tickHeight": 15.5,
+          "viewBox": "0 0 510 260"
+        }
+      ],
+      "documentWidth": 1440,
+      "selectedValues": [
+        "Nikola Jokic · 2024-25 · Regular Season · 10 games · latest 10 games7",
+        "Victor Wembanyama · 2024-25 · Regular Season · 10 games · latest 10 games2"
+      ],
+      "width": 1440
+    }
+  ],
+  "finalChecks": {
+    "savedDateTicks": "Mar 14, Mar 26, Apr 4, Apr 9, Apr 13; full date retained in inspector",
+    "seriesToggle": "Both hidden: explicit choose-series state; restored Scottie and moved Apr 9 to Apr 7, value 29",
+    "courtViews": "Density and FG percentage toggles work; small samples labeled",
+    "mobileCourtControls": [
+      {
+        "height": 40,
+        "name": "Shots"
+      },
+      {
+        "height": 40,
+        "name": "Density"
+      },
+      {
+        "height": 40,
+        "name": "FG%"
+      },
+      {
+        "height": 40,
+        "name": "All attempts"
+      },
+      {
+        "height": 40,
+        "name": "Makes"
+      },
+      {
+        "height": 40,
+        "name": "Misses"
+      }
+    ]
+  }
+}

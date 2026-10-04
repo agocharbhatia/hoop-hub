@@ -42,6 +42,7 @@ This file is the short source of truth for future agents. Use it before relying 
 - Trend averages/direction use server computation. Multiple verified player/metric/season/window populations stay separate; unlike metrics use separate charts and a canonical comparison table. Failed attempted scopes produce partial-coverage warnings.
 - `Accept: text/event-stream` on `/api/query` provides current activity, elapsed time and verified artifacts before the final answer. Independent tools run in bounded parallel batches, successful endpoint requests share per-answer retrievals, and cancellation reaches model requests/NBA subprocesses. Common fully scoped single-player computations can skip an extra planning round.
 - Server-generated follow-up suggestions derive from verified current scope and use supported deterministic refinements. Desktop results use a two-column artifact grid; mobile results stack.
+- Verified PBP on/off and lineup artifacts use compact comparisons/rankings, combining duplicate charts only for matching source/request/population identities. Original artifact indices and source values remain available for exports. Generic bars wrap full category names; narrow tables use labeled row summaries, known units stay with values, and exact precision is expandable. Trend coordinates follow actual card widths with readable ticks and full inspection values. See `.docs/ARTIFACT_DESIGN_REFINEMENT_2026-10-03.md` for responsive evidence.
 - Implicit season defaults use published opening-tip evidence in `season-intent.ts`; explicit future seasons remain explicit. Refresh that evidence annually instead of guessing an opening date.
 
 ## Legacy Boundary
@@ -75,7 +76,7 @@ Derived/computed metrics now run through the agent's `aggregate_endpoint_rows` t
 
 ## Verification Surface
 
-- Invite beta preparation: `src/lib/server/beta/`, central authentication/CSRF/body-size hooks, account-owned history/traces/exports, atomic daily/burst/concurrency admission, conservative persisted model charges, answer feedback and minimal readiness.
+- Invite beta preparation: `src/lib/server/beta/`, central authentication/CSRF/body-size hooks, account-owned history/traces/exports, atomic daily/burst/concurrency admission, answer feedback and minimal readiness. Dollar spending caps and mandatory pricing were removed at the user's request; request quotas and timing/token traces remain.
 - Production uses the adapter-node output on Node 22.19+ with a built-in SQLite driver; Bun keeps its native driver for development and operator commands. This avoids Bun's Node HTTP disconnect-event gap for streamed POST requests. Do not switch production back to Bun HTTP without rerunning the actual cancellation regression.
 - `bun run build` packages a Node startup module and relocatable private NBA transport assets. Docker adds FFmpeg, non-root/read-only operation, private persistent volumes and an optional Caddy HTTPS/streaming proxy.
 - `bun run beta:smoke` tests the actual production HTTP boundary against synthetic loopback fixtures. `bun run beta:container-smoke` tests the locally built image with disposable volumes. See `.docs/BETA_DEPLOYMENT.md` for configuration, invitations, feedback, consistent backups and restore. No host has been selected or public link issued.
