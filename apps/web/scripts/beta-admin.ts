@@ -21,8 +21,7 @@ export function runAdmin(args: string[]): void {
 			revokeUser(values[0], store); console.log('Account access and sessions revoked.');
 		} else if (command === 'status') {
 			const checks = readinessChecks({ refresh: true });
-			const charges = store.db.query(`SELECT day,ROUND(SUM(COALESCE(charged_micros,reserved_micros))/1000000.0,6) AS conservativeModelUsd FROM beta_model_charges GROUP BY day ORDER BY day DESC LIMIT 7`).all();
-			console.log(JSON.stringify({ ready: checks.every((check) => check.ok), checks, charges }, null, 2));
+			console.log(JSON.stringify({ ready: checks.every((check) => check.ok), checks }, null, 2));
 		} else if (command === 'feedback') {
 			// Feedback is private; explicit offline access is the operator authorization boundary.
 			console.log(JSON.stringify(store.db.query(`SELECT f.id,f.kind,f.comment,f.created_at,t.question,t.response_json,f.trace_id

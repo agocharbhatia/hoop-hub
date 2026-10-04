@@ -14,8 +14,8 @@ const docker = (args: string[]) => {
 };
 const start = () => docker(['run', '--detach', '--name', name, '--init', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--tmpfs', '/tmp:size=256m,mode=1777',
 	'--mount', `type=volume,src=${data},dst=/data`, '--mount', `type=volume,src=${backups},dst=/backups`, '--publish', `127.0.0.1:${port}:3000`,
-	'--env', `ORIGIN=${origin}`, '--env', 'ADDRESS_HEADER=X-Forwarded-For', '--env', 'XFF_DEPTH=1', '--env', 'OPENAI_API_KEY=synthetic-not-a-real-key', '--env', 'OPENAI_AGENT_MODEL=synthetic-model', '--env', 'HOOP_HUB_MODEL_PRICING_MODEL=synthetic-model',
-	'--env', 'HOOP_HUB_MODEL_INPUT_USD_PER_MILLION=1', '--env', 'HOOP_HUB_MODEL_OUTPUT_USD_PER_MILLION=1', '--env', 'HOOP_HUB_DATA_USE=public', '--env', 'HOOP_HUB_NBA_PUBLIC_DISPLAY_ALLOWED=1',
+	'--env', `ORIGIN=${origin}`, '--env', 'ADDRESS_HEADER=X-Forwarded-For', '--env', 'XFF_DEPTH=1', '--env', 'OPENAI_API_KEY=synthetic-not-a-real-key', '--env', 'OPENAI_AGENT_MODEL=synthetic-model',
+	'--env', 'HOOP_HUB_DATA_USE=public', '--env', 'HOOP_HUB_NBA_PUBLIC_DISPLAY_ALLOWED=1',
 	'--env', 'HOOP_HUB_ENABLE_LIVE_NBA=0', '--env', 'HOOP_HUB_ENABLE_LIVE_PBPSTATS=0', 'hoop-hub-beta:local']);
 const wait = async () => {
 	for (let i = 0; i < 300; i++) {

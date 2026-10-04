@@ -2,7 +2,6 @@ import { accessSync, constants, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { getBetaConfig } from './config';
-import { readModelRates } from './limits';
 import { getBetaStore, type BetaStore } from './store';
 
 export type ReadinessCheck = { name: string; ok: boolean; detail: string };
@@ -32,7 +31,7 @@ export function readinessChecks(options: { store?: BetaStore; refresh?: boolean 
 		return url.protocol === 'https:' ? 'HTTPS origin configured.' : 'Loopback origin configured for local verification.';
 	});
 	check('model configuration', () => { if (!process.env.OPENAI_API_KEY || !(process.env.OPENAI_AGENT_MODEL ?? process.env.OPENAI_PLANNER_MODEL)) throw new Error(); return 'Model and server credential configured.'; });
-	check('model pricing and limits', () => { readModelRates(); getBetaConfig(); return 'Pricing matches the model and spend caps are enabled.'; });
+	check('request limits', () => { getBetaConfig(); return 'Request and concurrency limits are configured.'; });
 	check('external data permissions', () => { if (process.env.HOOP_HUB_DATA_USE !== 'public' || process.env.HOOP_HUB_NBA_PUBLIC_DISPLAY_ALLOWED !== '1') throw new Error(); return 'Operator recorded permission for externally displayed NBA data.'; });
 	check('video compiler', () => {
 		for (const executable of ['ffmpeg', 'ffprobe', 'node']) { const result = spawnSync(executable, [executable === 'node' ? '--version' : '-version'], { timeout: 3000, stdio: 'ignore' }); if (result.status !== 0) throw new Error(); }

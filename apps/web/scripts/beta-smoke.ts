@@ -37,8 +37,8 @@ export async function smokeProductionServer(): Promise<void> {
 		server = spawn('node', ['build/start-server.mjs'], { cwd: resolve('.'), env: {
 			...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), ORIGIN: origin,
 			HOOP_HUB_AUTH_MODE: 'invite', HOOP_HUB_DB_PATH: dataPath, HOOP_HUB_EXPORT_DIR: join(directory, 'exports'), HOOP_HUB_BACKUP_DIR: join(directory, 'backups'),
-			OPENAI_BASE_URL: `${modelOrigin}/v1`, OPENAI_API_KEY: 'synthetic-not-a-live-credential', OPENAI_AGENT_MODEL: 'synthetic-model', HOOP_HUB_MODEL_PRICING_MODEL: 'synthetic-model',
-			HOOP_HUB_MODEL_INPUT_USD_PER_MILLION: '0.1', HOOP_HUB_MODEL_OUTPUT_USD_PER_MILLION: '0.5', HOOP_HUB_DATA_USE: 'public', HOOP_HUB_NBA_PUBLIC_DISPLAY_ALLOWED: '1',
+			OPENAI_BASE_URL: `${modelOrigin}/v1`, OPENAI_API_KEY: 'synthetic-not-a-live-credential', OPENAI_AGENT_MODEL: 'synthetic-model',
+			HOOP_HUB_DATA_USE: 'public', HOOP_HUB_NBA_PUBLIC_DISPLAY_ALLOWED: '1',
 			HOOP_HUB_ENABLE_LIVE_NBA: '0', HOOP_HUB_ENABLE_LIVE_PBPSTATS: '0', HOOP_HUB_PBPSTATS_PUBLIC_DISPLAY_ALLOWED: '0', HOOP_HUB_RESEARCH_PER_DAY: '2'
 		}, stdio: ['ignore', 'pipe', 'pipe'] });
 		server.stdout?.on('data', (chunk) => { logs = (logs + chunk.toString()).slice(-20_000); });
@@ -108,7 +108,7 @@ export async function smokeProductionServer(): Promise<void> {
 		assert.equal((await request(`/api/research/${id}`, a)).status, 200); assert.equal((await request(`/api/query-trace/${traceId}`, a)).status, 200);
 		assert.equal((await request('/api/auth/sign-out', a, 'POST')).status, 204); assert.equal((await request('/api/research', a)).status, 401);
 		assert.ok(!logs.includes('synthetic beta testing passphrase')); assert.ok(!logs.includes(alice.token));
-		console.log('Production HTTP smoke passed: invites, cookies, ownership, CSRF, body limits, feedback, downloads, model-budgeted SSE, disconnect cancellation, quotas and restart persistence. Model calls used a loopback fixture; no external API calls.');
+		console.log('Production HTTP smoke passed: invites, cookies, ownership, CSRF, body limits, feedback, downloads, admitted model SSE, disconnect cancellation, quotas and restart persistence. Model calls used a loopback fixture; no external API calls.');
 	} catch (error) { console.error(logs); throw error; } finally {
 		await stop();
 		if (modelServer.exitCode === null) { const exit = once(modelServer, 'exit'); modelServer.kill(); await exit; }

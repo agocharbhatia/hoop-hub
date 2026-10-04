@@ -1,4 +1,4 @@
-import { admitResearch, budgetModel } from '$lib/server/beta/limits';
+import { admitResearch, guardModel } from '$lib/server/beta/limits';
 import { BetaError } from '$lib/server/beta/config';
 import { json } from '@sveltejs/kit';
 import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
@@ -188,7 +188,7 @@ async function getDefaultDynamicAgent(): Promise<DynamicQueryAgent> {
 	]);
 
 	defaultDynamicAgent = createDynamicQueryAgent({
-		model: budgetModel(createOpenAIDynamicAgentAdapter()),
+		model: guardModel(createOpenAIDynamicAgentAdapter()),
 		endpointFetcher: createStatsEndpointFetcher(),
 		playerDirectory: createDefaultPlayerDirectoryAdapter(),
 		teamDirectory: createDefaultTeamDirectoryAdapter()

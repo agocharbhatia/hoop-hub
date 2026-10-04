@@ -12,10 +12,7 @@ export function getBetaConfig() {
 		researchPerDay: setting('HOOP_HUB_RESEARCH_PER_DAY', 30, 1, 1000),
 		researchPerMinute: setting('HOOP_HUB_RESEARCH_PER_MINUTE', 5, 1, 60),
 		concurrentResearch: setting('HOOP_HUB_CONCURRENT_RESEARCH', 4, 1, 16),
-		exportsPerDay: setting('HOOP_HUB_EXPORTS_PER_DAY', 3, 1, 100),
-		globalBudgetUsd: setting('HOOP_HUB_DAILY_BUDGET_USD', 5, 0.01, 1000),
-		userBudgetUsd: setting('HOOP_HUB_USER_DAILY_BUDGET_USD', 0.5, 0.01, 100),
-		queryBudgetUsd: setting('HOOP_HUB_QUERY_BUDGET_USD', 0.15, 0.001, 10)
+		exportsPerDay: setting('HOOP_HUB_EXPORTS_PER_DAY', 3, 1, 100)
 	};
 }
 
