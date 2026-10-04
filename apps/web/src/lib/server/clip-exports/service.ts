@@ -1,3 +1,5 @@
+import { admitExport } from '$lib/server/beta/limits';
+import { BetaError } from '$lib/server/beta/config';
 import { currentOwnerId } from '$lib/server/beta/context';
 import { createHash } from 'node:crypto';
 import { existsSync, rmSync, statSync } from 'node:fs';
@@ -93,7 +95,9 @@ export function createClipExportService(options: { repository?: ResearchReposito
 				const existing = read(entry.jobId);
 				if (existing?.requestKey === requestKey && existing.job.status !== 'failed') return structuredClone(existing.job);
 			}
+			if (queue.some((entry) => (entry.record.ownerId ?? 'local') === currentOwnerId()) || [...active.keys()].some((id) => read(id))) throw new ClipExportError('Your previous export is still finishing. Please wait a moment.', 429);
 			if (queue.length >= 10) throw new ClipExportError('The export queue is full. Try again after a current export finishes.', 429);
+			try { admitExport(); } catch (error) { if (error instanceof BetaError) throw new ClipExportError(error.message, error.status); throw error; }
 			const id = crypto.randomUUID();
 			const record: StoredExport = { ownerId: currentOwnerId(), requestKey, outputPath: join(outputDir, id, 'highlights.mp4'), job: { id, status: 'queued', completedClips: 0, totalClips: clips.length, createdAt: timestamp(), updatedAt: timestamp(), expiresAt: new Date(nowMs() + CLIP_EXPORT_RETENTION_HOURS * 3_600_000).toISOString() } };
 			queue.push({ record, clips: clips as ExportClip[] }); write(record);

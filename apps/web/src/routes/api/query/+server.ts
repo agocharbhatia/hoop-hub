@@ -1,3 +1,5 @@
+import { admitResearch, budgetModel } from '$lib/server/beta/limits';
+import { BetaError } from '$lib/server/beta/config';
 import { json } from '@sveltejs/kit';
 import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
 import type { QueryAnswerRequest } from '$lib/contracts/query-context';
@@ -93,10 +95,15 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	try {
 		const dependencies = await getDependencies();
-		if (request.headers.get('accept')?.includes('text/event-stream')) return streamResearchAnswer(dependencies, parsed.value, request.signal);
-		const answer = await dependencies.answerQuestion(parsed.value.question, { sessionId: parsed.value.sessionId, signal: request.signal });
+		const admission = admitResearch();
+		const guarded: QueryRouteRuntime = { answerQuestion: (question, options) => admission.run(async () => {
+			try { return await dependencies.answerQuestion(question, options); } finally { admission.release(); }
+		}) };
+		if (request.headers.get('accept')?.includes('text/event-stream')) return streamResearchAnswer(guarded, parsed.value, request.signal);
+		const answer = await guarded.answerQuestion(parsed.value.question, { sessionId: parsed.value.sessionId, signal: request.signal });
 		return json(answer, { status: 200 });
 	} catch (error) {
+		if (error instanceof BetaError) return json({ error: error.message, code: error.code }, { status: error.status, headers: error.retryAfter ? { 'Retry-After': String(error.retryAfter) } : {} });
 		if (error instanceof QuerySessionExpiredError) return json({ error: error.message, code: 'session_expired' }, { status: 409 });
 		console.error('Unexpected dynamic query handler error:', describeQueryError(error));
 		return json({ error: 'Internal server error.' }, { status: 500 });
@@ -127,7 +134,8 @@ function streamResearchAnswer(runtime: QueryRouteRuntime, input: QueryAnswerRequ
 				onArtifacts(artifacts) { send({ event: 'artifacts', data: { artifacts } }); }
 			}).then((answer) => send({ event: 'result', data: answer })).catch((error: unknown) => {
 				if (signal.aborted) return;
-				if (error instanceof QuerySessionExpiredError) send({ event: 'error', data: { message: error.message, code: 'session_expired' } });
+				if (error instanceof BetaError) send({ event: 'error', data: { message: error.message, code: error.code } });
+				else if (error instanceof QuerySessionExpiredError) send({ event: 'error', data: { message: error.message, code: 'session_expired' } });
 				else if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'APIConnectionTimeoutError')) send({ event: 'error', data: { message: 'This research reached its time limit. Try a narrower question or retry.', code: 'query_timeout' } });
 				else if (error && typeof error === 'object' && 'status' in error && error.status === 429) send({ event: 'error', data: { message: 'The answer service is temporarily busy. Please retry shortly.', code: 'model_busy' } });
 				else {
@@ -144,8 +152,8 @@ function streamResearchAnswer(runtime: QueryRouteRuntime, input: QueryAnswerRequ
 	return new Response(stream, { headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' } });
 }
 
-function describeQueryError(error: unknown): { name: string; message: string } {
-	return error instanceof Error ? { name: error.name, message: error.message } : { name: 'UnknownError', message: 'Unknown query error' };
+function describeQueryError(error: unknown): { name: string } {
+	return { name: error instanceof Error ? error.name : 'UnknownError' };
 }
 
 async function getDependencies(): Promise<QueryRouteRuntime> {
@@ -180,7 +188,7 @@ async function getDefaultDynamicAgent(): Promise<DynamicQueryAgent> {
 	]);
 
 	defaultDynamicAgent = createDynamicQueryAgent({
-		model: createOpenAIDynamicAgentAdapter(),
+		model: budgetModel(createOpenAIDynamicAgentAdapter()),
 		endpointFetcher: createStatsEndpointFetcher(),
 		playerDirectory: createDefaultPlayerDirectoryAdapter(),
 		teamDirectory: createDefaultTeamDirectoryAdapter()

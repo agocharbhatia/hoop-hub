@@ -1,3 +1,5 @@
+import { admitResearch } from '$lib/server/beta/limits';
+import { BetaError } from '$lib/server/beta/config';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { executeSemanticQuery, validateSemanticQueryRequest } from '$lib/server/semantic/query-service';
@@ -23,10 +25,13 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	try {
-		const result = await executeSemanticQuery(parsed.value, testNow);
+		const admission = admitResearch();
+		let result;
+		try { result = await admission.run(() => executeSemanticQuery(parsed.value, testNow)); } finally { admission.release(); }
 		return json(result, { status: 200 });
 	} catch (error) {
-		console.error('Unexpected semantic query handler error:', error);
+		if (error instanceof BetaError) return json({ error: error.message, code: error.code }, { status: error.status, headers: error.retryAfter ? { 'Retry-After': String(error.retryAfter) } : {} });
+		console.error('Unexpected semantic query handler error.');
 		return json({ error: 'Internal server error.' }, { status: 500 });
 	}
 };
