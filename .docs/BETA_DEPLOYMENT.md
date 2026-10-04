@@ -10,9 +10,9 @@ From the repository root:
 cp deploy/beta.env.example .env.beta
 ```
 
-Fill in `OPENAI_API_KEY`, `OPENAI_AGENT_MODEL`, `HOOP_HUB_MODEL_PRICING_MODEL` and the two USD-per-million token prices for that exact model. Keep `.env.beta` private; it is excluded from Git and Docker build context. Production uses invite authentication automatically. `bun run preview` remains a loopback-only local development flow and is not the beta deployment command.
+Fill in `OPENAI_API_KEY` and `OPENAI_AGENT_MODEL`. Keep `.env.beta` private; it is excluded from Git and Docker build context. Production uses invite authentication automatically. `bun run preview` remains a loopback-only local development flow and is not the beta deployment command.
 
-The defaults limit each account to 30 research starts/day, five/minute, one active question and three video exports/day. Four research/model calls may run globally; one export worker consumes a bounded queue. Model guards default to $5 globally/day, $0.50/account/day and $0.15/question. Counts and spending reset at midnight UTC and survive restarts. Input pricing is deliberately conservative; failed or cancelled calls with unknown usage retain their reservation. These totals bound admission rather than certify the provider's bill. Use a separate API project/key with the provider's own spending controls as well. Higher-priced models may need a larger per-question cap to fit the conservative first-call reservation.
+The defaults limit each account to 30 research starts/day, five/minute, one active question and three video exports/day. Four research/model calls may run globally; one export worker consumes a bounded queue. Counts reset at midnight UTC and survive restarts. App dollar spending caps are disabled; model usage remains available in research traces. Token prices are not required to serve research.
 
 Externally displayed provider data needs applicable permission. The example leaves `HOOP_HUB_NBA_PUBLIC_DISPLAY_ALLOWED=0` and PBP Stats disabled. A subscription or unauthenticated endpoint alone does not establish redistribution rights. Record confirmed permission before setting NBA display permission to `1`; research and video-export creation otherwise return a clear unavailable response. Enable PBP Stats separately only when its entitlement and public-display flags are appropriate. This implementation does not acquire any data rights or paid subscription.
 
@@ -23,7 +23,7 @@ curl --fail http://127.0.0.1:3000/api/health
 curl --fail http://127.0.0.1:3000/api/ready
 ```
 
-`/api/health` is liveness. `/api/ready` returns only ready/not-ready; the private `status` command explains configuration failures. Readiness checks persistent writable storage, origin, model credential/model/prices, recorded NBA permission and video executables/storage. They do not contact the model or NBA, so valid credentials, source egress and real answers still need a smoke test. Expected HTTP 503 before configuration is complete is useful feedback.
+`/api/health` is liveness. `/api/ready` returns only ready/not-ready; the private `status` command explains configuration failures. Readiness checks persistent writable storage, origin, model credential/model, recorded NBA permission and video executables/storage. They do not contact the model or NBA, so valid credentials, source egress and real answers still need a smoke test. Expected HTTP 503 before configuration is complete is useful feedback.
 
 The app runs as UID 1000 with a read-only root filesystem, no Linux capabilities, private SQLite/export and backup volumes, a bounded temporary filesystem and bounded container logs. Direct port 3000 binds to loopback. Missing forwarded-address headers are accepted only when the configured application origin is explicitly loopback, using one shared bounded login throttle bucket.
 
@@ -76,7 +76,7 @@ Use the first pilot to collect time to first progress, total response time, cove
 
 ## Back up and restore
 
-Startup and daily maintenance create a consistent SQLite snapshot in the backup volume, retaining the seven most recent snapshots. Each has a SHA-256 manifest and database integrity checks. The snapshot includes account hashes/sessions, ownership, research, quotas, model reservations and feedback. It does not include compiled video files. Private snapshots need an off-host copy to survive loss of the machine; choose that destination with the host. No off-host transfer is configured.
+Startup and daily maintenance create a consistent SQLite snapshot in the backup volume, retaining the seven most recent snapshots. Each has a SHA-256 manifest and database integrity checks. The snapshot includes account hashes/sessions, ownership, research, quotas and feedback. It does not include compiled video files. Private snapshots need an off-host copy to survive loss of the machine; choose that destination with the host. No off-host transfer is configured.
 
 Create a checkpoint before an upgrade:
 
@@ -97,7 +97,7 @@ For routine updates, back up, retain the previous image, build the new image and
 
 ## Hosted acceptance before sharing
 
-1. Confirm the selected host/domain, source display permissions, exact model prices and funded API project. Check `/api/ready` and private operator status.
+1. Confirm the selected host/domain, source display permissions, configured model and funded API project. Check `/api/ready` and private operator status.
 2. Activate two disposable invites through HTTPS. Verify Secure/HttpOnly cookies, sign-out and cross-account denial for history, trace, report and MP4 endpoints.
 3. Ask a basic statistic, a ten-game trend/comparison and an exact shot/clip question with the real model and NBA egress. Match answer values and artifact populations to source evidence. Verify an explicit unavailable-data response as well.
 4. Observe progress before the answer, cancel a slow request and verify that model/source work stops. Check through the deployed proxy rather than the direct container port.
@@ -122,7 +122,7 @@ cd apps/web
 bun run beta:container-smoke
 ```
 
-The HTTP and container checks use isolated synthetic accounts/data and loopback model fixtures without external API spend. The HTTP test exercises model-budgeted streaming, disconnect cancellation, ownership, CSRF/body limits, feedback, download authorization, quotas and restart persistence. The image test uses disposable volumes and checks the non-root read-only runtime, invitations, persistence and snapshot recovery. Neither replaces hosted source/model/media acceptance. CI runs both alongside deterministic checks.
+The HTTP and container checks use isolated synthetic accounts/data and loopback model fixtures without external API spend. The HTTP test exercises admitted model streaming, disconnect cancellation, ownership, CSRF/body limits, feedback, download authorization, quotas and restart persistence. The image test uses disposable volumes and checks the non-root read-only runtime, invitations, persistence and snapshot recovery. Neither replaces hosted source/model/media acceptance. CI runs both alongside deterministic checks.
 
 Recorded local verification: 534 tests across 80 files, 28 grounded-agent evaluations, seven custom-shot video contracts, 30 endpoint contracts, zero Svelte errors/warnings, production build/transport relocation, three consecutive production HTTP passes, final-image Docker recreation/restore, Compose/Caddy validation, and desktop/mobile beta UI checks. See [evidence/beta-readiness-2026-10-03.json](evidence/beta-readiness-2026-10-03.json). The hosted gates above remain open.
 

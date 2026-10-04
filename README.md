@@ -52,7 +52,7 @@ Detailed implementation context for future agents lives in [agents/current-state
 - [x] Sample-qualified defender matchup leaderboards across shooting, volume, possession, scoring, assist, and turnover metrics
 - [x] Expand the deterministic eval matrix, track model usage/cost inputs, and run a scheduled dynamic-agent live canary
 - [ ] Retire legacy planner/orchestrator compatibility code
-- [x] Prepare invite-only Docker deployment, authentication, ownership, quotas, spending guards, feedback and backup/restore
+- [x] Prepare invite-only Docker deployment, authentication, ownership, quotas, feedback and backup/restore
 - [ ] Select the host, verify hosted model/data/media flows, and expand SLOs and storage/workers as measured demand grows
 
 ## Local Setup

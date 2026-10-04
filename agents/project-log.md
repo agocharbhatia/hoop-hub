@@ -429,3 +429,7 @@ This is chronological implementation history, not a current roadmap. For shipped
 - Final local checks: 534 tests/80 files, 28 local agent evals, seven custom-shot contracts, 30 endpoint contracts, zero Svelte errors/warnings, production build plus relocated transport startup, three consecutive production HTTP passes, Docker recovery checks and Compose/Caddy validation. Local Node preview restored at `http://127.0.0.1:4173/` with HTTP 200.
 - No paid external API calls were made in this beta-preparation pass. Synthetic HTTP/image checks do not certify real hosted model/NBA/video behavior. Host/domain, funded key/current prices, source display permission, hosted data bootstrap/audit and live acceptance, and an off-host backup destination remain before inviting testers.
 - Work was committed in scoped identity, budget, UI, invite correction, storage runtime, Docker login, recovery, deployment and documentation changes. See `.docs/BETA_DEPLOYMENT.md` and `.docs/evidence/beta-readiness-2026-10-03.json` for commands, evidence and remaining gates.
+
+## 2026-10-03 — Remove beta dollar spending caps
+
+Removed model cost reservations and mandatory token pricing from request admission and readiness at the user’s request. Retained account request quotas, concurrency controls and model timing/token traces. Legacy ledger tables remain compatible with existing databases; operator status no longer reports obsolete spending totals.

@@ -124,7 +124,7 @@ Exit criteria: users can inspect, refine, save, share, and export grounded resea
 
 Status: invite-beta implementation prepared 2026-10-03; host selection and hosted acceptance remain deployment gates.
 
-- Shipped invite activation/sign-in/revocation, account-owned research/traces/exports, durable quotas and conservative model spending reservations.
+- Shipped invite activation/sign-in/revocation, account-owned research/traces/exports, durable request quotas and model concurrency controls.
 - Shipped server-only configuration, safe request/model timing logs, health/readiness, answer feedback, bounded retention and consistent database snapshots with verified restore.
 - Prepared the Node production server, non-root read-only Docker/Compose runtime, persistent volumes, optional Caddy streaming/HTTPS proxy and operator deployment/rollback runbook.
 - Verify the selected host/domain, external data permissions, model/NBA egress, real media and off-host recovery before sharing invitations.
