@@ -84,7 +84,7 @@ export function throttleLogin(ip: string, email: unknown, store: BetaStore = get
 	const window = Math.floor(now / 600_000);
 	const expiry = (window + 1) * 600_000;
 	store.consumeCounter(`auth-global:${window}`, 120, expiry, now);
-	store.consumeCounter(`auth-ip:${hashToken(ip)}:${window}`, 12, expiry, now);
+	store.consumeCounter(`auth-ip:${hashToken(ip)}:${window}`, 30, expiry, now);
 	if (typeof email === 'string') store.consumeCounter(`auth-account:${hashToken(email.trim().toLowerCase())}:${window}`, 10, expiry, now);
 }
 

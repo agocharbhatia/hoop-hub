@@ -64,7 +64,7 @@ test('login sessions and throttling survive database restart without storing raw
 	try {
 		const invite = createInvite('restart@example.com', 'Tester', store);
 		const session = await redeemInvite(invite.token, PASSWORD, store);
-		for (let i = 0; i < 12; i++) throttleLogin('test-address', undefined, store);
+		for (let i = 0; i < 30; i++) throttleLogin('test-address', undefined, store);
 		data.close(); data = new DataStore({ dbPath: path }); store = new BetaStore(data);
 		assert.equal(authenticate(session.token, store)?.email, 'restart@example.com');
 		assert.throws(() => throttleLogin('test-address', undefined, store), /limit/);
