@@ -30,3 +30,15 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD bun -e 'const r = await fetch("http://127.0.0.1:3000/api/health"); process.exit(r.ok ? 0 : 1)'
 CMD ["node", "build/start-server.mjs"]
+
+# Fly mounts a fresh filesystem over /data; initialize only its directory ownership, then drop privileges.
+FROM runtime AS fly-runtime
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/*
+COPY --chmod=755 deploy/fly-entrypoint.sh /usr/local/bin/hoop-hub-entrypoint
+ENTRYPOINT ["/usr/local/bin/hoop-hub-entrypoint"]
+CMD ["node", "build/start-server.mjs"]
+
+# Preserve the existing non-root Docker/Compose image as the default build target.
+FROM runtime AS final
