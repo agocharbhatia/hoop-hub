@@ -24,6 +24,17 @@ test('NBA HTTP 200 unavailable slate is rejected using its verified media finger
 	assert.deepEqual(classifyNbaMediaResponse(placeholder), { status: 'unavailable', reason: 'nba_unavailable' });
 });
 
+test('partial GET responses use the complete media size to identify the slate', () => {
+	assert.deepEqual(classifyNbaMediaResponse(new Response(null, { status: 206, headers: {
+		...slateHeaders, 'content-length': '1024', 'content-range': 'bytes 0-1023/31580089'
+	} })), { status: 'unavailable', reason: 'nba_unavailable' });
+	for (const range of ['bytes 0-1023/*', 'bytes 0-1023/5613822', 'bytes 1023-0/31580089', 'bytes 0-31580089/31580089']) {
+		assert.deepEqual(classifyNbaMediaResponse(new Response(null, { status: 206, headers: {
+			...slateHeaders, 'content-length': '1024', 'content-range': range
+		} })), { status: 'unknown', reason: 'unrecognized' });
+	}
+});
+
 test('file size and HTTP success cannot independently prove a placeholder or playable footage', () => {
 	for (const headers of [
 		{ ...slateHeaders, etag: '"other-content"' },
@@ -53,17 +64,37 @@ test('media provenance excludes arbitrary hosts, credentials, mismatched events,
 	]) assert.equal(isVideoAvailabilityRequest(invalid), false);
 });
 
-test('selected-clip checks use HEAD only, cancel bodies, deduplicate and cache without media downloads', async () => {
+test('selected-clip checks use bounded GET requests, cancel bodies, deduplicate and cache', async () => {
 	let now = 1_000; let calls = 0; let cancelled = 0;
-	const service = createVideoAvailabilityService({ nowMs: () => now, fetchImpl: (async (_url, init) => {
-		calls++; assert.equal(init?.method, 'HEAD'); assert.equal(init?.redirect, 'manual');
-		return new Response(new ReadableStream({ cancel() { cancelled++; } }), { headers: slateHeaders });
+	const service = createVideoAvailabilityService({ nowMs: () => now, mediaOrigin: 'http://localhost/', fetchImpl: (async (_url, init) => {
+		calls++; assert.equal(init?.method, 'GET'); assert.equal(init?.redirect, 'manual');
+		const headers = new Headers(init?.headers);
+		assert.equal(headers.get('range'), 'bytes=0-1023');
+		assert.equal(headers.get('referer'), 'http://localhost/');
+		assert.equal(headers.get('accept'), '*/*');
+		assert.ok(headers.get('accept-language'));
+		assert.equal(headers.get('sec-fetch-dest'), 'video');
+		return new Response(new ReadableStream({ cancel() { cancelled++; } }), { status: 206, headers: {
+			...slateHeaders, 'content-length': '1024', 'content-range': 'bytes 0-1023/31580089'
+		} });
 	}) as typeof fetch });
 	const results = await Promise.all(Array.from({ length: 10 }, () => service.check(clip)));
 	assert.equal(calls, 1); assert.equal(cancelled, 1);
 	assert.ok(results.every((result) => result.reason === 'nba_unavailable'));
 	await service.check(clip); assert.equal(calls, 1);
 	now += 300_001; await service.check(clip); assert.equal(calls, 2);
+});
+
+test('a misleading HEAD slate cannot reject the real GET asset', async () => {
+	const methods: string[] = [];
+	const service = createVideoAvailabilityService({ fetchImpl: (async (_url, init) => {
+		methods.push(init?.method ?? 'GET');
+		return init?.method === 'HEAD' ? new Response(null, { headers: slateHeaders }) : new Response(null, { status: 206, headers: {
+			'content-type': 'video/mp4', 'content-length': '1024', 'content-range': 'bytes 0-1023/5613822', etag: '"786b30614df00e093f29f8bf32b4c8a4"'
+		} });
+	}) as typeof fetch });
+	assert.deepEqual(await service.check(clip), { status: 'unknown', reason: 'unrecognized' });
+	assert.deepEqual(methods, ['GET']);
 });
 
 test('redirects remain on the same official event and never fetch an external target', async () => {

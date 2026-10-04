@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import type { QueryAnswerArtifact } from '$lib/contracts/answer-response';
 import { classifyNbaMediaResponse } from '$lib/server/video/availability';
 import { isCanonicalNbaVideo } from '$lib/server/video/provenance';
+import { buildNbaMediaRequestHeaders } from '$lib/server/video/media-request';
 
 export type ExportClip = Extract<QueryAnswerArtifact, { type: 'video_playlist' }>['clips'][number] & { gameId: string; eventId: string };
 export const MAX_CLIP_BYTES = 67_108_864;
@@ -23,7 +24,7 @@ export type CompilePlaylistInput = {
 };
 
 /** Normalizing each source avoids broken concatenations when NBA clips have different codecs or audio tracks. */
-export async function compilePlaylist(input: CompilePlaylistInput, options: { ffmpegPath?: string; ffprobePath?: string; fetchImpl?: typeof fetch } = {}): Promise<void> {
+export async function compilePlaylist(input: CompilePlaylistInput, options: { ffmpegPath?: string; ffprobePath?: string; fetchImpl?: typeof fetch; mediaOrigin?: string } = {}): Promise<void> {
 	const directory = join(dirname(input.outputPath), 'working');
 	await mkdir(directory, { recursive: true });
 	const compiled: string[] = [];
@@ -35,7 +36,7 @@ export async function compilePlaylist(input: CompilePlaylistInput, options: { ff
 			const normalizedName = `clip-${index}.mp4`;
 			const normalizedPath = join(directory, normalizedName);
 			try {
-				await downloadClip(clip, sourcePath, MAX_EXPORT_SOURCE_BYTES - sourceBytes, input.signal, options.fetchImpl ?? fetch, (bytes) => { sourceBytes += bytes; });
+				await downloadClip(clip, sourcePath, MAX_EXPORT_SOURCE_BYTES - sourceBytes, input.signal, options.fetchImpl ?? fetch, (bytes) => { sourceBytes += bytes; }, options.mediaOrigin);
 				const metadata = JSON.parse(await runMediaProcess(options.ffprobePath ?? process.env.HOOP_HUB_FFPROBE_PATH ?? 'ffprobe',
 					['-v', 'error', '-show_entries', 'format=duration:stream=codec_type', '-of', 'json', sourcePath], input.signal, 30_000));
 				const duration = Number(metadata.format?.duration);
@@ -63,13 +64,13 @@ export async function compilePlaylist(input: CompilePlaylistInput, options: { ff
 
 /* Bounded media I/O helpers */
 
-async function downloadClip(clip: ExportClip, destination: string, remainingBytes: number, signal: AbortSignal, fetchImpl: typeof fetch, onBytes: (bytes: number) => void): Promise<number> {
+async function downloadClip(clip: ExportClip, destination: string, remainingBytes: number, signal: AbortSignal, fetchImpl: typeof fetch, onBytes: (bytes: number) => void, mediaOrigin?: string): Promise<number> {
 	if (!isCanonicalExportClip(clip)) throw new Error('Clip media provenance is not verified.');
 	let url = clip.url;
 	let response: Response | undefined;
 	const downloadSignal = AbortSignal.any([signal, AbortSignal.timeout(90_000)]);
 	for (let redirects = 0; redirects <= 3; redirects += 1) {
-		response = await fetchImpl(url, { redirect: 'manual', signal: downloadSignal });
+		response = await fetchImpl(url, { method: 'GET', headers: buildNbaMediaRequestHeaders({ origin: mediaOrigin }), redirect: 'manual', signal: downloadSignal });
 		if (![301, 302, 303, 307, 308].includes(response.status)) break;
 		const location = response.headers.get('location');
 		await response.body?.cancel();

@@ -102,6 +102,30 @@ test('clip download rejects redirects outside NBA provenance and oversized media
 	} finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
+test('export GETs preserve public app request context across verified media redirects', async () => {
+	const directory = mkdtempSync(join(tmpdir(), 'hoop-context-export-'));
+	const requests: RequestInit[] = []; const omissions: string[] = [];
+	try {
+		await assert.rejects(() => compilePlaylist({ clips: [clips[0]], outputPath: join(directory, 'result.mp4'), signal: AbortSignal.timeout(10_000),
+			onClipCompleted: () => assert.fail('Oversized media was compiled'), onOmission: (_clip, reason) => omissions.push(reason)
+		}, { mediaOrigin: 'http://localhost/', fetchImpl: (async (_url, init) => {
+			requests.push(init!);
+			return requests.length === 1 ? new Response(null, { status: 302, headers: { location: clips[0].url.replace('clip.mp4', 'clip-1280x720.mp4') } }) : new Response('media', { headers: { 'content-length': String(67_108_865) } });
+		}) as typeof fetch }), /None of the selected/);
+		assert.match(omissions[0], /download limit/); assert.equal(requests.length, 2);
+		for (const request of requests) {
+			assert.equal(request.method, 'GET');
+			const headers = new Headers(request.headers);
+			assert.equal(headers.get('referer'), 'http://localhost/');
+			assert.equal(headers.get('accept'), '*/*');
+			assert.ok(headers.get('accept-language'));
+			assert.equal(headers.get('sec-fetch-dest'), 'video');
+			assert.equal(headers.get('range'), null);
+			assert.equal(headers.get('cookie'), null); assert.equal(headers.get('authorization'), null);
+		}
+	} finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('exports omit the NBA HTTP 200 unavailable slate before downloading or decoding it', async () => {
 	const directory = mkdtempSync(join(tmpdir(), 'hoop-slate-export-')); let cancelled = false; let calls = 0;
 	try {

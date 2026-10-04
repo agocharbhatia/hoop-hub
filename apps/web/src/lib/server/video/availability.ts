@@ -1,5 +1,6 @@
 import type { VideoAvailability, VideoAvailabilityRequest } from '$lib/contracts/video-availability';
 import { isCanonicalNbaVideo } from './provenance';
+import { buildNbaMediaRequestHeaders } from './media-request';
 
 // Captured from the actual NBA unavailable slate on 2026-10-03 and visually verified at 2 seconds.
 // Both fields must match; an HTTP 200 or a similar file size alone does not identify missing footage.
@@ -10,7 +11,7 @@ const UNKNOWN: VideoAvailability = { status: 'unknown', reason: 'check_failed' }
 /** Detects the known encoded error video without claiming that other HTTP 200 files contain real footage. */
 export function classifyNbaMediaResponse(response: Response): VideoAvailability {
 	if (response.ok && response.headers.get('etag') === UNAVAILABLE_SLATE_ETAG &&
-		response.headers.get('content-length') === UNAVAILABLE_SLATE_BYTES &&
+		completeMediaBytes(response) === UNAVAILABLE_SLATE_BYTES &&
 		response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() === 'video/mp4') {
 		return { status: 'unavailable', reason: 'nba_unavailable' };
 	}
@@ -27,6 +28,7 @@ type ActiveCheck = { controller: AbortController; promise: Promise<VideoAvailabi
 /** Checks only the selected official clip; bounded shared work keeps playlist navigation inexpensive. */
 export function createVideoAvailabilityService(options: {
 	fetchImpl?: typeof fetch; nowMs?: () => number; timeoutMs?: number; maxActive?: number; maxCache?: number;
+	mediaOrigin?: string;
 } = {}) {
 	const fetchImpl = options.fetchImpl ?? fetch;
 	const nowMs = options.nowMs ?? Date.now;
@@ -48,7 +50,7 @@ export function createVideoAvailabilityService(options: {
 			job = { controller, promise: Promise.resolve(UNKNOWN), consumers: 0, settled: false };
 			const current = job;
 			active.set(clip.url, current);
-			current.promise = probeClip(clip, fetchImpl, AbortSignal.any([controller.signal, AbortSignal.timeout(options.timeoutMs ?? 3_000)]))
+			current.promise = probeClip(clip, fetchImpl, AbortSignal.any([controller.signal, AbortSignal.timeout(options.timeoutMs ?? 3_000)]), options.mediaOrigin)
 				.then((value) => {
 					if (!controller.signal.aborted) {
 						const ttl = value.reason === 'check_failed' || value.reason === 'rate_limited' ? 10_000 : 300_000;
@@ -79,12 +81,13 @@ export function isVideoAvailabilityRequest(value: unknown): value is VideoAvaila
 		typeof clip.url === 'string' && typeof clip.gameId === 'string' && typeof clip.eventId === 'string' && isCanonicalNbaVideo(clip);
 }
 
-async function probeClip(clip: VideoAvailabilityRequest, fetchImpl: typeof fetch, signal: AbortSignal): Promise<VideoAvailability> {
+async function probeClip(clip: VideoAvailabilityRequest, fetchImpl: typeof fetch, signal: AbortSignal, mediaOrigin?: string): Promise<VideoAvailability> {
 	let url = clip.url;
 	try {
 		for (let redirects = 0; redirects <= 2; redirects++) {
-			const response = await fetchImpl(url, { method: 'HEAD', redirect: 'manual', signal });
-			// HEAD never needs body bytes, including a server that incorrectly supplies a response body.
+			// NBA's HEAD response can be a slate even when GET serves the exact footage.
+			const response = await fetchImpl(url, { method: 'GET', headers: buildNbaMediaRequestHeaders({ origin: mediaOrigin, range: 'bytes=0-1023' }), redirect: 'manual', signal });
+			// Cancel immediately, including when a server ignores the requested byte range.
 			await response.body?.cancel();
 			if (![301, 302, 303, 307, 308].includes(response.status)) return classifyNbaMediaResponse(response);
 			const location = response.headers.get('location');
@@ -94,6 +97,15 @@ async function probeClip(clip: VideoAvailabilityRequest, fetchImpl: typeof fetch
 		}
 	} catch { return UNKNOWN; }
 	return UNKNOWN;
+}
+
+function completeMediaBytes(response: Response): string | null {
+	if (response.status !== 206) return response.headers.get('content-length');
+	const range = response.headers.get('content-range')?.match(/^bytes (\d+)-(\d+)\/(\d+)$/);
+	if (!range) return null;
+	const [start, end, total] = range.slice(1).map(Number);
+	if (![start, end, total].every(Number.isSafeInteger) || start > end || end >= total) return null;
+	return String(total);
 }
 
 function waitForCheck(promise: Promise<VideoAvailability>, signal?: AbortSignal): Promise<VideoAvailability> {
