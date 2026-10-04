@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { goto, invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll, replaceState } from '$app/navigation';
 	import { IconArrowRight, IconBallBasketball } from '@tabler/icons-svelte';
 	let email = $state('');
 	let password = $state('');
@@ -10,7 +10,7 @@
 	onMount(() => {
 		// Fragments never reach server access logs or referrer headers.
 		token = new URLSearchParams(location.hash.slice(1)).get('invite') ?? '';
-		if (token) history.replaceState(null, '', '/login');
+		if (token) replaceState('/login', {});
 	});
 	async function submit(event: SubmitEvent) {
 		event.preventDefault(); if (busy) return;
@@ -45,6 +45,7 @@
 				{#if error}<p role="alert" class="text-sm leading-6 text-amber-200">{error}</p>{/if}
 				<button type="submit" disabled={busy} class="flex w-full items-center justify-center gap-2 rounded-lg bg-sky-300 px-4 py-2.5 text-sm font-medium text-slate-950 hover:bg-sky-200 disabled:opacity-50">{busy ? 'One moment…' : token ? 'Start researching' : 'Sign in'}<IconArrowRight class="size-4" /></button>
 			</form>
+			{#if token}<button type="button" disabled={busy} onclick={() => { token = ''; password = ''; error = ''; }} class="mt-4 text-xs text-sky-300 hover:underline">Already activated? Sign in</button>{/if}
 			<p class="mt-6 text-xs leading-6 text-muted-foreground">Access is by invitation. For an expired invite or a password reset, ask the person who invited you for a new link.</p>
 		</section>
 	</div>
