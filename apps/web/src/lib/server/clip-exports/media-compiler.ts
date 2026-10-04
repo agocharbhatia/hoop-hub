@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process';
 import { mkdir, open, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { QueryAnswerArtifact } from '$lib/contracts/answer-response';
+import { classifyNbaMediaResponse } from '$lib/server/video/availability';
+import { isCanonicalNbaVideo } from '$lib/server/video/provenance';
 
 export type ExportClip = Extract<QueryAnswerArtifact, { type: 'video_playlist' }>['clips'][number] & { gameId: string; eventId: string };
 export const MAX_CLIP_BYTES = 67_108_864;
@@ -9,13 +11,7 @@ export const MAX_EXPORT_SOURCE_BYTES = 536_870_912;
 
 /** Revalidates canonical NBA media provenance before any server-side fetch, including redirects. */
 export function isCanonicalExportClip(clip: { url: string; gameId?: string | null; eventId?: string | null }): boolean {
-	try {
-		const url = new URL(clip.url);
-		const parts = url.pathname.match(/^\/nba\/pbp\/media\/\d{4}\/\d{2}\/\d{2}\/(\d{10})\/(\d+)\/[^/]+\.mp4$/i);
-		if (!parts || typeof clip.gameId !== 'string' || typeof clip.eventId !== 'string') return false;
-		return url.protocol === 'https:' && url.hostname === 'videos.nba.com' && !url.username && !url.password && (!url.port || url.port === '443') &&
-			parts[1] === clip.gameId && parts[2] === clip.eventId;
-	} catch { return false; }
+	return isCanonicalNbaVideo(clip);
 }
 
 export type CompilePlaylistInput = {
@@ -82,6 +78,10 @@ async function downloadClip(clip: ExportClip, destination: string, remainingByte
 		if (!isCanonicalExportClip({ ...clip, url })) throw new Error('Clip source redirected outside verified NBA media.');
 	}
 	if (!response?.ok || !response.body) throw new Error(`Clip source is unavailable (HTTP ${response?.status ?? 'error'}).`);
+	if (classifyNbaMediaResponse(response).reason === 'nba_unavailable') {
+		await response.body.cancel();
+		throw new Error('NBA is serving an unavailable-video placeholder for this event.');
+	}
 	const allowedBytes = Math.min(MAX_CLIP_BYTES, remainingBytes);
 	if (allowedBytes <= 0 || Number(response.headers.get('content-length') ?? 0) > allowedBytes) { await response.body.cancel(); throw new Error('Clip exceeds the export download limit.'); }
 	const file = await open(destination, 'w');

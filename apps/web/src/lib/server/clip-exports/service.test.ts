@@ -102,6 +102,19 @@ test('clip download rejects redirects outside NBA provenance and oversized media
 	} finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
+test('exports omit the NBA HTTP 200 unavailable slate before downloading or decoding it', async () => {
+	const directory = mkdtempSync(join(tmpdir(), 'hoop-slate-export-')); let cancelled = false; let calls = 0;
+	try {
+		const omissions: string[] = [];
+		await assert.rejects(() => compilePlaylist({ clips: [clips[0]], outputPath: join(directory, 'result.mp4'), signal: AbortSignal.timeout(10_000),
+			onClipCompleted: () => assert.fail('Unavailable footage was compiled'), onOmission: (_clip, reason) => omissions.push(reason)
+		}, { fetchImpl: (async () => { calls++; return new Response(new ReadableStream({ cancel() { cancelled = true; } }), { headers: {
+			'content-type': 'video/mp4', 'content-length': '31580089', etag: '"2dd8e05a98fc6949fa7ec979b0905464:1754501139.183376"'
+		} }); }) as typeof fetch }), /None of the selected/);
+		assert.equal(calls, 1); assert.equal(cancelled, true); assert.match(omissions[0], /unavailable-video placeholder/);
+	} finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('FFmpeg compiles normalized audio and silent clips into one playable MP4', { skip: spawnSync('ffmpeg', ['-version']).status !== 0 || spawnSync('ffprobe', ['-version']).status !== 0 }, async () => {
 	const directory = mkdtempSync(join(tmpdir(), 'hoop-media-')); const signal = AbortSignal.timeout(30_000);
 	try {
