@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import type { VideoPlaylistArtifactView } from '$lib/presentation/query-response';
+	import EntityAvatar from '$lib/components/entities/EntityAvatar.svelte';
+	import type { EntityMedia } from '$lib/entities/entity-media';
 
 	type EventIdentity = { gameId: string; eventId: string };
-	let { artifact, selectedEvent = null, onselectevent }: {
+	let { artifact, player = null, selectedEvent = null, onselectevent }: {
 		artifact: VideoPlaylistArtifactView;
+		player?: EntityMedia | null;
 		selectedEvent?: EventIdentity | null;
 		onselectevent?: (event: EventIdentity) => void;
 	} = $props();
@@ -99,8 +102,8 @@
 </script>
 
 <section class="w-full" aria-label={artifact.title}>
-	<header class="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-		<h3 class="text-sm font-medium">{artifact.title}</h3>
+	<header class="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+		<div class="flex min-w-0 items-center gap-2.5">{#if player}<EntityAvatar entity={player} size={36} />{/if}<h3 class="text-sm font-medium">{artifact.title}</h3></div>
 		{#if clips.length > 0}<span class="text-xs tabular-nums text-muted-foreground">Clip {currentIndex + 1} of {clips.length}</span>{/if}
 	</header>
 

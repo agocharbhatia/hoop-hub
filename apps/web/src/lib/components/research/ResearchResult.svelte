@@ -9,8 +9,10 @@
 	import { buildTablePresentation } from '$lib/components/charts/table-utils';
 	import VideoPlaylist from '$lib/components/video/VideoPlaylist.svelte';
 	import ClipExportButton from './ClipExportButton.svelte';
+	import ResearchSubjects from './ResearchSubjects.svelte';
 	import type { QueryAnswerResponse, QueryAnswerArtifact } from '$lib/contracts/answer-response';
 	import { presentResearchWarnings } from '$lib/presentation/research-notes';
+	import { playlistPlayer } from '$lib/presentation/research-subjects';
 
 	let { result, pending = false, incomplete = false, disabled = false, onfollowup }: { result: QueryAnswerResponse; pending?: boolean; incomplete?: boolean; disabled?: boolean; onfollowup?: (question: string) => void } = $props();
 	let selectedEvent = $state<{ gameId: string; eventId: string } | null>(null);
@@ -50,14 +52,12 @@
 </script>
 
 <div class="research-result space-y-4">
+	<ResearchSubjects {result} />
 	{#if result.answer}<p class="max-w-4xl whitespace-pre-wrap text-sm leading-7 text-foreground/90">{result.answer}</p>{/if}
 	{#if pending && result.artifacts.length}<p class="text-[11px] text-muted-foreground">Available evidence · the full answer is still being prepared.</p>{/if}
 	{#if incomplete && result.artifacts.length}<p class="text-[11px] text-amber-200">Partial evidence · the request ended before a final answer was received.</p>{/if}
 	{#if result.effectiveScope}
 		<div class="flex flex-wrap gap-1.5 text-[11px] text-muted-foreground" aria-label="Research scope">
-			{#each result.effectiveScope.players ?? [] as player}<span class="rounded border border-border px-2 py-1">{player.name}</span>{/each}
-			{#each result.effectiveScope.teams ?? [] as team}<span class="rounded border border-border px-2 py-1">{team.name}</span>{/each}
-			{#each result.effectiveScope.opponents ?? [] as opponent}<span class="rounded border border-border px-2 py-1">vs. {opponent.name}</span>{/each}
 			{#each result.effectiveScope.seasons as season}<span class="rounded border border-border px-2 py-1">{season}</span>{/each}
 			{#each result.effectiveScope.seasonTypes ?? [] as seasonType}<span class="rounded border border-border px-2 py-1">{seasonType}</span>{/each}
 			{#each result.effectiveScope.shotFilters ?? [] as filter}<span class="rounded border border-border px-2 py-1">{filter}</span>{/each}
@@ -93,7 +93,7 @@
 				{:else if artifact.type === 'shot_chart'}
 					<ShotChart {artifact} {selectedEvent} onselectshot={selectShot} />
 				{:else if artifact.type === 'video_playlist'}
-					<VideoPlaylist {artifact} {selectedEvent} onselectevent={(event) => { selectedEvent = event; selectionNote = ''; }} />
+					<VideoPlaylist {artifact} player={playlistPlayer(artifact, result)} {selectedEvent} onselectevent={(event) => { selectedEvent = event; selectionNote = ''; }} />
 					{#if !pending && !incomplete && result.sessionId && result.researchTurnId && artifact.clips.length}
 						<ClipExportButton sessionId={result.sessionId} turnId={result.researchTurnId} artifactIndex={index} clipCount={artifact.clips.length} />
 					{/if}
