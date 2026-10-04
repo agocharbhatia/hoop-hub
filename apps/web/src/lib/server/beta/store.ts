@@ -48,6 +48,15 @@ export class BetaStore {
 			this.db.query('DELETE FROM beta_model_charges WHERE created_at<?').run(now - 30 * 86_400_000);
 			this.db.query('DELETE FROM beta_traces WHERE created_at<?').run(now - 30 * 86_400_000);
 			this.db.query('DELETE FROM beta_feedback WHERE created_at<?').run(now - 90 * 86_400_000);
+			const cutoff = new Date(now - 30 * 86_400_000).toISOString();
+			this.db.query('DELETE FROM raw_endpoint_cache WHERE fetched_at<?').run(cutoff);
+			// Bound the shared provider cache independently of per-account display storage.
+			this.db.run(`DELETE FROM raw_endpoint_cache WHERE cache_key IN (SELECT cache_key FROM (
+				SELECT cache_key,SUM(LENGTH(CAST(payload_json AS BLOB))) OVER (ORDER BY fetched_at DESC,cache_key DESC) AS bytes
+				FROM raw_endpoint_cache) WHERE bytes>536870912)`);
+			for (const table of ['query_trace_source_calls', 'query_trace_orchestration_plans', 'query_trace_orchestration_executed_traces']) {
+				this.db.query(`DELETE FROM ${table} WHERE created_at<?`).run(cutoff);
+			}
 		}).immediate();
 	}
 }
