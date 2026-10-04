@@ -6,7 +6,7 @@ test('row percentage units attach to values and differences retain percentage-po
 	const row = { metric: 'Offense · Effective FG%', unit: '%', on: 54.4683, off: 53.6929, difference: .7754 };
 	assert.equal(formatTableCell(row.on, { row, column: 'on' }), '54.5%');
 	assert.equal(formatTableCell(row.off, { row, column: 'off' }), '53.7%');
-	assert.equal(formatTableCell(row.difference, { row, column: 'difference' }), '0.8 pp');
+	assert.equal(formatTableCell(row.difference, { row, column: 'difference' }), '+0.8 pp');
 	assert.equal(tableMetricUnit(row, 'metric'), null);
 	assert.equal(row.on, 54.4683);
 });
@@ -14,7 +14,7 @@ test('row percentage units attach to values and differences retain percentage-po
 test('ratings use one decimal and put their longer unit beside the metric label', () => {
 	const row = { metric: 'Net rating', unit: 'points / 100 possessions', on: 4.44, off: 1.727, difference: 2.713 };
 	assert.equal(formatTableCell(row.on, { row, column: 'on' }), '4.4');
-	assert.equal(formatTableCell(row.difference, { row, column: 'difference' }), '2.7');
+	assert.equal(formatTableCell(row.difference, { row, column: 'difference' }), '+2.7');
 	assert.equal(tableMetricUnit(row, 'metric'), 'points / 100 possessions');
 	assert.equal(tableMetricUnit(row, 'on'), null);
 });
@@ -30,6 +30,28 @@ test('known canonical NBA percentages convert fractions while arbitrary value co
 test('a row unit remains visible as an ordinary field when no metric label can carry it', () => {
 	const rows = [{ value: 42, unit: '%' }, { value: 25, unit: '%' }];
 	assert.deepEqual(buildTablePresentation(['value', 'unit'], rows).columns, ['value', 'unit']);
+});
+
+test('custom numeric fields retain their unit metadata instead of silently losing percent semantics', () => {
+	const customRows = [{ metric: 'Accuracy', unit: '%', score: 82.25 }, { metric: 'Accuracy', unit: '%', score: 75.75 }];
+	assert.ok(buildTablePresentation(['metric', 'unit', 'score'], customRows).columns.includes('unit'));
+	const mixedRows = [{ metric: 'Accuracy', unit: '%', on: 82.25, off: 75.75, percentile: 91 }];
+	assert.ok(buildTablePresentation(['metric', 'unit', 'on', 'off', 'percentile'], mixedRows).columns.includes('unit'));
+	const missingRows = [{ metric: 'Accuracy', unit: '%', on: null, off: null }];
+	assert.ok(buildTablePresentation(['metric', 'unit', 'on', 'off'], missingRows).columns.includes('unit'));
+	assert.equal(customRows[0].score, 82.25);
+});
+
+test('rounded zeros lose misleading minus signs while real changes retain their sign and exact precision', () => {
+	const row = { metric: 'Net rating', unit: 'points / 100 possessions' };
+	assert.equal(formatTableCell(-.0001, { row, column: 'on' }), '0');
+	assert.equal(formatTableCell(-.0001, { row, column: 'difference' }), '0');
+	assert.equal(formatTableCell(-.0001, { column: 'value' }), '0');
+	assert.equal(formatTableCell(-.05, { row, column: 'difference' }), '-0.1');
+	assert.equal(formatTableCell(.05, { row, column: 'difference' }), '+0.1');
+	assert.equal(formatTableCell(-.0001, { row, column: 'difference', exact: true }), '-0.0001');
+	assert.equal(formatTableCell(.0001, { row, column: 'difference', exact: true }), '+0.0001');
+	assert.equal(formatTableCell(-0, { row, column: 'difference', exact: true }), '0');
 });
 
 test('repeated shared context moves to a caption while equal statistics remain in the table', () => {

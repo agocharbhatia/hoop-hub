@@ -15,8 +15,11 @@ export type TablePresentation = {
 
 const numberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 const statFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+const changeFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1, signDisplay: 'exceptZero' });
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 const FRACTIONAL_PERCENT_COLUMNS = new Set(['fgpct', 'fg3pct', 'ftpct', 'wpct']);
+const ROW_VALUE_COLUMNS = new Set(['on', 'off', 'difference', 'value', 'average', 'change']);
+const SAMPLE_COLUMNS = new Set(['minuteson', 'minutesoff', 'games', 'rank', 'samplesize', 'attempts', 'makes', 'possessions']);
 const CONTEXT_COLUMNS = new Set(['season', 'seasontype', 'scope', 'minuteson', 'minutesoff', 'defensiveplayer', 'team', 'teamname']);
 const COLUMN_LABELS: Record<string, string> = {
 	fgpct: 'FG%', fg3pct: '3P%', ftpct: 'FT%', wpct: 'Win%', fgm: 'FG made', fga: 'FG attempts',
@@ -32,14 +35,17 @@ export function formatTableCell(value: StatsQueryRowValue | undefined, context: 
 	if (typeof value !== 'number') return String(value);
 	const key = columnKey(context.column ?? '');
 	const rowUnit = typeof context.row?.unit === 'string' ? context.row.unit.trim() : '';
-	const isRowValue = ['on', 'off', 'difference', 'value', 'average', 'change'].includes(key);
+	const isRowValue = ROW_VALUE_COLUMNS.has(key);
+	const isChange = key === 'difference' || key === 'change';
 	const percentage = isRowValue && rowUnit === '%' || FRACTIONAL_PERCENT_COLUMNS.has(key);
 	// Canonical NBA percentage columns store fractions; PBP row units already store percentages.
 	const displayValue = FRACTIONAL_PERCENT_COLUMNS.has(key) ? value * 100 : value;
-	const formatter = percentage || /rating|minute|second|average|possession|difference|change/.test(key) || isRowValue && rowUnit ? statFormatter : numberFormatter;
-	const normalizedValue = Object.is(displayValue, -0) ? 0 : displayValue;
-	const formatted = context.exact ? String(normalizedValue) : formatter.format(normalizedValue);
-	if (percentage) return `${formatted}${key === 'difference' || key === 'change' ? ' pp' : '%'}`;
+	const usesStatPrecision = percentage || /rating|minute|second|average|possession|difference|change/.test(key) || Boolean(isRowValue && rowUnit);
+	const formatter = isChange ? changeFormatter : usesStatPrecision ? statFormatter : numberFormatter;
+	const roundsToZero = !context.exact && Math.abs(displayValue) < (usesStatPrecision ? .05 : .005);
+	const normalizedValue = Object.is(displayValue, -0) || roundsToZero ? 0 : displayValue;
+	const formatted = context.exact ? `${isChange && normalizedValue > 0 ? '+' : ''}${normalizedValue}` : formatter.format(normalizedValue);
+	if (percentage) return `${formatted}${isChange ? ' pp' : '%'}`;
 	return formatted;
 }
 
@@ -52,6 +58,14 @@ export function tableMetricUnit(row: StatsQueryRow, column: string): string | nu
 }
 
 function columnKey(column: string): string { return column.replace(/[^a-z0-9]/gi, '').toLowerCase(); }
+
+/** Only fold a unit when every numeric metric field has an explicit presentation rule. */
+function canFoldRowUnit(row: StatsQueryRow, columns: readonly string[]): boolean {
+	return columns.some((column) => ROW_VALUE_COLUMNS.has(columnKey(column)) && typeof row[column] === 'number' && Number.isFinite(row[column])) && columns.every((column) => {
+		const key = columnKey(column);
+		return typeof row[column] !== 'number' || ROW_VALUE_COLUMNS.has(key) || SAMPLE_COLUMNS.has(key) || FRACTIONAL_PERCENT_COLUMNS.has(key);
+	});
+}
 
 function compareValues(a: StatsQueryRowValue | undefined, b: StatsQueryRowValue | undefined): number {
 	if (typeof a === 'number' && typeof b === 'number') return a - b;
@@ -68,7 +82,7 @@ function isMissing(value: StatsQueryRowValue | undefined): boolean {
 /** Keep the first scan compact without discarding fields or mistaking equal statistics for metadata. */
 export function buildTablePresentation(columns: readonly string[], rows: readonly StatsQueryRow[]): TablePresentation {
 	const context: TablePresentation['context'] = [];
-	const hasMetricUnit = columns.some((column) => columnKey(column) === 'metric') && columns.includes('unit') && rows.length > 0 && rows.every((row) => typeof row.unit === 'string' && row.unit.trim().length > 0);
+	const hasMetricUnit = columns.some((column) => columnKey(column) === 'metric') && columns.includes('unit') && rows.length > 0 && rows.every((row) => typeof row.unit === 'string' && row.unit.trim().length > 0 && canFoldRowUnit(row, columns));
 	const available = columns.filter((column) => {
 		if (hasMetricUnit && column === 'unit') return false;
 		if (rows.length < 2 || !CONTEXT_COLUMNS.has(columnKey(column))) return true;
