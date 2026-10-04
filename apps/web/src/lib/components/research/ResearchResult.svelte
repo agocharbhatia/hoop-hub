@@ -3,6 +3,9 @@
 	import BarChart from '$lib/components/charts/BarChart.svelte';
 	import LineChart from '$lib/components/charts/LineChart.svelte';
 	import ShotChart from '$lib/components/charts/ShotChart.svelte';
+	import OnOffComparison from '$lib/components/charts/OnOffComparison.svelte';
+	import LineupRanking from '$lib/components/charts/LineupRanking.svelte';
+	import { possessionView, presentationArtifacts } from '$lib/components/charts/possession-presentation';
 	import VideoPlaylist from '$lib/components/video/VideoPlaylist.svelte';
 	import ClipExportButton from './ClipExportButton.svelte';
 	import type { QueryAnswerResponse, QueryAnswerArtifact } from '$lib/contracts/answer-response';
@@ -14,8 +17,9 @@
 	const warnings = $derived(getVisibleWarningMessages(result));
 	const playlists = $derived(result.artifacts.filter((a) => a.type === 'video_playlist'));
 	const hasShotAndVideo = $derived(playlists.length > 0 && result.artifacts.some((artifact) => artifact.type === 'shot_chart'));
-	const visualCount = $derived(result.artifacts.filter((artifact) => artifact.type !== 'text_block').length);
-	const narrowVisualCount = $derived(result.artifacts.filter((artifact) => artifact.type !== 'text_block' && !requiresWideArtifact(artifact)).length);
+	const displayedArtifacts = $derived(presentationArtifacts(result.artifacts));
+	const visualCount = $derived(displayedArtifacts.filter(({ artifact }) => artifact.type !== 'text_block').length);
+	const narrowVisualCount = $derived(displayedArtifacts.filter(({ artifact }) => artifact.type !== 'text_block' && !requiresWideArtifact(artifact)).length);
 
 	function selectShot(shot: Extract<QueryAnswerArtifact, { type: 'shot_chart' }>['shots'][number]) {
 		if (!shot.gameId || !shot.eventId) {
@@ -29,6 +33,7 @@
 	}
 	/* Presentation helpers */
 	function requiresWideArtifact(artifact: QueryAnswerArtifact): boolean {
+		if (possessionView(artifact)) return false;
 		return artifact.type === 'table' && (artifact.columns.length > 5 || (hasShotAndVideo && artifact.rows.length <= 3));
 	}
 
@@ -66,7 +71,7 @@
 		</aside>
 	{/if}
 	<div class="artifact-grid">
-	{#each result.artifacts as artifact, index (index)}
+	{#each displayedArtifacts as { artifact, index } (index)}
 		{#if artifact.type === 'text_block'}
 			{#if artifact.text.trim() !== result.answer.trim()}<p class="artifact-wide whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{artifact.text}</p>{/if}
 		{:else}
@@ -74,7 +79,11 @@
 				{#if 'source' in artifact && artifact.source?.providerId === 'pbpstats'}
 					<p class="mb-3 text-[11px] text-muted-foreground">PBP Stats · {artifact.source.resultSetName.replaceAll('_', ' ')}{artifact.source.sampled ? ' · limited source population' : ''}</p>
 				{/if}
-				{#if artifact.type === 'table'}
+				{#if artifact.type === 'table' && possessionView(artifact) === 'on_off'}
+					<OnOffComparison {artifact} />
+				{:else if artifact.type === 'table' && possessionView(artifact) === 'lineups'}
+					<LineupRanking {artifact} />
+				{:else if artifact.type === 'table'}
 					<ArtifactTable {artifact} canSelectRow={(row) => rowEvent(row) !== null} onselectrow={artifact.rows.some((row) => rowEvent(row)) ? (row) => {
 						const event = rowEvent(row);
 						if (event) { selectedEvent = event; selectionNote = 'Matching event selected. A clip plays only when it is available in this result.'; }
