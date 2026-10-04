@@ -193,22 +193,23 @@
 		{:else if view !== 'shots' && hoveredBin}
 			<p class="font-medium tabular-nums">{binDescription(hoveredBin)}</p><p class="mt-1 text-muted-foreground">{view === 'density' ? 'Filtered events in this court area.' : 'FG% uses all attempts in this court area.'}</p>
 		{:else}
-			<p class="text-muted-foreground">{view === 'shots' ? 'Hover a shot or use the arrows to inspect an event. Select it to find its clip.' : view === 'density' ? 'Hover or focus a court area to inspect its attempt count.' : 'Hover or focus an area to inspect FG% and sample size. All attempts are included.'}</p>
+			<p class="text-muted-foreground">{view === 'shots' ? 'Tap or hover a shot, or use the arrows to inspect. Select an event to find its clip.' : view === 'density' ? 'Tap, hover or focus a court area to inspect its attempt count.' : 'Tap, hover or focus an area to inspect FG% and sample size. All attempts are included.'}</p>
 		{/if}
 	</div>
 	{#if shots.length < artifact.shots.length}<p class="mt-2 text-xs text-muted-foreground">{artifact.shots.length - shots.length} attempts without half-court coordinates are omitted from court views and included in the full-sample FG summary.</p>{/if}
 </figure>
 
 <style>
-	.segmented { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--color-border); border-radius: 9px; background: rgba(0,0,0,.08); }
-	.segmented button { border-radius: 6px; padding: 5px 9px; color: var(--color-muted-foreground); font-size: 11px; cursor: pointer; transition: color .15s, background .15s; }
+	.segmented { display: flex; flex-wrap: wrap; max-width: 100%; gap: 2px; padding: 3px; border: 1px solid var(--color-border); border-radius: 9px; background: rgba(0,0,0,.08); }
+	.segmented button { min-height: 40px; border-radius: 6px; padding: 6px 9px; color: var(--color-muted-foreground); font-size: 12px; cursor: pointer; transition: color .15s, background .15s; }
 	.segmented button.active { background: var(--color-card); color: var(--color-foreground); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
 	.segmented button:disabled { cursor: default; opacity: .65; }
 	button:focus-visible, select:focus-visible { outline: 2px solid #3987e5; outline-offset: 3px; }
 	.court-shell { background: radial-gradient(ellipse at 50% 5%, rgba(57,135,229,.06), transparent 65%); }
 	svg g[role='button'] { cursor: pointer; }
 	svg g[role='button']:focus-visible { outline: none; filter: drop-shadow(0 0 3px white); }
-	.inspect-button { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--color-border); color: var(--color-foreground); cursor: pointer; }
+	.inspect-button { width: 40px; height: 40px; border-radius: 6px; border: 1px solid var(--color-border); color: var(--color-foreground); cursor: pointer; }
+	select { min-height: 40px; }
 	.inspect-button:disabled { opacity: .4; cursor: default; }
 	.density-key { background: linear-gradient(to right, rgba(57,135,229,.12), rgba(57,135,229,.85)); }
 	.percentage-key { background: linear-gradient(to right, hsl(220 72% 55%), hsl(130 72% 55%), hsl(40 72% 55%)); }
