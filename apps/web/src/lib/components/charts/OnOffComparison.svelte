@@ -20,15 +20,17 @@
 {#snippet metricGroup(rows: StatsQueryRow[], name: string)}
 	<section class="comparison-group" aria-label={name}>
 		{#if name !== 'Ratings'}<h4>{name}</h4>{/if}
-		<div class="comparison-head" aria-hidden="true"><span>Metric</span><span>On court</span><span>Off court</span><span>Change</span></div>
+		<div role="table" aria-label={name}>
+		<div class="comparison-head" role="row"><span role="columnheader">Metric</span><span role="columnheader">On court</span><span role="columnheader">Off court</span><span role="columnheader">Change</span></div>
 		{#each rows as row}
-			<div class="comparison-row" class:net-rating={row.metric === 'Net rating'}>
-				<div class="metric-label"><span>{label(row)}</span><small>{unit(row)}</small></div>
-				<div class="value"><small>On court</small><span>{displayMetric(row.on, { percentage: row.unit === '%' })}</span></div>
-				<div class="value off-value"><small>Off court</small><span>{displayMetric(row.off, { percentage: row.unit === '%' })}</span></div>
-				<div class="value change-value"><small>Change</small><span>{displayMetric(row.difference, { signed: true })}{#if row.unit === '%' && typeof row.difference === 'number'}<em> pp</em>{/if}</span></div>
+			<div class="comparison-row" role="row" class:net-rating={row.metric === 'Net rating'}>
+				<div class="metric-label" role="rowheader"><span>{label(row)}</span><small>{unit(row)}</small></div>
+				<div class="value" role="cell"><small aria-hidden="true">On court</small><span>{displayMetric(row.on, { percentage: row.unit === '%' })}</span></div>
+				<div class="value off-value" role="cell"><small aria-hidden="true">Off court</small><span>{displayMetric(row.off, { percentage: row.unit === '%' })}</span></div>
+				<div class="value change-value" role="cell"><small aria-hidden="true">Change</small><span>{displayMetric(row.difference, { signed: true })}{#if row.unit === '%' && typeof row.difference === 'number'}<em> pp</em>{/if}</span></div>
 			</div>
 		{/each}
+		</div>
 	</section>
 {/snippet}
 
@@ -79,7 +81,7 @@
 	.full-data { margin-top: 12px; border-top: 1px solid var(--color-border); }
 	.full-table { padding-top: 8px; }
 	@container (max-width: 460px) {
-		.comparison-head { display: none; }
+		.comparison-head { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 		.comparison-row { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 8px; padding: 12px 8px; }
 		.metric-label { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 		.metric-label > small { flex-shrink: 0; max-width: 45%; text-align: right; }

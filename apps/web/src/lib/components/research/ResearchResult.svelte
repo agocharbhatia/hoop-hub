@@ -6,6 +6,7 @@
 	import OnOffComparison from '$lib/components/charts/OnOffComparison.svelte';
 	import LineupRanking from '$lib/components/charts/LineupRanking.svelte';
 	import { possessionView, presentationArtifacts } from '$lib/components/charts/possession-presentation';
+	import { buildTablePresentation } from '$lib/components/charts/table-utils';
 	import VideoPlaylist from '$lib/components/video/VideoPlaylist.svelte';
 	import ClipExportButton from './ClipExportButton.svelte';
 	import type { QueryAnswerResponse, QueryAnswerArtifact } from '$lib/contracts/answer-response';
@@ -34,7 +35,7 @@
 	/* Presentation helpers */
 	function requiresWideArtifact(artifact: QueryAnswerArtifact): boolean {
 		if (possessionView(artifact)) return false;
-		return artifact.type === 'table' && (artifact.columns.length > 5 || (hasShotAndVideo && artifact.rows.length <= 3));
+		return artifact.type === 'table' && (buildTablePresentation(artifact.columns, artifact.rows).primaryColumns.length > 5 || (hasShotAndVideo && artifact.rows.length <= 3));
 	}
 
 	function rowEvent(row: Record<string, unknown>): { gameId: string; eventId: string } | null {
@@ -75,7 +76,7 @@
 		{#if artifact.type === 'text_block'}
 			{#if artifact.text.trim() !== result.answer.trim()}<p class="artifact-wide whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{artifact.text}</p>{/if}
 		{:else}
-			<section class="artifact-card {visualCount === 1 || narrowVisualCount === 1 || requiresWideArtifact(artifact) ? 'artifact-wide' : ''} min-w-0 rounded-xl border border-border bg-card/50 p-3 sm:p-5" aria-label={`Research artifact ${index + 1}`}>
+			<section class="artifact-card {visualCount === 1 || narrowVisualCount === 1 || requiresWideArtifact(artifact) || (displayedArtifacts.at(-1)?.index === index && narrowVisualCount % 2 === 1) ? 'artifact-wide' : ''} min-w-0 rounded-xl border border-border bg-card/50 p-3 sm:p-5" aria-label={`Research artifact ${index + 1}`}>
 				{#if 'source' in artifact && artifact.source?.providerId === 'pbpstats'}
 					<p class="mb-3 text-[11px] text-muted-foreground">PBP Stats · {artifact.source.resultSetName.replaceAll('_', ' ')}{artifact.source.sampled ? ' · limited source population' : ''}</p>
 				{/if}
