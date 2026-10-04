@@ -1,16 +1,15 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { goto, invalidateAll, replaceState } from '$app/navigation';
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { IconArrowRight, IconBallBasketball } from '@tabler/icons-svelte';
 	let email = $state('');
 	let password = $state('');
 	let token = $state('');
 	let busy = $state(false);
 	let error = $state('');
-	onMount(() => {
+	$effect(() => {
 		// Fragments never reach server access logs or referrer headers.
-		token = new URLSearchParams(location.hash.slice(1)).get('invite') ?? '';
-		if (token) replaceState('/login', {});
+		token = new URLSearchParams(page.url.hash.slice(1)).get('invite') ?? '';
 	});
 	async function submit(event: SubmitEvent) {
 		event.preventDefault(); if (busy) return;
@@ -21,7 +20,7 @@
 			});
 			const data = await response.json();
 			if (!response.ok) throw new Error(data.error ?? 'Unable to sign in.');
-			password = ''; token = ''; await invalidateAll(); await goto('/');
+			password = ''; token = ''; await goto('/', { invalidateAll: true, replaceState: true });
 		} catch (cause) { error = cause instanceof Error ? cause.message : 'Unable to sign in. Try again.'; }
 		finally { busy = false; }
 	}
