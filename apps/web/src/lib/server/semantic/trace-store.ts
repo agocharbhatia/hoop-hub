@@ -1,3 +1,5 @@
+import { currentOwnerId } from '$lib/server/beta/context';
+import { getBetaStore } from '$lib/server/beta/store';
 import type { QueryAnswerPlannedToolRequest } from '$lib/contracts/answer-response';
 import type { Citation, DataFreshnessMode, TraceSourceCall } from '$lib/contracts/chat';
 import type {
@@ -203,6 +205,7 @@ export function saveSemanticTrace(trace: SemanticQueryTraceResponse): void {
 		warnings: cloneWarnings(trace.warnings)
 	});
 	saveTraceSourceCalls(trace.traceId, trace.dataFreshnessMode, trace.sourceCalls);
+	persistOwnedTrace(trace);
 }
 
 export function saveOrchestrationTrace(
@@ -224,18 +227,23 @@ export function saveOrchestrationTrace(
 		executedStructuredTraceIds: [...trace.executedStructuredTraceIds]
 	});
 	saveOrchestrationTraceReferences(trace.traceId, trace.plannedToolRequests, trace.executedStructuredTraceIds);
+	persistOwnedTrace(aggregateOrchestrationTrace(orchestrationTraceStore.get(trace.traceId)!, trace.plannedToolRequests, trace.executedStructuredTraceIds));
 }
 
 export function saveDynamicAgentTrace(trace: DynamicAgentQueryTraceResponse): void {
 	dynamicAgentTraceStore.set(trace.traceId, cloneDynamicAgentTrace(trace));
 	saveTraceSourceCalls(trace.traceId, trace.dataFreshnessMode, trace.sourceCalls);
+	persistOwnedTrace(trace);
 }
 
 export function getSemanticTraceById(traceId: string): SemanticQueryTraceResponse | null {
-	return getStoredSemanticTraceById(traceId);
+	const trace = loadOwnedTrace(traceId);
+	return trace && 'resolvedQuery' in trace ? trace : null;
 }
 
 export function getQueryTraceById(traceId: string): QueryTraceResponse | null {
+	const persisted = loadOwnedTrace(traceId);
+	if (!persisted) return null;
 	const dynamicAgentTrace = dynamicAgentTraceStore.get(traceId);
 	if (dynamicAgentTrace) {
 		const persistedSourceCalls = loadTraceSourceCalls(traceId);
@@ -260,5 +268,27 @@ export function getQueryTraceById(traceId: string): QueryTraceResponse | null {
 		);
 	}
 
-	return getStoredSemanticTraceById(traceId);
+	return persisted;
 }
+
+
+/* Ownership and persistence helpers */
+function persistOwnedTrace(trace: QueryTraceResponse): void {
+	const store = getBetaStore();
+	const traceJson = JSON.stringify(trace);
+	if (Buffer.byteLength(traceJson) > 1_048_576) return;
+	store.db.query(`INSERT INTO beta_traces(id,owner_id,trace_json,created_at) VALUES (@id,@ownerId,@traceJson,@now)
+		ON CONFLICT(id) DO UPDATE SET trace_json=excluded.trace_json WHERE beta_traces.owner_id=excluded.owner_id`)
+		.run({ id: trace.traceId, ownerId: currentOwnerId(), traceJson, now: Date.now() });
+	store.db.query(`DELETE FROM beta_traces WHERE id IN (SELECT id FROM beta_traces WHERE owner_id=@ownerId ORDER BY created_at DESC LIMIT -1 OFFSET 200)`)
+		.run({ ownerId: currentOwnerId() });
+	for (const cache of [semanticTraceStore, orchestrationTraceStore, dynamicAgentTraceStore]) {
+		while (cache.size > 500) cache.delete(cache.keys().next().value!);
+	}
+}
+function loadOwnedTrace(traceId: string): QueryTraceResponse | null {
+	const row = getBetaStore().db.query<{ trace_json: string }>('SELECT trace_json FROM beta_traces WHERE id=@id AND owner_id=@ownerId')
+		.get({ id: traceId, ownerId: currentOwnerId() });
+	return row ? JSON.parse(row.trace_json) as QueryTraceResponse : null;
+}
+/* End ownership and persistence helpers */

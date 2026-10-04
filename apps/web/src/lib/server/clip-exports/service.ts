@@ -1,3 +1,4 @@
+import { currentOwnerId } from '$lib/server/beta/context';
 import { createHash } from 'node:crypto';
 import { existsSync, rmSync, statSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
@@ -8,7 +9,7 @@ import { getDataStore, type DataStore } from '$lib/server/data/store/data-store'
 import { RESEARCH_ID_PATTERN, researchRepository, type ResearchRepository } from '$lib/server/research/repository';
 import { compilePlaylist, isCanonicalExportClip, type CompilePlaylistInput, type ExportClip } from './media-compiler';
 
-type StoredExport = { job: ClipExportJob; requestKey: string; outputPath: string };
+type StoredExport = { ownerId?: string; job: ClipExportJob; requestKey: string; outputPath: string };
 export class ClipExportError extends Error {
 	constructor(message: string, readonly status = 400) { super(message); this.name = 'ClipExportError'; }
 }
@@ -41,6 +42,7 @@ export function createClipExportService(options: { repository?: ResearchReposito
 		const json = store().getClipExportJob(id);
 		if (!json) return null;
 		const record = JSON.parse(json) as StoredExport;
+		if ((record.ownerId ?? 'local') !== currentOwnerId()) return null;
 		if (record.job.expiresAt && Date.parse(record.job.expiresAt) <= nowMs()) { prune(); return null; }
 		if (['queued', 'running'].includes(record.job.status) && !active.has(id) && !queue.some((entry) => entry.record.job.id === id)) {
 			record.job = { ...record.job, status: 'failed', error: 'The server restarted before this export finished. Start the export again.', updatedAt: timestamp() }; write(record);
@@ -86,14 +88,14 @@ export function createClipExportService(options: { repository?: ResearchReposito
 			if (selected && clips.length !== selected.size) throw new ClipExportError('Every selected event must belong to this saved playlist.');
 			if (!clips.length || clips.length > MAX_EXPORT_CLIPS) throw new ClipExportError(`Select 1 to ${MAX_EXPORT_CLIPS} available clips.`);
 			if (clips.some((clip) => !isCanonicalExportClip(clip))) throw new ClipExportError('One or more clips lack verified NBA media provenance.');
-			const requestKey = createHash('sha256').update(JSON.stringify([request.sessionId, request.turnId, request.artifactIndex, clips.map((clip) => [clip.gameId, clip.eventId])])).digest('hex');
+			const requestKey = createHash('sha256').update(JSON.stringify([currentOwnerId(), request.sessionId, request.turnId, request.artifactIndex, clips.map((clip) => [clip.gameId, clip.eventId])])).digest('hex');
 			for (const entry of store().listClipExportJobs()) {
 				const existing = read(entry.jobId);
 				if (existing?.requestKey === requestKey && existing.job.status !== 'failed') return structuredClone(existing.job);
 			}
 			if (queue.length >= 10) throw new ClipExportError('The export queue is full. Try again after a current export finishes.', 429);
 			const id = crypto.randomUUID();
-			const record: StoredExport = { requestKey, outputPath: join(outputDir, id, 'highlights.mp4'), job: { id, status: 'queued', completedClips: 0, totalClips: clips.length, createdAt: timestamp(), updatedAt: timestamp(), expiresAt: new Date(nowMs() + CLIP_EXPORT_RETENTION_HOURS * 3_600_000).toISOString() } };
+			const record: StoredExport = { ownerId: currentOwnerId(), requestKey, outputPath: join(outputDir, id, 'highlights.mp4'), job: { id, status: 'queued', completedClips: 0, totalClips: clips.length, createdAt: timestamp(), updatedAt: timestamp(), expiresAt: new Date(nowMs() + CLIP_EXPORT_RETENTION_HOURS * 3_600_000).toISOString() } };
 			queue.push({ record, clips: clips as ExportClip[] }); write(record);
 			queueMicrotask(() => { void runNext(); });
 			return structuredClone(record.job);

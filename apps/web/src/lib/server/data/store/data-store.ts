@@ -113,19 +113,19 @@ const SCHEMA_STATEMENTS = [
 	)`
 ];
 
-type SqliteStatement<Row, Params> = {
+export type SqliteStatement<Row, Params> = {
 	get(params?: Params): Row | null | undefined;
 	all(params?: Params): Row[];
 	run(params?: Params): unknown;
 };
 
-type SqliteDatabase = {
+export type SqliteDatabase = {
 	run(sql: string, params?: unknown): unknown;
 	query<Row = unknown, Params = unknown>(sql: string): SqliteStatement<Row, Params>;
-	transaction<Args extends unknown[]>(fn: (...args: Args) => void): ((...args: Args) => void) & {
-		deferred: (...args: Args) => void;
-		immediate: (...args: Args) => void;
-		exclusive: (...args: Args) => void;
+	transaction<Args extends unknown[], Result>(fn: (...args: Args) => Result): ((...args: Args) => Result) & {
+		deferred: (...args: Args) => Result;
+		immediate: (...args: Args) => Result;
+		exclusive: (...args: Args) => Result;
 	};
 	close(throwOnError?: boolean): void;
 };
@@ -337,7 +337,7 @@ export type DataStoreOptions = {
 	dbPath?: string;
 };
 
-export type ResearchSessionRecord = { sessionId: string; title: string; contextJson: string | null; createdAt: string; updatedAt: string };
+export type ResearchSessionRecord = { ownerId?: string; sessionId: string; title: string; contextJson: string | null; createdAt: string; updatedAt: string };
 export type ResearchTurnRecord = { turnId: string; sessionId: string; question: string; responseJson: string; createdAt: string };
 
 type TraceSourceBundle = {
@@ -497,6 +497,7 @@ function canonicalizeParamsJson(paramsJson: string): string {
 }
 
 export class DataStore {
+	readonly dbPath: string;
 	private readonly sqlite: SqliteDatabase | null;
 	private readonly rawCacheMemory = new Map<string, RawEndpointCacheRecord>();
 	private readonly nightlyRunsMemory = new Map<string, NightlyRunRecord>();
@@ -511,6 +512,7 @@ export class DataStore {
 
 	constructor(options: DataStoreOptions = {}) {
 		const dbPath = resolveDbPath(options.dbPath);
+		this.dbPath = dbPath;
 		const SqliteDatabaseCtor = loadSqliteConstructor();
 
 		if (!SqliteDatabaseCtor) {
@@ -530,6 +532,17 @@ export class DataStore {
 		for (const statement of SCHEMA_STATEMENTS) {
 			this.sqlite.run(statement);
 		}
+		// Existing local research remains owned by local mode after account isolation is enabled.
+		if (!this.sqlite.query<{ name: string }>('PRAGMA table_info(research_sessions)').all().some((column) => column.name === 'owner_user_id')) {
+			this.sqlite.run("ALTER TABLE research_sessions ADD COLUMN owner_user_id TEXT NOT NULL DEFAULT 'local'");
+		}
+		this.sqlite.run('CREATE INDEX IF NOT EXISTS idx_research_owner_updated ON research_sessions (owner_user_id, updated_at DESC, session_id DESC)');
+	}
+
+	/** Authentication and quotas must fail closed instead of falling back to volatile memory. */
+	requireSqlite(): SqliteDatabase {
+		if (!this.sqlite) throw new Error('Persistent beta storage requires the Bun runtime.');
+		return this.sqlite;
 	}
 
 	close(): void {
@@ -538,27 +551,34 @@ export class DataStore {
 
 	/** Research persistence is separate from endpoint caches so reopening a result does not require a refetch. */
 	putResearchSession(record: ResearchSessionRecord): void {
-		if (!this.sqlite) { this.researchSessionsMemory.set(record.sessionId, { ...record }); return; }
-		this.sqlite.query(`INSERT INTO research_sessions (session_id,title,context_json,created_at,updated_at)
-			VALUES (@sessionId,@title,@contextJson,@createdAt,@updatedAt) ON CONFLICT(session_id) DO UPDATE SET
-			title=excluded.title,context_json=excluded.context_json,updated_at=excluded.updated_at`).run(record);
+		const owned = { ...record, ownerId: record.ownerId ?? 'local' };
+		const existing = this.getResearchSession(record.sessionId);
+		if (existing && (existing.ownerId ?? 'local') !== owned.ownerId) throw new Error('Research ownership conflict.');
+		if (!this.sqlite) { this.researchSessionsMemory.set(record.sessionId, owned); return; }
+		const result = this.sqlite.query(`INSERT INTO research_sessions (session_id,title,context_json,created_at,updated_at,owner_user_id)
+			VALUES (@sessionId,@title,@contextJson,@createdAt,@updatedAt,@ownerId) ON CONFLICT(session_id) DO UPDATE SET
+			title=excluded.title,context_json=excluded.context_json,updated_at=excluded.updated_at
+			WHERE research_sessions.owner_user_id=excluded.owner_user_id`).run(owned) as { changes: number };
+		if (!result.changes) throw new Error('Research ownership conflict.');
 	}
 
 	getResearchSession(sessionId: string): ResearchSessionRecord | null {
 		if (!this.sqlite) return this.researchSessionsMemory.has(sessionId) ? { ...this.researchSessionsMemory.get(sessionId)! } : null;
 		return this.sqlite.query<ResearchSessionRecord, string>(`SELECT session_id AS sessionId,title,context_json AS contextJson,
-			created_at AS createdAt,updated_at AS updatedAt FROM research_sessions WHERE session_id=?`).get(sessionId) ?? null;
+			owner_user_id AS ownerId,created_at AS createdAt,updated_at AS updatedAt FROM research_sessions WHERE session_id=?`).get(sessionId) ?? null;
 	}
 
-	listResearchSessions(limit: number, before?: { updatedAt: string; sessionId: string }): Array<ResearchSessionRecord & { turnCount: number }> {
+	listResearchSessions(limit: number, before?: { updatedAt: string; sessionId: string }, ownerId?: string): Array<ResearchSessionRecord & { turnCount: number }> {
 		if (!this.sqlite) return [...this.researchSessionsMemory.values()]
+			.filter((record) => ownerId === undefined || (record.ownerId ?? 'local') === ownerId)
 			.filter((record) => !before || record.updatedAt < before.updatedAt || (record.updatedAt === before.updatedAt && record.sessionId < before.sessionId))
 			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.sessionId.localeCompare(a.sessionId)).slice(0, limit)
 			.map((record) => ({ ...record, turnCount: [...this.researchTurnsMemory.values()].filter((turn) => turn.sessionId === record.sessionId).length }));
 		return this.sqlite.query<ResearchSessionRecord & { turnCount: number }>(`SELECT s.session_id AS sessionId,s.title,s.context_json AS contextJson,
-			s.created_at AS createdAt,s.updated_at AS updatedAt,(SELECT COUNT(*) FROM research_turns t WHERE t.session_id=s.session_id) AS turnCount
-			FROM research_sessions s WHERE (@beforeDate IS NULL OR s.updated_at<@beforeDate OR (s.updated_at=@beforeDate AND s.session_id<@beforeId))
-			ORDER BY s.updated_at DESC,s.session_id DESC LIMIT @limit`).all({ beforeDate: before?.updatedAt ?? null, beforeId: before?.sessionId ?? null, limit });
+			s.owner_user_id AS ownerId,s.created_at AS createdAt,s.updated_at AS updatedAt,(SELECT COUNT(*) FROM research_turns t WHERE t.session_id=s.session_id) AS turnCount
+			FROM research_sessions s WHERE (@ownerId IS NULL OR s.owner_user_id=@ownerId) AND
+			(@beforeDate IS NULL OR s.updated_at<@beforeDate OR (s.updated_at=@beforeDate AND s.session_id<@beforeId))
+			ORDER BY s.updated_at DESC,s.session_id DESC LIMIT @limit`).all({ ownerId: ownerId ?? null, beforeDate: before?.updatedAt ?? null, beforeId: before?.sessionId ?? null, limit });
 	}
 
 	putResearchTurn(record: ResearchTurnRecord): void {
@@ -588,31 +608,31 @@ export class DataStore {
 		this.sqlite.query('DELETE FROM research_sessions WHERE session_id=?').run(sessionId);
 	}
 
-	pruneResearchStorage(olderThan: string, maxSessions: number, maxTurnsPerSession: number, maxBytes = 268_435_456): void {
+	pruneResearchStorage(olderThan: string, maxSessions: number, maxTurnsPerSession: number, maxBytes = 268_435_456, ownerId?: string): void {
 		if (!this.sqlite) {
-			const retained = new Set(this.listResearchSessions(maxSessions).filter((record) => record.updatedAt >= olderThan).map((record) => record.sessionId));
-			for (const id of this.researchSessionsMemory.keys()) if (!retained.has(id)) this.deleteResearchSession(id);
+			const retained = new Set(this.listResearchSessions(maxSessions, undefined, ownerId).filter((record) => record.updatedAt >= olderThan).map((record) => record.sessionId));
+			for (const [id, record] of this.researchSessionsMemory) if ((ownerId === undefined || (record.ownerId ?? 'local') === ownerId) && !retained.has(id)) this.deleteResearchSession(id);
 			for (const id of retained) {
 				const turns = this.listResearchTurns(id);
 				for (const turn of turns.slice(0, Math.max(0, turns.length - maxTurnsPerSession))) this.researchTurnsMemory.delete(turn.turnId);
 			}
 			let retainedBytes = 0;
-			for (const record of this.listResearchSessions(maxSessions)) {
+			for (const record of this.listResearchSessions(maxSessions, undefined, ownerId)) {
 				retainedBytes += Buffer.byteLength(record.contextJson ?? '') + this.listResearchTurns(record.sessionId).reduce((size, turn) => size + Buffer.byteLength(turn.responseJson), 0);
 				if (retainedBytes > maxBytes) this.deleteResearchSession(record.sessionId);
 			}
 			return;
 		}
 		this.sqlite.transaction(() => {
-			this.sqlite!.query('DELETE FROM research_sessions WHERE updated_at<?').run(olderThan);
-			this.sqlite!.query('DELETE FROM research_sessions WHERE session_id NOT IN (SELECT session_id FROM research_sessions ORDER BY updated_at DESC,session_id DESC LIMIT ?)').run(maxSessions);
+			this.sqlite!.query('DELETE FROM research_sessions WHERE updated_at<@olderThan AND (@ownerId IS NULL OR owner_user_id=@ownerId)').run({ olderThan, ownerId: ownerId ?? null });
+			this.sqlite!.query(`DELETE FROM research_sessions WHERE (@ownerId IS NULL OR owner_user_id=@ownerId) AND session_id NOT IN (SELECT session_id FROM research_sessions WHERE (@ownerId IS NULL OR owner_user_id=@ownerId) ORDER BY updated_at DESC,session_id DESC LIMIT @maxSessions)`).run({ ownerId: ownerId ?? null, maxSessions });
 			this.sqlite!.query(`DELETE FROM research_turns WHERE sequence IN (SELECT sequence FROM (
-				SELECT sequence,ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY sequence DESC) AS age FROM research_turns) WHERE age>?)`).run(maxTurnsPerSession);
+				SELECT sequence,ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY sequence DESC) AS age FROM research_turns WHERE session_id IN (SELECT session_id FROM research_sessions WHERE (@ownerId IS NULL OR owner_user_id=@ownerId))) WHERE age>@maxTurnsPerSession)`).run({ ownerId: ownerId ?? null, maxTurnsPerSession });
 			this.sqlite!.query(`DELETE FROM research_sessions WHERE session_id IN (SELECT session_id FROM (
 				SELECT session_id,SUM(bytes) OVER (ORDER BY updated_at DESC,session_id DESC) AS retained_bytes FROM (
 					SELECT s.session_id,s.updated_at,LENGTH(CAST(COALESCE(s.context_json,'') AS BLOB))+
 					COALESCE((SELECT SUM(LENGTH(CAST(response_json AS BLOB))) FROM research_turns t WHERE t.session_id=s.session_id),0) AS bytes
-					FROM research_sessions s)) WHERE retained_bytes>?)`).run(maxBytes);
+					FROM research_sessions s WHERE (@ownerId IS NULL OR s.owner_user_id=@ownerId))) WHERE retained_bytes>@maxBytes)`).run({ ownerId: ownerId ?? null, maxBytes });
 		})();
 	}
 
