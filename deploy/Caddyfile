@@ -1,0 +1,7 @@
+{$BETA_DOMAIN} {
+	encode zstd gzip
+	# Flush each research event immediately so progress and cancellation work through TLS.
+	reverse_proxy app:3000 {
+		flush_interval -1
+	}
+}

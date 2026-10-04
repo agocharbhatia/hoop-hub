@@ -1,0 +1,54 @@
+services:
+  app:
+    build: .
+    init: true
+    restart: unless-stopped
+    env_file: .env.beta
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      NODE_ENV: production
+      HOOP_HUB_AUTH_MODE: invite
+      HOOP_HUB_DB_PATH: /data/hoop-hub.sqlite
+      HOOP_HUB_EXPORT_DIR: /data/exports
+      HOOP_HUB_BACKUP_DIR: /backups
+      HOOP_HUB_DATA_USE: public
+      # Direct app traffic remains on loopback; Caddy supplies the trusted client address.
+      ADDRESS_HEADER: X-Forwarded-For
+      XFF_DEPTH: 1
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - app_data:/data
+      - app_backups:/backups
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 2g
+    cpus: 2
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+  proxy:
+    image: caddy:2
+    profiles: [public]
+    restart: unless-stopped
+    env_file: .env.beta
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - proxy_data:/data
+      - proxy_config:/config
+    depends_on:
+      app: { condition: service_healthy }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+volumes:
+  app_data:
+  app_backups:
+  proxy_data:
+  proxy_config:

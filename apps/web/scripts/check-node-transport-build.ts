@@ -74,7 +74,31 @@ export async function verifyNodeTransportBuild(serverDirectory = SERVER_DIRECTOR
 	}
 }
 
+/** Verify relocated adapter output, including subprocess launch, instead of only the intermediate Vite output. */
+export async function verifyStandaloneTransports(output = resolve('build')): Promise<void> {
+	const temporary = await mkdtemp(join(tmpdir(), 'hoop-standalone-'));
+	try {
+		const relocated = join(temporary, 'build');
+		await cp(output, relocated, { recursive: true });
+		const scripts = new Map<string, string>();
+		for (const file of (await readdir(join(relocated, 'server'), { recursive: true })).filter((name) => name.endsWith('.js'))) {
+			const module = join(relocated, 'server', file);
+			for (const match of (await readFile(module, 'utf8')).matchAll(/new\s+URL\(\s*(['"])([^'"\n]*node-stats-(?:fetch|session)\.mjs)\1\s*,\s*import\.meta\.url\s*\)/g)) {
+				const target = fileURLToPath(new URL(match[2], pathToFileURL(module)));
+				const name = SCRIPT_NAMES.find((script) => target.endsWith(`/${script}`))!;
+				assert.ok(relative(relocated, target).startsWith('server/'));
+				assert.equal(await readFile(target, 'utf8'), await readFile(new URL(name, SOURCE_DIRECTORY), 'utf8'));
+				scripts.set(name, target);
+			}
+		}
+		assert.equal(scripts.size, 2);
+		assert.ok(!(await readdir(join(relocated, 'client'), { recursive: true })).some((name) => SCRIPT_NAMES.some((script) => name.endsWith(script))));
+		await verifyChildEntrypoints(scripts);
+	} finally { await rm(temporary, { recursive: true, force: true }); }
+}
+
 if (import.meta.main) {
 	await verifyNodeTransportBuild();
+	await verifyStandaloneTransports();
 	console.log('Both Node transport assets resolve after server relocation, are discoverable by adapters, and launch successfully.');
 }
