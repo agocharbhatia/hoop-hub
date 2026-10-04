@@ -32,6 +32,17 @@ export function comparisonMetricLabel(rows: readonly StatsQueryRow[], column: st
 		? tableColumnLabel(metric) : tableColumnLabel(column);
 }
 
+/** Graphical rows still need their differing research scopes and game samples to remain interpretable. */
+export function comparisonRowNotes(rows: readonly StatsQueryRow[]): Map<StatsQueryRow, string> {
+	const varying = ['season', 'seasonType', 'scope'].filter((column) => !rows.every((row) => row[column] === rows[0]?.[column]));
+	return new Map(rows.map((row) => {
+		const games = row.games ?? row.GP;
+		const notes = varying.flatMap((column) => typeof row[column] === 'string' && row[column] ? [String(row[column])] : []);
+		if (finiteMetric(games)) notes.push(`${games} games`);
+		return [row, notes.join(' · ')];
+	}));
+}
+
 // --- End comparison eligibility helpers ---
 
 /** Only opt entity comparisons into graphics; event tables, mixed identities and opaque numeric IDs stay tables. */

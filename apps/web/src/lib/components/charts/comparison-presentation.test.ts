@@ -1,7 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { comparisonDomain, comparisonIntensity, comparisonMetricLabel, comparisonPresentation } from './comparison-presentation';
+import { comparisonDomain, comparisonIntensity, comparisonMetricLabel, comparisonPresentation, comparisonRowNotes } from './comparison-presentation';
+import type { StatsQueryRow } from '$lib/contracts/semantic-query';
 import type { QueryAnswerArtifact } from '$lib/contracts/answer-response';
+
+test('graphic rows retain differing seasons and game samples without repeating shared scopes', () => {
+	const rows: StatsQueryRow[] = [{ season: '2024-25', scope: 'Regular Season', games: 70 }, { season: '2025-26', scope: 'Regular Season', GP: 0 }];
+	const notes = comparisonRowNotes(rows);
+	assert.equal(notes.get(rows[0]), '2024-25 · 70 games');
+	assert.equal(notes.get(rows[1]), '2025-26 · 0 games');
+});
 
 test('comparison color supports negative metrics, constant samples and missing values', () => {
 	assert.equal(comparisonIntensity(-5, comparisonDomain([-5, 0, 5, null])), 0);

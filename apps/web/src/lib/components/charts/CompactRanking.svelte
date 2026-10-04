@@ -3,11 +3,12 @@
 	import EntityAvatar from '$lib/components/entities/EntityAvatar.svelte';
 	import { resolvePlayerEntity, resolveTeamEntity } from '$lib/entities/entity-media';
 	import { createBarGeometry } from './bar-chart-utils';
-	import { finiteMetric, comparisonMetricLabel } from './comparison-presentation';
+	import { finiteMetric, comparisonMetricLabel, comparisonRowNotes } from './comparison-presentation';
 	import { formatTableCell, type IndexedRow } from './table-utils';
 	let { rows, population, identity, metrics, exact = false, offset = 0 }: { rows: IndexedRow[]; population: StatsQueryRow[]; identity: string; metrics: string[]; exact?: boolean; offset?: number } = $props();
 	let selectedMetric = $state<string | null>(null);
 	const metric = $derived(selectedMetric && metrics.includes(selectedMetric) ? selectedMetric : metrics[0]);
+	const rowNotes = $derived(comparisonRowNotes(population));
 	const geometry = $derived(createBarGeometry(population.map((row) => row[metric]).filter(finiteMetric)));
 </script>
 
@@ -16,11 +17,12 @@
 	<ol>{#each rows as { row, index }, positionIndex (index)}
 		{@const entity = resolvePlayerEntity({ name: String(row[identity]) }) ?? resolveTeamEntity({ name: String(row[identity]) })}
 		{@const position = geometry.position(finiteMetric(row[metric]) ? row[metric] : NaN)}
-		<li><span class="rank" title={finiteMetric(row.rank) ? 'Source rank' : 'Position in displayed results'}>{finiteMetric(row.rank) ? row.rank : offset + positionIndex + 1}</span>{#if entity}<EntityAvatar {entity} size={40} decorative />{/if}<div class="subject"><span>{row[identity]}</span><div class="track" aria-hidden="true"><span class="zero" style:left="{geometry.zero}%"></span><span class="fill" style:left="{position.left}%" style:width="{position.width}%"></span></div></div><strong title={String(row[metric] ?? 'Unavailable')}>{formatTableCell(row[metric], { row, column: metric, exact })}</strong></li>
+		<li><span class="rank" title={finiteMetric(row.rank) ? 'Source rank' : 'Position in displayed results'}>{finiteMetric(row.rank) ? row.rank : offset + positionIndex + 1}</span>{#if entity}<EntityAvatar {entity} size={40} decorative />{/if}<div class="subject"><span>{row[identity]}{#if rowNotes.get(row)}<small class="row-note">{rowNotes.get(row)}</small>{/if}</span><div class="track" aria-hidden="true"><span class="zero" style:left="{geometry.zero}%"></span><span class="fill" style:left="{position.left}%" style:width="{position.width}%"></span></div></div><strong title={String(row[metric] ?? 'Unavailable')}>{formatTableCell(row[metric], { row, column: metric, exact })}</strong></li>
 	{/each}</ol>
 </section>
 
 <style>
+	.row-note { display: block; margin-top: 3px; font-size: 11px; font-weight: 400; color: var(--color-muted-foreground); }
 	.compact-ranking { min-width: 0; }
 	.metric-control { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--color-muted-foreground); margin-bottom: 12px; }
 	select { min-height: 40px; max-width: 100%; border: 1px solid var(--color-border); border-radius: 6px; padding: 4px 8px; color: var(--color-foreground); background: var(--color-card); }

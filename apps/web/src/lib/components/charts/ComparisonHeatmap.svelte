@@ -2,11 +2,12 @@
 	import type { StatsQueryRow } from '$lib/contracts/semantic-query';
 	import EntityAvatar from '$lib/components/entities/EntityAvatar.svelte';
 	import { resolvePlayerEntity, resolveTeamEntity } from '$lib/entities/entity-media';
-	import { comparisonDomain, comparisonIntensity, comparisonMetricLabel } from './comparison-presentation';
+	import { comparisonDomain, comparisonIntensity, comparisonMetricLabel, comparisonRowNotes } from './comparison-presentation';
 	import { formatTableCell, type IndexedRow } from './table-utils';
 	let { rows, population, identity, metrics, exact = false }: { rows: IndexedRow[]; population: StatsQueryRow[]; identity: string; metrics: string[]; exact?: boolean } = $props();
 	let chosen = $state<string[] | null>(null);
 	const selected = $derived((chosen ?? metrics.slice(0, 3)).filter((metric) => metrics.includes(metric)));
+	const rowNotes = $derived(comparisonRowNotes(population));
 	const domains = $derived(new Map(metrics.map((metric) => [metric, comparisonDomain(population.map((row) => row[metric]))])));
 	// --- Heatmap presentation helpers ---
 	function background(row: StatsQueryRow, metric: string): string {
@@ -26,19 +27,20 @@
 		<table><thead><tr><th scope="col">Player / team</th>{#each selected as metric}<th scope="col">{comparisonMetricLabel(population, metric)}</th>{/each}</tr></thead><tbody>
 		{#each rows as { row, index } (index)}
 			{@const entity = resolvePlayerEntity({ name: String(row[identity]) }) ?? resolveTeamEntity({ name: String(row[identity]) })}
-			<tr><th scope="row"><span class="entity">{#if entity}<EntityAvatar {entity} size={32} decorative />{/if}<span>{row[identity]}</span></span></th>{#each selected as metric}<td style:background={background(row, metric)} title={String(row[metric] ?? 'Unavailable')}>{formatTableCell(row[metric], { row, column: metric, exact })}</td>{/each}</tr>
+			<tr><th scope="row"><span class="entity">{#if entity}<EntityAvatar {entity} size={32} decorative />{/if}<span>{row[identity]}{#if rowNotes.get(row)}<small class="row-note">{rowNotes.get(row)}</small>{/if}</span></span></th>{#each selected as metric}<td style:background={background(row, metric)} title={String(row[metric] ?? 'Unavailable')}>{formatTableCell(row[metric], { row, column: metric, exact })}</td>{/each}</tr>
 		{/each}
 		</tbody></table>
 	</div>
 	<div class="mobile-comparison">
 		{#each rows as { row, index } (index)}
 			{@const entity = resolvePlayerEntity({ name: String(row[identity]) }) ?? resolveTeamEntity({ name: String(row[identity]) })}
-			<article><h4 class="entity">{#if entity}<EntityAvatar {entity} size={36} decorative />{/if}<span>{row[identity]}</span></h4><dl>{#each selected as metric}<div style:background={background(row, metric)}><dt>{comparisonMetricLabel(population, metric)}</dt><dd title={String(row[metric] ?? 'Unavailable')}>{formatTableCell(row[metric], { row, column: metric, exact })}</dd></div>{/each}</dl></article>
+			<article><h4 class="entity">{#if entity}<EntityAvatar {entity} size={36} decorative />{/if}<span>{row[identity]}{#if rowNotes.get(row)}<small class="row-note">{rowNotes.get(row)}</small>{/if}</span></h4><dl>{#each selected as metric}<div style:background={background(row, metric)}><dt>{comparisonMetricLabel(population, metric)}</dt><dd title={String(row[metric] ?? 'Unavailable')}>{formatTableCell(row[metric], { row, column: metric, exact })}</dd></div>{/each}</dl></article>
 		{/each}
 	</div>
 </section>
 
 <style>
+	.row-note { display: block; margin-top: 3px; font-size: 11px; font-weight: 400; color: var(--color-muted-foreground); }
 	.heatmap { container: heatmap / inline-size; min-width: 0; }
 	.heatmap-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 11px; color: var(--color-muted-foreground); }
 	.heatmap-toolbar p { display: flex; align-items: center; gap: 6px; }
