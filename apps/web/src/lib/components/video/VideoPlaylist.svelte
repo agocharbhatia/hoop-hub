@@ -145,7 +145,7 @@
 			<button type="button" class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:bg-accent disabled:opacity-40" disabled={currentIndex === 0} onclick={() => playClip(currentIndex - 1, isChainPlaying)}>Previous</button>
 			<button type="button" class="rounded-md border border-border px-3 py-1.5 text-xs transition-colors hover:bg-accent disabled:opacity-40" disabled={currentIndex === clips.length - 1} onclick={() => playClip(currentIndex + 1, isChainPlaying)}>Next</button>
 			<button type="button" class="rounded-md bg-foreground px-3 py-1.5 text-xs text-background transition-opacity hover:opacity-80" onclick={playAll}>Play all</button>
-			<a href={currentClip.url} target="_blank" rel="noopener noreferrer" class="ml-auto text-xs text-muted-foreground underline underline-offset-4">Open source</a>
+			<a href={currentClip.url} target="_blank" rel="noopener" referrerpolicy="strict-origin-when-cross-origin" class="ml-auto text-xs text-muted-foreground underline underline-offset-4">Open source</a>
 		</div>
 	{:else}
 		<div class="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No video is available for these matching events.</div>

@@ -63,8 +63,14 @@ export async function smokeProductionServer(): Promise<void> {
 	try {
 		await start();
 		assert.equal((await request('/')).status, 303); assert.equal((await request('/api/research')).status, 401); assert.equal((await request('/api/ready')).status, 200);
+		assert.equal((await request('/login')).headers.get('referrer-policy'), 'no-referrer');
 		const a = await activate(alice.token); const b = await activate(bob.token);
-		assert.equal((await request(`/api/research/${id}`, a)).status, 200);
+		const researchDocument = await request(`/?session=${id}`, a);
+		assert.equal(researchDocument.status, 200);
+		assert.equal(researchDocument.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+		const researchDetail = await request(`/api/research/${id}`, a);
+		assert.equal(researchDetail.status, 200);
+		assert.equal(researchDetail.headers.get('referrer-policy'), 'no-referrer');
 		for (const path of [`/api/research/${id}`, `/api/query-trace/${traceId}`, `/api/clip-exports/${jobId}`, `/api/clip-exports/${jobId}/download`]) assert.equal((await request(path, b)).status, 404, path);
 		assert.equal((await request(`/api/research/${id}`, b, 'PATCH', { title: 'Stolen' })).status, 404);
 		assert.equal((await request(`/api/research/${id}`, b, 'DELETE')).status, 404);
