@@ -81,7 +81,7 @@
 	.zero-line { position: absolute; top: -0.2rem; bottom: -0.2rem; width: 1px; background: var(--color-muted-foreground); opacity: 0.5; }
 	.bar-fill { position: absolute; top: 0.3rem; height: 0.9rem; background: var(--bar-color); border-radius: 0 0.2rem 0.2rem 0; }
 	.bar-fill.negative { border-radius: 0.2rem 0 0 0.2rem; }
-	.inspected .bar-label, .inspected .bar-value { color: var(--bar-color); }
+	.inspected .bar-label, .inspected .bar-value { color: var(--color-foreground); font-weight: 600; }
 	.inspected .bar-fill { outline: 1px solid var(--color-foreground); outline-offset: 2px; }
 	.scale-row { margin-top: 0.5rem; }
 	.scale-labels { grid-column: 2; display: flex; position: relative; justify-content: space-between; font-size: 0.6875rem; line-height: 1.5; font-variant-numeric: tabular-nums; color: var(--color-muted-foreground); }
