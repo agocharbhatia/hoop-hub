@@ -175,7 +175,7 @@
 <svelte:head><title>Hoop Hub · NBA research</title><meta name="description" content="NBA research with interactive charts, exact shot evidence, matching film, and saved research." /></svelte:head>
 
 <div class="mx-auto flex w-full max-w-[1600px] flex-1 flex-col px-4 sm:px-8">
-	<header class="flex min-w-0 items-center justify-between gap-4 border-b border-border py-5">
+	<header class="sticky top-0 z-30 flex min-w-0 shrink-0 items-center justify-between gap-4 border-b border-border bg-background py-5">
 		<a href="/" class="flex shrink-0 items-center gap-2.5 font-semibold tracking-tight"><IconBallBasketball class="size-6 text-sky-400" />Hoop Hub<span class="ml-1 hidden text-xs font-normal text-muted-foreground sm:inline">NBA research</span></a>
 		<div class="flex items-center gap-2 lg:hidden"><button type="button" onclick={() => historyOpen = true} aria-label="Open saved research" class="rounded-lg border border-border p-2 text-muted-foreground"><IconHistory class="size-4" /></button><button type="button" onclick={newResearch} disabled={workspaceBusy} aria-label="New research" class="rounded-lg border border-border p-2 text-muted-foreground disabled:opacity-40"><IconPlus class="size-4" /></button></div>
 		<div class="flex min-w-0 items-center gap-3"><span class="hidden truncate text-xs text-muted-foreground lg:block">{selectedTitle ?? data.user?.name ?? 'Your research workspace'}</span>{#if data.user?.mode === 'invite'}<button type="button" onclick={() => void signOut()} disabled={workspaceBusy} class="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-40">Sign out</button>{/if}</div>
