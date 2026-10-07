@@ -6,6 +6,7 @@ services:
     cpus: 1
     environment:
       HOOP_HUB_AUTH_MODE: public
+      HOOP_HUB_RESEARCH_PER_DAY: 0
       NODE_OPTIONS: --max-old-space-size=256
       HOOP_HUB_CONCURRENT_RESEARCH: 1
   proxy:

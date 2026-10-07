@@ -17,7 +17,7 @@ export function admitResearch(store: BetaStore = getBetaStore(), now = Date.now(
 	const minute = Math.floor(now / 60_000);
 	store.db.transaction(() => {
 		store.consumeCounter(`research-minute:${principal.userId}:${minute}`, config.researchPerMinute, (minute + 1) * 60_000, now);
-		store.consumeCounter(`research-day:${principal.userId}:${day}`, config.researchPerDay, nextDay(now), now);
+		if (config.researchPerDay > 0) store.consumeCounter(`research-day:${principal.userId}:${day}`, config.researchPerDay, nextDay(now), now);
 	}).immediate();
 	activeResearch.add(principal.userId);
 	const runId = crypto.randomUUID();
@@ -62,7 +62,7 @@ export function usageSummary(store: BetaStore = getBetaStore(), now = Date.now()
 	const config = getBetaConfig();
 	const day = utcDay(now);
 	return {
-		limited: Boolean(principal && principal.mode !== 'local'), resetsAt: new Date(nextDay(now)).toISOString(),
+		limited: Boolean(principal && principal.mode !== 'local' && config.researchPerDay > 0), resetsAt: new Date(nextDay(now)).toISOString(),
 		research: { used: store.counter(`research-day:${principal?.userId ?? 'local'}:${day}`), limit: config.researchPerDay },
 		exports: { used: store.counter(`export-day:${principal?.userId ?? 'local'}:${day}`), limit: config.exportsPerDay }
 	};

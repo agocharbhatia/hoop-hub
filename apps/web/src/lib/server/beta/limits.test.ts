@@ -79,3 +79,21 @@ test('pricing is optional but research admission is required', async () => withS
 	await withPrincipal({ ...principal, runId: undefined }, () => assert.rejects(model.complete({ messages: [] }), /admission/));
 	await withPrincipal(principal, async () => assert.equal((await model.complete({ messages: [] })).content, 'ok'));
 }));
+
+test('unrestricted daily research admits more than thirty questions but preserves concurrency guards', async () => withSettings(() => {
+	process.env.HOOP_HUB_RESEARCH_PER_DAY = '0';
+	const data = new DataStore({ dbPath: ':memory:' }); const store = new BetaStore(data);
+	const now = Date.now();
+	try {
+		withPrincipal({ ...principal, mode: 'public' }, () => {
+			for (let i = 0; i < 35; i++) {
+				const permit = admitResearch(store, now + i * 60_000);
+				assert.throws(() => admitResearch(store, now + i * 60_000), /previous research/);
+				permit.release();
+			}
+			assert.equal(usageSummary(store, now).limited, false);
+			for (let i = 0; i < 5; i++) admitResearch(store, now + 36 * 60_000).release();
+			assert.throws(() => admitResearch(store, now + 36 * 60_000), /limit/);
+		});
+	} finally { data.close(); }
+}));

@@ -9,7 +9,8 @@ export function getBetaConfig() {
 	return {
 		mode,
 		origin: process.env.ORIGIN ?? process.env.HOOP_HUB_APP_ORIGIN,
-		researchPerDay: setting('HOOP_HUB_RESEARCH_PER_DAY', 30, 1, 1000),
+		// Zero leaves daily research unrestricted; admission still bounds request rate and concurrency.
+		researchPerDay: setting('HOOP_HUB_RESEARCH_PER_DAY', 0, 0, 1000),
 		researchPerMinute: setting('HOOP_HUB_RESEARCH_PER_MINUTE', 5, 1, 60),
 		concurrentResearch: setting('HOOP_HUB_CONCURRENT_RESEARCH', 4, 1, 16),
 		exportsPerDay: setting('HOOP_HUB_EXPORTS_PER_DAY', 3, 1, 100)
