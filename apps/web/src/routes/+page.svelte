@@ -43,11 +43,19 @@
 	const workspaceBusy = $derived(isLoading || detailLoading || historyMutating);
 	const elapsedMs = $derived(Math.max(clock - startedAt, progress.elapsedMs + clock - lastUpdateAt));
 	const selectedTitle = $derived(savedSessions.find((session) => session.sessionId === sessionId)?.title);
-	const suggestions = [
-		{ label: 'Stats → film', text: 'Show Scottie Barnes’ pull-up mid-range field-goal percentage against Boston in the 2024-25 regular season, with a shot chart and available clips.' },
-		{ label: 'Player trends', text: 'Show Jokic’s rebounds in his final ten games of the 2024-25 regular season. Compare the earlier five with the later five and show a chart.' },
-		{ label: 'Matchup research', text: 'Which five players shot the lowest FG% against Scottie Barnes in 2024-25, minimum 10 attempts and 25 partial possessions?' }
-	];
+	const suggestions = $derived([
+		{ label: 'Film + shot chart', text: 'Show all Kawhi Leonard pull-up three-point makes in 2025–26, with clips and a shot chart.' },
+		{ label: 'Shooting profile', text: 'Map Stephen Curry’s 2025–26 shots by zone. Show volume and field-goal percentage.' },
+		{ label: 'Recent form', text: 'Chart Nikola Jokić’s rebounds over his final ten games of 2025–26. Compare the first five with the last five.' },
+		{ label: 'Player comparison', text: 'Compare Luka Dončić and Shai Gilgeous-Alexander’s scoring over their final ten games of 2025–26, with charts.' },
+		{ label: 'Defensive matchups', text: 'Who shot the lowest FG% against Scottie Barnes in 2025–26? Rank five players with at least 10 attempts and 25 partial possessions.' },
+		{ label: 'League leaders', text: 'Rank the top ten players by three-point percentage in 2025–26, with at least 100 attempts.' },
+		...(data.possessionAnalytics ? [
+			{ label: 'On / off impact', text: 'Compare Toronto’s offensive, defensive and net ratings with Scottie Barnes on and off the court in 2025–26.' },
+			{ label: 'Lineup rankings', text: 'Rank Toronto’s top five lineups by net rating in 2025–26, with at least 100 offensive and defensive possessions.' }
+		] : [])
+	]);
+
 	onMount(() => { void loadHistory(); void refreshUsage(); });
 	onDestroy(() => { activeRequest?.abort(); historyRequest?.abort(); });
 	$effect(() => {
@@ -190,7 +198,7 @@
 					<div class="mb-5 flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-sky-400"><IconChartDots class="size-4" />From question to evidence</div>
 					<h1 class="max-w-2xl text-4xl font-medium leading-tight tracking-tight sm:text-5xl">Know the numbers.<br /><span class="text-muted-foreground">See the plays.</span></h1>
 					<p class="mt-5 max-w-xl text-sm leading-7 text-muted-foreground">Explore NBA stats, inspect the shots behind them, and watch the matching film. Your research stays here, ready to reopen and refine.</p>
-					<div class="mt-10 grid gap-3 sm:grid-cols-3">{#each suggestions as suggestion}<button type="button" onclick={() => void sendMessage(suggestion.text)} disabled={detailLoading || historyMutating} class="rounded-xl border border-border bg-card/40 p-4 text-left transition hover:border-sky-400/50 hover:bg-card disabled:opacity-40"><span class="text-xs font-medium text-sky-300">{suggestion.label}</span><p class="mt-2 text-xs leading-6 text-muted-foreground">{suggestion.text}</p></button>{/each}</div>
+					<div class="mt-10 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{#each suggestions as suggestion}<button type="button" onclick={() => void sendMessage(suggestion.text)} disabled={workspaceBusy} class="rounded-xl border border-border bg-card/40 p-4 text-left transition hover:border-sky-400/50 hover:bg-card disabled:opacity-40"><span class="text-xs font-medium text-sky-300">{suggestion.label}</span><p class="mt-2 text-xs leading-6 text-muted-foreground">{suggestion.text}</p></button>{/each}</div>
 				<details class="mt-6 max-w-2xl rounded-lg border border-border px-4 py-3 text-xs text-muted-foreground"><summary class="cursor-pointer font-medium text-foreground">What can I research in the beta?</summary><div class="mt-3 space-y-2 leading-6"><p>Start with a player or team, a season and the statistic you need. Explore shooting, shot locations, matchup tables, game trends and available film. Use follow-up suggestions to refine a result.</p><p>{data.possessionAnalytics ? 'Possession analytics includes on/off, lineups and four factors.' : 'Possession analytics is not enabled in this demo.'} Tactical video tagging and reliable event-level attribution to a named defender are still limited.</p><p>Check the source and sample size on each answer. Report an issue below an answer when something looks wrong. Saved research is kept for up to 90 days, within account storage limits; video exports last 24 hours.</p></div></details>
 				</section>
 			{:else}
