@@ -23,6 +23,14 @@ sudo docker compose -f compose.yaml -f deploy/compose.oracle-micro.yaml --profil
 
 The AMD micro is a modest demo host, not a validated high-concurrency or video-export capacity target. Its public link changes if Oracle replaces the ephemeral IP.
 
+## October 7 deployment update
+
+- Daily research quotas are disabled (`HOOP_HUB_RESEARCH_PER_DAY=0`). The hosted usage API reports `limited: false`; the question countdown is absent. Per-minute admission and server concurrency guards remain active.
+- Six starter prompts now cover film and shot charts, shooting zones, recent form, player comparisons, defensive matchups, and league leaders. On/off and lineup starters are conditional on possession analytics being enabled.
+- A changed operator IP blocked both network and host SSH rules. The network rule and persisted host rule were updated to the same current operator `/32`. Recovery used a one-time bootloader shell, preserved a backup of the original firewall file, and resumed normal system services. The temporary console connection was confirmed deleted and Cloud Shell exited.
+- A database backup was taken before rollout. The new image reused the existing runtime dependencies with freshly built application assets; production compilation and six admission regression tests passed. Hosted readiness passed, browser rendering confirmed all six starters without the quota footer, and an existing saved research response was identical before and after container replacement.
+- If the operator IP changes again, update both firewall layers. Updating the Oracle security list alone does not restore SSH access. Preserve a tested console recovery path before further access changes.
+
 ## Resource plan
 
 Use a standard Oracle Free Tier account without upgrading to Pay As You Go. Provision only resources confirmed as Always Free within the account's home region. Prefer one Ubuntu ARM `VM.Standard.A1.Flex` machine with 2 OCPUs, 4 GiB RAM, and a 50 GiB boot volume. These allocations fall within the currently documented Free Tier total of 2 OCPUs, 12 GiB RAM, and 200 GiB combined boot/block storage, assuming the account has no other allocations. Inspect actual tenancy usage and eligibility before provisioning; a trial credit or temporary $0 estimate is not evidence of Always Free eligibility.
