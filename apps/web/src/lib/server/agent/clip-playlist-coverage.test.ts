@@ -6,12 +6,12 @@ import type { DynamicAgentChatMessage } from './types';
 
 /* Fixture helpers */
 
-async function runPlaylistFixture(eventType: 'made_three' | 'custom_shot', count: number) {
+async function runPlaylistFixture(eventType: 'made_three' | 'custom_shot', count: number, missingLinks = false, videoFetchFailed = false) {
 	const eventIds = Array.from({ length: count }, (_, index) => index + 1);
 	const gameId = '0022500001';
 	const sourcePayload = {
 		resultSets: {
-			Meta: { videoUrls: eventIds.map((eventId) => ({ murl: `https://videos.nba.com/nba/pbp/media/2025/10/26/${gameId}/${eventId}/video.mp4` })) },
+			Meta: { videoUrls: eventIds.map((eventId) => ({ murl: missingLinks ? '' : `https://videos.nba.com/nba/pbp/media/2025/10/26/${gameId}/${eventId}/video.mp4` })) },
 			playlist: eventIds.map((eventId) => ({ gi: gameId, ei: eventId, y: 2025, m: 10, d: 26, dsc: "Leonard 26' 3PT Pullup Jump Shot" }))
 		}
 	};
@@ -36,8 +36,8 @@ async function runPlaylistFixture(eventType: 'made_three' | 'custom_shot', count
 			endpointId, payload: endpointId === 'shotchartdetail' ? {
 				resultSets: [{ name: 'Shot_Chart_Detail', headers: ['GAME_ID', 'GAME_EVENT_ID', 'GAME_DATE', 'PLAYER_ID', 'LOC_X', 'LOC_Y', 'SHOT_MADE_FLAG', 'ACTION_TYPE', 'SHOT_TYPE'],
 					rowSet: eventIds.map((eventId) => [gameId, eventId, '20251026', '202695', 20, 240, 1, 'Pullup Jump Shot', '3PT Field Goal']) }]
-			} : sourcePayload,
-			cacheStatus: 'miss', sourceStatus: 'ok', latencyMs: 1, stale: false, isProvisional: false, parserVersion: 'v1'
+			} : videoFetchFailed ? null : sourcePayload,
+			cacheStatus: 'miss', sourceStatus: endpointId === 'videodetailsasset' && videoFetchFailed ? 'error' : 'ok', latencyMs: 1, stale: false, isProvisional: false, parserVersion: 'v1'
 		})
 	});
 	const response = await agent.answerQuestion(eventType === 'custom_shot'
@@ -79,4 +79,26 @@ test('clip model context stays compact while full canonical clips and shot rows 
 	const chart = large.response.artifacts.find((artifact) => artifact.type === 'shot_chart');
 	assert.equal(playlist?.type === 'video_playlist' ? playlist.clips.length : 0, 1024);
 	assert.equal(chart?.type === 'shot_chart' ? chart.shots.length : 0, 1024);
+});
+
+for (const videoFetchFailed of [false, true]) {
+	test(`custom shot research distinguishes ${videoFetchFailed ? 'a failed lookup' : 'blank NBA links'} from absent footage`, async () => {
+		const { response, modelToolContent } = await runPlaylistFixture('custom_shot', 64, true, videoFetchFailed);
+		const issue = videoFetchFailed ? 'source_unavailable' : 'links_missing';
+		assert.equal(JSON.parse(modelToolContent).data.videoAvailability, issue);
+		const playlist = response.artifacts.find((artifact) => artifact.type === 'video_playlist');
+		assert.equal(playlist?.type === 'video_playlist' ? playlist.coverage?.videoAvailability : null, issue);
+		const chart = response.artifacts.find((artifact) => artifact.type === 'shot_chart');
+		assert.equal(chart?.type === 'shot_chart' ? chart.shots.length : 0, 64);
+		assert.match(response.warnings[0]?.message ?? '', videoFetchFailed ? /could not retrieve/ : /did not return video links/);
+		assert.doesNotMatch(response.warnings[0]?.message ?? '', /Video is unavailable/);
+	});
+}
+
+test('direct clip research reports missing feed links rather than a successful zero-play result', async () => {
+	const { response } = await runPlaylistFixture('made_three', 64, true);
+	const result = response.toolResults.find(result => result.toolName === 'find_video_clips');
+	if (!result || result.toolName !== 'find_video_clips') assert.fail('Missing clip tool result');
+	assert.equal(result.response.ok, false);
+	assert.match(result.response.error ?? '', /NBA did not return video links/);
 });

@@ -2,6 +2,7 @@ import {
 	parseVideoDetailsAssetClips,
 	type VideoDetailsAssetClip
 } from './video-clips';
+import type { VideoLinkLookupIssue } from '$lib/contracts/video-availability';
 
 export const CUSTOM_SHOT_RESULTS = ['made', 'missed', 'any'] as const;
 export const CUSTOM_SHOT_ZONES = [
@@ -88,6 +89,7 @@ export type CustomShotClipJoinData = {
 	missingVideoCount: number;
 	invalidJoinKeyCount: number;
 	playlistCapped: boolean;
+	videoAvailability?: VideoLinkLookupIssue;
 	joinedEventIds: Array<{ gameId: string; eventId: string }>;
 	appliedFilters: CanonicalCustomShotFilters;
 	researchRows?: FilteredCustomShotEvents['researchRows'];
@@ -244,6 +246,7 @@ export function joinCustomShotEventsToVideos(
 			missingVideoCount: filtered.matchingShotEventCount - joinedClips.length,
 			invalidJoinKeyCount: filtered.invalidJoinKeyCount,
 			playlistCapped: joinedClips.length > clips.length,
+			...(parsedVideos.data.videoLinksMissing ? { videoAvailability: 'links_missing' as const } : {}),
 			joinedEventIds: clips.map((clip) => ({ gameId: clip.gameId!, eventId: clip.eventId! })),
 			appliedFilters: filtered.appliedFilters,
 			...(filtered.researchRows ? { researchRows: filtered.researchRows, shootingSummary: filtered.shootingSummary } : {})

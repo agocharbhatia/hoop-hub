@@ -12,6 +12,20 @@ function buildPayload(videoUrls: unknown[], playlist: unknown[]): unknown {
 }
 
 describe('parseVideoDetailsAssetClips', () => {
+	test('distinguishes missing feed links from no events and rejected event associations', () => {
+		const events = [{ gi: '0022500164', ei: 51, y: 2025, m: 11, d: 3 }];
+		for (const [payload, expected] of [
+			[buildPayload([{ murl: '', lurl: '', surl: '' }], events), true],
+			[buildPayload([], []), false],
+			[buildPayload([{ murl: 'https://videos.nba.com/nba/pbp/media/2025/11/03/0022500164/52/video.mp4' }], events), false]
+		] as const) {
+			const parsed = parseVideoDetailsAssetClips(payload);
+			if (!parsed.ok) assert.fail(parsed.error);
+			assert.equal(parsed.data.videoLinksMissing, expected);
+			assert.equal(parsed.data.clips.length, 0);
+		}
+	});
+
 	test('supports balanced legacy feeds and prefers a valid murl over lurl over surl', () => {
 		const parsed = parseVideoDetailsAssetClips(
 			buildPayload(

@@ -11,6 +11,7 @@ export type ParsedVideoDetailsAssetClips = {
 	clips: VideoDetailsAssetClip[];
 	totalAvailable: number;
 	truncated: boolean;
+	videoLinksMissing: boolean;
 };
 
 /**
@@ -26,6 +27,7 @@ export function parseVideoDetailsAssetClips(
 	}
 
 	const pairedClips: VideoDetailsAssetClip[] = [];
+	let hasVideoLink = false;
 	const eventsByKey = new Map<string, Record<string, unknown>>();
 	for (const event of payloadShape.playlist) {
 		if (isPlainObject(event)) {
@@ -43,6 +45,7 @@ export function parseVideoDetailsAssetClips(
 		if (!url) {
 			continue;
 		}
+		hasVideoLink = true;
 
 		const urlEventKey = readUrlEventKey(url);
 		const event = urlEventKey
@@ -68,7 +71,9 @@ export function parseVideoDetailsAssetClips(
 		data: {
 			clips: normalizedMaxClips === null ? pairedClips : pairedClips.slice(0, normalizedMaxClips),
 			totalAvailable,
-			truncated: normalizedMaxClips !== null && totalAvailable > normalizedMaxClips
+			truncated: normalizedMaxClips !== null && totalAvailable > normalizedMaxClips,
+			// An event feed without links is distinct from a query with no matching plays.
+			videoLinksMissing: eventsByKey.size > 0 && !hasVideoLink
 		}
 	};
 }

@@ -749,7 +749,7 @@ function buildSystemMessages(now: Date): DynamicAgentChatMessage[] {
 		{
 			role: 'system',
 			content:
-				'Use find_video_clips when the user asks to see or watch plays/clips. Use the efficient direct eventType for made_three, made_field_goal, assist, block, steal, rebound, or turnover. Never broaden made_three to made_field_goal. For exact shot descriptions such as pull-up, step-back, layup, shot zone, make/miss, distance, or period combinations, use eventType custom_shot and pass canonical customShot filters; never approximate them with a broader direct event. custom_shot joins the full shot log to videos by game and event id. opponentTeamId filters by the opposing TEAM only; there is no named-defender field. Do not silently replace a named defender with their team. Explain that limitation and ask whether the user wants team-level clips instead. The server creates complete video playlists and shot charts from exact source rows; their arrays are intentionally omitted from your tool summary. Omit model-written video_playlist and shot_chart copies for this tool and keep prose short. Use matchingShotEventCount, joinedClipCount, missingVideoCount, and playlistCapped exactly. Joined clips are source video links, not proof that footage is playable. Do not add a warning when missingVideoCount is zero; when it is positive, state one concise video-availability limitation.'
+				'Use find_video_clips when the user asks to see or watch plays/clips. Use the efficient direct eventType for made_three, made_field_goal, assist, block, steal, rebound, or turnover. Never broaden made_three to made_field_goal. For exact shot descriptions such as pull-up, step-back, layup, shot zone, make/miss, distance, or period combinations, use eventType custom_shot and pass canonical customShot filters; never approximate them with a broader direct event. custom_shot joins the full shot log to videos by game and event id. opponentTeamId filters by the opposing TEAM only; there is no named-defender field. Do not silently replace a named defender with their team. Explain that limitation and ask whether the user wants team-level clips instead. The server creates complete video playlists and shot charts from exact source rows; their arrays are intentionally omitted from your tool summary. Omit model-written video_playlist and shot_chart copies for this tool and keep prose short. Use matchingShotEventCount, joinedClipCount, missingVideoCount, and playlistCapped exactly. Joined clips are source video links, not proof that footage is playable. Do not add a warning when missingVideoCount is zero; when it is positive, state one concise video-link limitation. If videoAvailability is links_missing, say NBA did not return video links. If it is source_unavailable, say the video lookup could not finish. Neither means footage does not exist; keep the verified shot stats and chart.'
 		},
 		{
 			role: 'system',
@@ -2575,6 +2575,13 @@ async function findVideoClips(
 		};
 	}
 
+	if (parsed.data.videoLinksMissing) {
+		context.failedEndpointCalls += 1;
+		return {
+			ok: false,
+			error: 'NBA did not return video links for the matching plays. This does not establish that footage is unavailable. Try again later.'
+		};
+	}
 	context.successfulEndpointCalls += 1;
 	const matchingClips = parsed.data.clips.filter((clip) => clipMatchesEventType(clip.description, directEventType));
 	const clips = matchingClips;
@@ -3666,6 +3673,7 @@ function readVideoPlaylistCoverage(data: unknown): Extract<QueryAnswerArtifact, 
 		joinedClipCount: Number(data.joinedClipCount),
 		returnedClipCount: Number(data.returnedClipCount),
 		missingVideoCount: Number(data.missingVideoCount),
+		...(data.videoAvailability === 'links_missing' || data.videoAvailability === 'source_unavailable' ? { videoAvailability: data.videoAvailability } : {}),
 		...(typeof data.invalidJoinKeyCount === 'number' ? { invalidJoinKeyCount: data.invalidJoinKeyCount } : {}),
 		playlistCapped: data.playlistCapped
 	};
@@ -4140,7 +4148,9 @@ function selectPublicWarnings(
 			return [
 				{
 					code: 'video_coverage_partial',
-					message: `Video is unavailable for ${customShotCoverage.missingVideoCount} of ${customShotCoverage.matchingShotEventCount} matching shot events; ${joinedLabel} available.`
+					message: customShotCoverage.videoAvailability === 'source_unavailable'
+						? 'We could not retrieve video links from NBA. The matching shot data is still shown; try again later for clips.'
+						: `NBA did not return video links for ${customShotCoverage.missingVideoCount} of ${customShotCoverage.matchingShotEventCount} matching plays; ${joinedLabel} available.`
 				}
 			];
 		}
@@ -4190,7 +4200,7 @@ function hasRecoveredSemanticCoverage(toolResults: QueryAnswerAgentToolResult[])
 
 function findLatestCustomShotCoverage(
 	toolResults: QueryAnswerAgentToolResult[]
-): { matchingShotEventCount: number; joinedClipCount: number; missingVideoCount: number } | null {
+): { matchingShotEventCount: number; joinedClipCount: number; missingVideoCount: number; videoAvailability?: string } | null {
 	for (let index = toolResults.length - 1; index >= 0; index -= 1) {
 		const result = toolResults[index];
 		if (
@@ -4207,7 +4217,7 @@ function findLatestCustomShotCoverage(
 			typeof joinedClipCount === 'number' &&
 			typeof missingVideoCount === 'number'
 		) {
-			return { matchingShotEventCount, joinedClipCount, missingVideoCount };
+			return { matchingShotEventCount, joinedClipCount, missingVideoCount, videoAvailability: typeof result.response.data.videoAvailability === 'string' ? result.response.data.videoAvailability : undefined };
 		}
 	}
 	return null;

@@ -1,4 +1,5 @@
 import type { Citation } from './chat';
+import type { VideoLinkLookupIssue } from './video-availability';
 import type { QueryEffectiveScope } from './query-context';
 import type { SemanticQueryRequest, StatsQueryResponse, StatsQueryRow, StatsQueryStatus, StatsQueryWarning } from './semantic-query';
 
@@ -74,6 +75,7 @@ export type QueryAnswerArtifact =
 				missingVideoCount: number;
 				invalidJoinKeyCount?: number;
 				playlistCapped: boolean;
+				videoAvailability?: VideoLinkLookupIssue;
 			};
 			clips: Array<{
 				url: string;

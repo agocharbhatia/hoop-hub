@@ -819,7 +819,7 @@ describe('createDynamicQueryAgent', () => {
 		assert.deepEqual(response.warnings, [
 			{
 				code: 'video_coverage_partial',
-				message: 'Video is unavailable for 1 of 2 matching shot events; 1 joined clip is available.'
+				message: 'NBA did not return video links for 1 of 2 matching plays; 1 joined clip is available.'
 			}
 		]);
 	});
