@@ -3,7 +3,7 @@
 	import type { VideoPlaylistArtifactView } from '$lib/presentation/query-response';
 	import EntityAvatar from '$lib/components/entities/EntityAvatar.svelte';
 	import type { EntityMedia } from '$lib/entities/entity-media';
-	import { videoPlaybackUrl } from '$lib/presentation/video-playback';
+	import { videoPlaybackUrl, videoPlaylistEmptyMessage } from '$lib/presentation/video-playback';
 
 	type EventIdentity = { gameId: string; eventId: string };
 	let { artifact, player = null, selectedEvent = null, onselectevent }: {
@@ -116,9 +116,13 @@
 
 	{#if artifact.coverage}
 		<p class="mb-3 text-xs tabular-nums text-muted-foreground">
-			{artifact.coverage.returnedClipCount} clip links · {artifact.coverage.matchingShotEventCount} matching plays
-			{#if artifact.coverage.missingVideoCount > 0} · {artifact.coverage.missingVideoCount} without a video link{/if}
-			{#if artifact.coverage.playlistCapped} · showing {artifact.coverage.returnedClipCount} of {artifact.coverage.joinedClipCount} links{/if}
+			{#if artifact.coverage.videoAvailability}
+				{artifact.coverage.matchingShotEventCount} matching plays
+			{:else}
+				{artifact.coverage.returnedClipCount} clip links · {artifact.coverage.matchingShotEventCount} matching plays
+				{#if artifact.coverage.missingVideoCount > 0} · {artifact.coverage.missingVideoCount} without a video link{/if}
+				{#if artifact.coverage.playlistCapped} · showing {artifact.coverage.returnedClipCount} of {artifact.coverage.joinedClipCount} links{/if}
+			{/if}
 		</p>
 	{/if}
 
@@ -150,7 +154,7 @@
 			<a href={playbackUrl} target="_blank" rel="noopener" referrerpolicy="strict-origin-when-cross-origin" class="ml-auto text-xs text-muted-foreground underline underline-offset-4">Open source</a>
 		</div>
 	{:else}
-		<div class="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No video is available for these matching events.</div>
+		<div class="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">{videoPlaylistEmptyMessage(artifact.coverage)}</div>
 	{/if}
 
 	{#if selectionUnavailable}<p class="mt-2 text-xs text-muted-foreground" role="status">The selected shot has no clip in this playlist.</p>{/if}
