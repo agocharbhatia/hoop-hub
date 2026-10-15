@@ -2,6 +2,7 @@ import type { StatsQueryRow } from '$lib/contracts/semantic-query';
 import { resolvePlayerEntity, resolveTeamEntity } from '$lib/entities/entity-media';
 import { tableColumnLabel } from './table-utils';
 import type { QueryAnswerArtifact } from '$lib/contracts/answer-response';
+import type { TableDisplay } from '$lib/contracts/table-display';
 
 // --- Comparison eligibility helpers ---
 
@@ -26,10 +27,10 @@ export function comparisonIntensity(value: unknown, domain: ComparisonDomain | n
 }
 
 /** Long-form semantic rows must retain their shared basketball metric name instead of displaying “Value”. */
-export function comparisonMetricLabel(rows: readonly StatsQueryRow[], column: string): string {
+export function comparisonMetricLabel(rows: readonly StatsQueryRow[], column: string, display?: TableDisplay): string {
 	const metric = rows[0]?.metric;
 	return key(column) === 'value' && typeof metric === 'string' && rows.every((row) => row.metric === metric)
-		? tableColumnLabel(metric) : tableColumnLabel(column);
+		? tableColumnLabel(metric) : tableColumnLabel(column, display);
 }
 
 /** Graphical rows still need their differing research scopes and game samples to remain interpretable. */
@@ -63,5 +64,6 @@ export function comparisonPresentation(artifact: Extract<QueryAnswerArtifact, { 
 	});
 	const order = artifact.source?.request.orderBy;
 	const orderedColumn = order && typeof order === 'object' && 'column' in order && typeof order.column === 'string' ? metrics.find((column) => key(column) === key(order.column as string)) : undefined;
-	return metrics.length ? { identity, metrics: orderedColumn ? [orderedColumn, ...metrics.filter((column) => column !== orderedColumn)] : metrics } : null;
+	const displayOrder = artifact.display?.metricColumns.filter(column => metrics.includes(column));
+	return metrics.length ? { identity, metrics: displayOrder?.length ? displayOrder : orderedColumn ? [orderedColumn, ...metrics.filter((column) => column !== orderedColumn)] : metrics } : null;
 }

@@ -1,10 +1,11 @@
 <script lang="ts">
 	import type { StatsQueryRow } from '$lib/contracts/semantic-query';
+	import type { TableDisplay } from '$lib/contracts/table-display';
 	import EntityAvatar from '$lib/components/entities/EntityAvatar.svelte';
 	import { resolvePlayerEntity, resolveTeamEntity } from '$lib/entities/entity-media';
 	import { comparisonDomain, comparisonIntensity, comparisonMetricLabel, comparisonRowNotes } from './comparison-presentation';
 	import { formatTableCell, type IndexedRow } from './table-utils';
-	let { rows, population, identity, metrics, exact = false }: { rows: IndexedRow[]; population: StatsQueryRow[]; identity: string; metrics: string[]; exact?: boolean } = $props();
+	let { rows, population, identity, metrics, exact = false, display }: { rows: IndexedRow[]; population: StatsQueryRow[]; identity: string; metrics: string[]; exact?: boolean; display?: TableDisplay } = $props();
 	let chosen = $state<string[] | null>(null);
 	const selected = $derived((chosen ?? metrics.slice(0, 3)).filter((metric) => metrics.includes(metric)));
 	const rowNotes = $derived(comparisonRowNotes(population));
@@ -21,20 +22,20 @@
 </script>
 
 <section class="heatmap" aria-label="Entity metric comparison">
-	<div class="heatmap-toolbar"><p><span class="color-key"></span>Blue = higher within these results</p><details><summary>Choose metrics</summary><div class="metric-picker">{#each metrics as metric}<label><input type="checkbox" checked={selected.includes(metric)} disabled={selected.length === 1 && selected.includes(metric)} onchange={() => toggle(metric)} />{comparisonMetricLabel(population, metric)}</label>{/each}</div></details></div>
+	<div class="heatmap-toolbar"><p><span class="color-key"></span>Blue = higher within these results</p><details><summary>Choose metrics</summary><div class="metric-picker">{#each metrics as metric}<label><input type="checkbox" checked={selected.includes(metric)} disabled={selected.length === 1 && selected.includes(metric)} onchange={() => toggle(metric)} />{comparisonMetricLabel(population, metric, display)}</label>{/each}</div></details></div>
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex (keyboard access to horizontally scrolling metrics) -->
 	<div class="matrix-scroll" tabindex="0" role="region" aria-label="Comparison heatmap; scroll for additional metrics">
-		<table><thead><tr><th scope="col">Player / team</th>{#each selected as metric}<th scope="col">{comparisonMetricLabel(population, metric)}</th>{/each}</tr></thead><tbody>
+		<table><thead><tr><th scope="col">Player / team</th>{#each selected as metric}<th scope="col">{comparisonMetricLabel(population, metric, display)}</th>{/each}</tr></thead><tbody>
 		{#each rows as { row, index } (index)}
 			{@const entity = resolvePlayerEntity({ name: String(row[identity]) }) ?? resolveTeamEntity({ name: String(row[identity]) })}
-			<tr><th scope="row"><span class="entity">{#if entity}<EntityAvatar {entity} size={32} decorative />{/if}<span>{row[identity]}{#if rowNotes.get(row)}<small class="row-note">{rowNotes.get(row)}</small>{/if}</span></span></th>{#each selected as metric}<td style:background={background(row, metric)} title={String(row[metric] ?? 'Unavailable')}>{formatTableCell(row[metric], { row, column: metric, exact })}</td>{/each}</tr>
+			<tr><th scope="row"><span class="entity">{#if entity}<EntityAvatar {entity} size={32} decorative />{/if}<span>{row[identity]}{#if rowNotes.get(row)}<small class="row-note">{rowNotes.get(row)}</small>{/if}</span></span></th>{#each selected as metric}<td style:background={background(row, metric)} title={String(row[metric] ?? 'Unavailable')}>{formatTableCell(row[metric], { row, column: metric, exact, display })}</td>{/each}</tr>
 		{/each}
 		</tbody></table>
 	</div>
 	<div class="mobile-comparison">
 		{#each rows as { row, index } (index)}
 			{@const entity = resolvePlayerEntity({ name: String(row[identity]) }) ?? resolveTeamEntity({ name: String(row[identity]) })}
-			<article><h4 class="entity">{#if entity}<EntityAvatar {entity} size={36} decorative />{/if}<span>{row[identity]}{#if rowNotes.get(row)}<small class="row-note">{rowNotes.get(row)}</small>{/if}</span></h4><dl>{#each selected as metric}<div style:background={background(row, metric)}><dt>{comparisonMetricLabel(population, metric)}</dt><dd title={String(row[metric] ?? 'Unavailable')}>{formatTableCell(row[metric], { row, column: metric, exact })}</dd></div>{/each}</dl></article>
+			<article><h4 class="entity">{#if entity}<EntityAvatar {entity} size={36} decorative />{/if}<span>{row[identity]}{#if rowNotes.get(row)}<small class="row-note">{rowNotes.get(row)}</small>{/if}</span></h4><dl>{#each selected as metric}<div style:background={background(row, metric)}><dt>{comparisonMetricLabel(population, metric, display)}</dt><dd title={String(row[metric] ?? 'Unavailable')}>{formatTableCell(row[metric], { row, column: metric, exact, display })}</dd></div>{/each}</dl></article>
 		{/each}
 	</div>
 </section>

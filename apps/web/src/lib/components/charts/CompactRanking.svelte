@@ -1,11 +1,12 @@
 <script lang="ts">
 	import type { StatsQueryRow } from '$lib/contracts/semantic-query';
+	import type { TableDisplay } from '$lib/contracts/table-display';
 	import EntityAvatar from '$lib/components/entities/EntityAvatar.svelte';
 	import { resolvePlayerEntity, resolveTeamEntity } from '$lib/entities/entity-media';
 	import { createBarGeometry } from './bar-chart-utils';
 	import { finiteMetric, comparisonMetricLabel, comparisonRowNotes } from './comparison-presentation';
 	import { formatTableCell, type IndexedRow } from './table-utils';
-	let { rows, population, identity, metrics, exact = false, offset = 0 }: { rows: IndexedRow[]; population: StatsQueryRow[]; identity: string; metrics: string[]; exact?: boolean; offset?: number } = $props();
+	let { rows, population, identity, metrics, exact = false, offset = 0, display }: { rows: IndexedRow[]; population: StatsQueryRow[]; identity: string; metrics: string[]; exact?: boolean; offset?: number; display?: TableDisplay } = $props();
 	let selectedMetric = $state<string | null>(null);
 	const metric = $derived(selectedMetric && metrics.includes(selectedMetric) ? selectedMetric : metrics[0]);
 	const rowNotes = $derived(comparisonRowNotes(population));
@@ -13,11 +14,11 @@
 </script>
 
 <section class="compact-ranking" aria-label="Entity ranking">
-	<label class="metric-control">Display metric<select value={metric} onchange={(event) => selectedMetric = event.currentTarget.value}>{#each metrics as column}<option value={column}>{comparisonMetricLabel(population, column)}</option>{/each}</select></label>
+	<label class="metric-control">Display metric<select value={metric} onchange={(event) => selectedMetric = event.currentTarget.value}>{#each metrics as column}<option value={column}>{comparisonMetricLabel(population, column, display)}{display?.columns[column]?.unit && display.columns[column].unit !== '%' ? ` · ${display.columns[column].unit}` : ''}</option>{/each}</select></label>
 	<ol>{#each rows as { row, index }, positionIndex (index)}
 		{@const entity = resolvePlayerEntity({ name: String(row[identity]) }) ?? resolveTeamEntity({ name: String(row[identity]) })}
 		{@const position = geometry.position(finiteMetric(row[metric]) ? row[metric] : NaN)}
-		<li><span class="rank" title={finiteMetric(row.rank) ? 'Source rank' : 'Position in displayed results'}>{finiteMetric(row.rank) ? row.rank : offset + positionIndex + 1}</span>{#if entity}<EntityAvatar {entity} size={40} decorative />{/if}<div class="subject"><span>{row[identity]}{#if rowNotes.get(row)}<small class="row-note">{rowNotes.get(row)}</small>{/if}</span><div class="track" aria-hidden="true"><span class="zero" style:left="{geometry.zero}%"></span><span class="fill" style:left="{position.left}%" style:width="{position.width}%"></span></div></div><strong title={String(row[metric] ?? 'Unavailable')}>{formatTableCell(row[metric], { row, column: metric, exact })}</strong></li>
+		<li><span class="rank" title={finiteMetric(row.rank) ? 'Source rank' : 'Position in displayed results'}>{finiteMetric(row.rank) ? row.rank : offset + positionIndex + 1}</span>{#if entity}<EntityAvatar {entity} size={40} decorative />{/if}<div class="subject"><span>{row[identity]}{#if rowNotes.get(row)}<small class="row-note">{rowNotes.get(row)}</small>{/if}</span><div class="track" aria-hidden="true"><span class="zero" style:left="{geometry.zero}%"></span><span class="fill" style:left="{position.left}%" style:width="{position.width}%"></span></div></div><strong title={String(row[metric] ?? 'Unavailable')}>{formatTableCell(row[metric], { row, column: metric, exact, display })}</strong></li>
 	{/each}</ol>
 </section>
 

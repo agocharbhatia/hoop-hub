@@ -1,3 +1,4 @@
+import type { TableDisplay } from './table-display';
 import type { Citation } from './chat';
 import type { VideoLinkLookupIssue } from './video-availability';
 import type { QueryEffectiveScope } from './query-context';
@@ -18,6 +19,7 @@ export type QueryAnswerArtifact =
 			shape: NonNullable<StatsQueryResponse['result']>['shape'];
 			columns: string[];
 			rows: StatsQueryRow[];
+			display?: TableDisplay;
 			source?: QueryArtifactSource;
 	  }
 	| {

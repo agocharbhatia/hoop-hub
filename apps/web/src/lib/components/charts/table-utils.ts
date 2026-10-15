@@ -1,8 +1,10 @@
 import type { StatsQueryRow, StatsQueryRowValue } from '$lib/contracts/semantic-query';
+import type { TableDisplay } from '$lib/contracts/table-display';
+import { buildTableDisplay, columnDisplay, displayForCell } from '$lib/presentation/table-display';
 
 export type IndexedRow = { row: StatsQueryRow; index: number };
 export type SortDirection = 'ascending' | 'descending';
-export type TableCellContext = { column?: string; row?: StatsQueryRow; exact?: boolean };
+export type TableCellContext = { column?: string; row?: StatsQueryRow; exact?: boolean; display?: TableDisplay };
 export type TablePresentation = {
 	columns: string[];
 	primaryColumns: string[];
@@ -32,15 +34,16 @@ const COLUMN_LABELS: Record<string, string> = {
 export function formatTableCell(value: StatsQueryRowValue | undefined, context: TableCellContext = {}): string {
 	if (isMissing(value)) return '-';
 	if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-	if (typeof value !== 'number') return String(value);
+	if (typeof value !== 'number') return columnKey(context.column ?? '') === 'metric' && typeof value === 'string' ? columnDisplay(value, context.display?.perMode).label : String(value);
 	const key = columnKey(context.column ?? '');
+	const definition = displayForCell(context.column ?? '', context.row ?? {}, context.display);
 	const rowUnit = typeof context.row?.unit === 'string' ? context.row.unit.trim() : '';
 	const isRowValue = ROW_VALUE_COLUMNS.has(key);
 	const isChange = key === 'difference' || key === 'change';
-	const percentage = isRowValue && rowUnit === '%' || FRACTIONAL_PERCENT_COLUMNS.has(key);
+	const percentage = definition.unit === '%' || isRowValue && rowUnit === '%' || FRACTIONAL_PERCENT_COLUMNS.has(key);
 	// Canonical NBA percentage columns store fractions; PBP row units already store percentages.
-	const displayValue = FRACTIONAL_PERCENT_COLUMNS.has(key) ? value * 100 : value;
-	const usesStatPrecision = percentage || /rating|minute|second|average|possession|difference|change/.test(key) || Boolean(isRowValue && rowUnit);
+	const displayValue = value * (definition.scale ?? (FRACTIONAL_PERCENT_COLUMNS.has(key) ? 100 : 1));
+	const usesStatPrecision = definition.precision === 1 || percentage || /rating|minute|second|average|possession|difference|change/.test(key) || Boolean(isRowValue && rowUnit);
 	const formatter = isChange ? changeFormatter : usesStatPrecision ? statFormatter : numberFormatter;
 	const roundsToZero = !context.exact && Math.abs(displayValue) < (usesStatPrecision ? .05 : .005);
 	const normalizedValue = Object.is(displayValue, -0) || roundsToZero ? 0 : displayValue;
@@ -49,12 +52,21 @@ export function formatTableCell(value: StatsQueryRowValue | undefined, context: 
 	return formatted;
 }
 
-export function tableColumnLabel(column: string): string {
-	return COLUMN_LABELS[columnKey(column)] ?? column.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').replace(/^./, (letter) => letter.toUpperCase());
+export function tableColumnLabel(column: string, display?: TableDisplay): string {
+	return display?.columns[column]?.label ?? COLUMN_LABELS[columnKey(column)] ?? (/per_game$/i.test(column) ? column.replace(/_/g, ' ').replace(/^./, letter => letter.toUpperCase()) : columnDisplay(column).label);
 }
 
-export function tableMetricUnit(row: StatsQueryRow, column: string): string | null {
-	return columnKey(column) === 'metric' && typeof row.unit === 'string' && row.unit !== '%' ? row.unit : null;
+export function tableMetricUnit(row: StatsQueryRow, column: string, display?: TableDisplay): string | null {
+	if (columnKey(column) === 'metric') {
+		const unit = typeof row.unit === 'string' ? row.unit : typeof row.metric === 'string' ? columnDisplay(row.metric, display?.perMode).unit : undefined;
+		return unit && unit !== '%' ? unit : null;
+	}
+	return null;
+}
+
+export function tableColumnUnit(column: string, display?: TableDisplay): string | null {
+	const unit = display?.columns[column]?.unit;
+	return unit && unit !== '%' ? unit : null;
 }
 
 function columnKey(column: string): string { return column.replace(/[^a-z0-9]/gi, '').toLowerCase(); }
@@ -80,7 +92,7 @@ function isMissing(value: StatsQueryRowValue | undefined): boolean {
 /* End cell presentation helpers */
 
 /** Keep the first scan compact without discarding fields or mistaking equal statistics for metadata. */
-export function buildTablePresentation(columns: readonly string[], rows: readonly StatsQueryRow[]): TablePresentation {
+export function buildTablePresentation(columns: readonly string[], rows: readonly StatsQueryRow[], display?: TableDisplay): TablePresentation {
 	const context: TablePresentation['context'] = [];
 	const hasMetricUnit = columns.some((column) => columnKey(column) === 'metric') && columns.includes('unit') && rows.length > 0 && rows.every((row) => typeof row.unit === 'string' && row.unit.trim().length > 0 && canFoldRowUnit(row, columns));
 	const available = columns.filter((column) => {
@@ -91,14 +103,13 @@ export function buildTablePresentation(columns: readonly string[], rows: readonl
 		context.push({ column, value: value! });
 		return false;
 	});
-	const identityColumn = available.find((column) => ['metric', 'subject', 'lineup', 'offensiveplayer', 'player', 'playername', 'name', 'start'].includes(columnKey(column)))
-		?? available.find((column) => rows.some((row) => typeof row[column] === 'string')) ?? null;
-	const priority = ['metric', 'subject', 'lineup', 'offensiveplayer', 'player', 'playername', 'name', 'start', 'on', 'off', 'difference', 'netrating', 'fgpct', 'fga', 'recentaverage', 'earlieraverage', 'change', 'points', 'games'];
-	const ranked = available.map((column, index) => ({ column, index, priority: priority.indexOf(columnKey(column)) })).sort((a, b) => (a.priority < 0 ? priority.length : a.priority) - (b.priority < 0 ? priority.length : b.priority) || a.index - b.index);
-	const selected = new Set(ranked.slice(0, 6).map(({ column }) => column));
-	if (identityColumn && !selected.has(identityColumn)) { selected.delete(ranked[5]?.column); selected.add(identityColumn); }
-	const primaryColumns = available.filter((column) => selected.has(column));
-	return { columns: available, primaryColumns, detailColumns: available.filter((column) => !selected.has(column)), identityColumn, context };
+	const ordered = display ?? buildTableDisplay({ type: 'table', shape: 'table', columns: [...columns], rows: [...rows] });
+	const identityColumn = [...new Set([...ordered.primaryColumns, ...available])].find(column => available.includes(column) && ordered.columns[column]?.role === 'identity')
+		?? available.find((column) => !['context', 'detail'].includes(columnDisplay(column).role) && rows.some((row) => typeof row[column] === 'string')) ?? null;
+	const primaryColumns = ordered.primaryColumns.filter(column => available.includes(column));
+	if (identityColumn && !primaryColumns.includes(identityColumn)) primaryColumns.unshift(identityColumn);
+	const detailColumns = available.filter(column => !primaryColumns.includes(column));
+	return { columns: [...primaryColumns, ...detailColumns], primaryColumns, detailColumns, identityColumn, context };
 }
 
 /** Retain original row identity after sorting so evidence selection still reaches the correct event. */
