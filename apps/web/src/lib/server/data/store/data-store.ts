@@ -17,6 +17,10 @@ function buildDefaultDbFile(): string {
 const DEFAULT_DB_FILE = buildDefaultDbFile();
 
 const SCHEMA_STATEMENTS = [
+	`CREATE TABLE IF NOT EXISTS research_boards (id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,title TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
+	'CREATE INDEX IF NOT EXISTS idx_research_boards_owner ON research_boards (owner_id,updated_at DESC,id)',
+	`CREATE TABLE IF NOT EXISTS research_board_items (id TEXT PRIMARY KEY,board_id TEXT NOT NULL REFERENCES research_boards(id) ON DELETE CASCADE,position INTEGER NOT NULL,snapshot_json TEXT NOT NULL,created_at TEXT NOT NULL)`,
+	'CREATE INDEX IF NOT EXISTS idx_board_items_position ON research_board_items (board_id,position,id)',
 	`CREATE TABLE IF NOT EXISTS raw_endpoint_cache (
 		cache_key TEXT PRIMARY KEY,
 		endpoint_id TEXT NOT NULL,
@@ -340,6 +344,8 @@ export type DataStoreOptions = {
 
 export type ResearchSessionRecord = { ownerId?: string; sessionId: string; title: string; contextJson: string | null; createdAt: string; updatedAt: string };
 export type ResearchTurnRecord = { turnId: string; sessionId: string; question: string; responseJson: string; createdAt: string };
+export type ResearchBoardRecord = { id: string; ownerId: string; title: string; createdAt: string; updatedAt: string };
+export type ResearchBoardItemRecord = { id: string; boardId: string; position: number; snapshotJson: string; createdAt: string };
 
 type TraceSourceBundle = {
 	dataFreshnessMode: DataFreshnessMode;
@@ -510,6 +516,56 @@ export class DataStore {
 	private readonly researchSessionsMemory = new Map<string, ResearchSessionRecord>();
 	private readonly researchTurnsMemory = new Map<string, ResearchTurnRecord>();
 	private readonly clipExportJobsMemory = new Map<string, string>();
+	private readonly boardsMemory = new Map<string, ResearchBoardRecord>();
+	private readonly boardItemsMemory = new Map<string, ResearchBoardItemRecord>();
+
+	/** Board mutations remain atomic with ownership, count and byte-limit checks in the same transaction. */
+	withBoardTransaction<T>(work: () => T): T { return this.sqlite ? this.sqlite.transaction(work).immediate() : work(); }
+
+	getResearchBoard(id: string, ownerId: string): ResearchBoardRecord | null {
+		if (!this.sqlite) { const board = this.boardsMemory.get(id); return board?.ownerId === ownerId ? { ...board } : null; }
+		return this.sqlite.query<ResearchBoardRecord>('SELECT id,owner_id AS ownerId,title,created_at AS createdAt,updated_at AS updatedAt FROM research_boards WHERE id=@id AND owner_id=@ownerId').get({ id, ownerId }) ?? null;
+	}
+
+	listResearchBoards(ownerId: string): ResearchBoardRecord[] {
+		if (!this.sqlite) return [...this.boardsMemory.values()].filter(board => board.ownerId === ownerId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id)).map(board => ({ ...board }));
+		return this.sqlite.query<ResearchBoardRecord, string>('SELECT id,owner_id AS ownerId,title,created_at AS createdAt,updated_at AS updatedAt FROM research_boards WHERE owner_id=? ORDER BY updated_at DESC,id').all(ownerId);
+	}
+
+	putResearchBoard(board: ResearchBoardRecord): void {
+		if (!this.sqlite) { this.boardsMemory.set(board.id, { ...board }); return; }
+		this.sqlite.query('INSERT INTO research_boards (id,owner_id,title,created_at,updated_at) VALUES (@id,@ownerId,@title,@createdAt,@updatedAt) ON CONFLICT(id) DO UPDATE SET title=excluded.title,updated_at=excluded.updated_at WHERE research_boards.owner_id=excluded.owner_id').run(board);
+	}
+
+	listResearchBoardItems(boardId: string): ResearchBoardItemRecord[] {
+		if (!this.sqlite) return [...this.boardItemsMemory.values()].filter(item => item.boardId === boardId).sort((a, b) => a.position - b.position || a.id.localeCompare(b.id)).map(item => ({ ...item }));
+		return this.sqlite.query<ResearchBoardItemRecord, string>('SELECT id,board_id AS boardId,position,snapshot_json AS snapshotJson,created_at AS createdAt FROM research_board_items WHERE board_id=? ORDER BY position,id').all(boardId);
+	}
+
+	countResearchBoardItems(boardId: string): number {
+		if (!this.sqlite) { let count = 0; for (const item of this.boardItemsMemory.values()) if (item.boardId === boardId) count++; return count; }
+		return this.sqlite.query<{ count: number }, string>('SELECT COUNT(*) AS count FROM research_board_items WHERE board_id=?').get(boardId)?.count ?? 0;
+	}
+
+	researchBoardBytes(ownerId: string): number {
+		if (!this.sqlite) { const ids = new Set(this.listResearchBoards(ownerId).map(board => board.id)); return [...this.boardItemsMemory.values()].reduce((total, item) => total + (ids.has(item.boardId) ? Buffer.byteLength(item.snapshotJson) : 0), 0); }
+		return this.sqlite.query<{ bytes: number }, string>('SELECT COALESCE(SUM(LENGTH(CAST(i.snapshot_json AS BLOB))),0) AS bytes FROM research_board_items i JOIN research_boards b ON b.id=i.board_id WHERE b.owner_id=?').get(ownerId)?.bytes ?? 0;
+	}
+
+	putResearchBoardItem(item: ResearchBoardItemRecord): void {
+		if (!this.sqlite) { this.boardItemsMemory.set(item.id, { ...item }); return; }
+		this.sqlite.query('INSERT INTO research_board_items (id,board_id,position,snapshot_json,created_at) VALUES (@id,@boardId,@position,@snapshotJson,@createdAt) ON CONFLICT(id) DO UPDATE SET position=excluded.position,snapshot_json=excluded.snapshot_json WHERE research_board_items.board_id=excluded.board_id').run(item);
+	}
+
+	deleteResearchBoardItem(boardId: string, id: string): void {
+		if (!this.sqlite) { if (this.boardItemsMemory.get(id)?.boardId === boardId) this.boardItemsMemory.delete(id); return; }
+		this.sqlite.query('DELETE FROM research_board_items WHERE board_id=@boardId AND id=@id').run({ boardId, id });
+	}
+
+	deleteResearchBoard(id: string, ownerId: string): void {
+		if (!this.sqlite) { if (!this.getResearchBoard(id, ownerId)) return; this.boardsMemory.delete(id); for (const [itemId, item] of this.boardItemsMemory) if (item.boardId === id) this.boardItemsMemory.delete(itemId); return; }
+		this.sqlite.query('DELETE FROM research_boards WHERE id=@id AND owner_id=@ownerId').run({ id, ownerId });
+	}
 
 	constructor(options: DataStoreOptions = {}) {
 		const dbPath = resolveDbPath(options.dbPath);

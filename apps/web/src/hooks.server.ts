@@ -35,7 +35,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		try { event.request = await boundedRequest(event.request); }
 		catch (error) { if (error instanceof BetaError) return json({ error: error.message }, { status: error.status, headers: { Connection: 'close' } }); throw error; }
 	}
-	if (config.mode !== 'local' && ['/api/query', '/api/stats/query', '/api/clip-exports'].includes(path) && mutating && (process.env.HOOP_HUB_DATA_USE !== 'public' || process.env.HOOP_HUB_NBA_PUBLIC_DISPLAY_ALLOWED !== '1')) return json({ error: 'Research is not enabled for this demo yet. Please try again later.', code: 'demo_not_ready' }, { status: 503 });
+	if (config.mode !== 'local' && ['/api/query', '/api/stats/query', '/api/clip-exports', '/api/research/refine'].includes(path) && mutating && (process.env.HOOP_HUB_DATA_USE !== 'public' || process.env.HOOP_HUB_NBA_PUBLIC_DISPLAY_ALLOWED !== '1')) return json({ error: 'Research is not enabled for this demo yet. Please try again later.', code: 'demo_not_ready' }, { status: 503 });
 	const started = performance.now();
 	const requestId = crypto.randomUUID();
 	const response = await withPrincipal({ ...(user ?? LOCAL_PRINCIPAL), requestId }, () => resolve(event));
