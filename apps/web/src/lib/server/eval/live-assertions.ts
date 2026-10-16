@@ -10,7 +10,7 @@ export function evaluateLiveExecution(evalCase: EvalCase, execution: EvalExecuti
 		...evalCase,
 		requiredTools: [],
 		artifactExpectations: providerCase ? evalCase.artifactExpectations : evalCase.artifactExpectations.map(({ type, count, minItems }) => ({ type, count, ...(minItems !== undefined && minItems > 0 ? { minItems: 1 } : {}) })),
-		assertions: evalCase.assertions.filter((assertion) => invariantKinds.has(assertion.kind) || providerCase && assertion.kind === 'value' && assertion.source.type === 'tool_request'),
+		assertions: evalCase.assertions.filter((assertion) => invariantKinds.has(assertion.kind) || assertion.kind === 'primary_artifact' || assertion.kind === 'split_comparison_grounded' || (providerCase || evalCase.tags.includes('splits')) && assertion.kind === 'value' && assertion.source.type === 'tool_request'),
 		limits: { maxLatencyMs: 180_000 }
 	};
 	const failures = evaluateEvalExecution(integrationCase, execution);

@@ -335,7 +335,11 @@ describe('createDynamicQueryAgent', () => {
 		assert.equal((executedRequest as typeof semanticRequest | null)?.query.operation, 'lookup');
 		assert.deepEqual((executedRequest as typeof semanticRequest | null)?.query.subject.names, ['Scottie Barnes']);
 		assert.equal(response.status, 'ok');
-		assert.deepEqual(response.artifacts, [
+		assert.ok(response.artifacts[0]?.type === 'table');
+		const { display, ...canonicalTable } = response.artifacts[0];
+		assert.equal(display?.columns.pts.unit, 'points / game');
+		assert.deepEqual(display?.primaryColumns, ['playerName', 'pts']);
+		assert.deepEqual([canonicalTable], [
 			{
 				type: 'table',
 				shape: 'table',
@@ -401,7 +405,11 @@ describe('createDynamicQueryAgent', () => {
 		assert.equal(response.status, 'ok');
 		assert.match(response.answer, /tracking/i);
 		assert.match(response.answer, /small sample/i);
-		assert.deepEqual(response.artifacts[0], {
+		assert.ok(response.artifacts[0]?.type === 'table');
+		const { display, ...canonicalTable } = response.artifacts[0];
+		assert.equal(display?.columns.fgPct.scale, 100);
+		assert.ok(display?.primaryColumns.includes('fga'));
+		assert.deepEqual(canonicalTable, {
 			type: 'table',
 			shape: 'comparison',
 			columns: [
@@ -457,6 +465,7 @@ describe('createDynamicQueryAgent', () => {
 		assert.equal(response.artifacts[0]?.type, 'table');
 		if (response.artifacts[0]?.type !== 'table') assert.fail('Expected a defender leaderboard table.');
 		assert.equal(response.artifacts[0].shape, 'ranking');
+		assert.deepEqual(response.artifacts[0].display?.primaryColumns.slice(0, 4), ['rank', 'offensivePlayer', 'fgPct', 'fgm']);
 		assert.deepEqual(
 			response.artifacts[0].rows.map((row) => [row.rank, row.offensivePlayer, row.fgPct]),
 			[

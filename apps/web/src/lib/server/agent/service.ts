@@ -60,6 +60,11 @@ import type {
 	DynamicQueryAgentDependencies
 } from './types';
 import { DynamicAgentError } from './types';
+import { presentTable, presentTables, type TableDisplayIntent } from '$lib/presentation/table-display';
+import { buildShootingExplorer, reconcileShootingExplorers, requestsShootingExplorer, hasVerifiedShootingExplorer } from '$lib/server/research/shooting-explorer';
+import type { ScatterChartArtifact } from '$lib/contracts/research-views';
+import type { SplitComparisonRequest, SplitComparisonArtifact } from '$lib/contracts/split-comparison';
+import { compareSplits, validateSplitRequest, splitComparisonTool, splitQuestionConflict, splitComparisonAnswer } from './split-comparison';
 import { createDataProviderFetcher } from '$lib/server/data/providers/client';
 import { listDataProviders } from '$lib/server/data/providers/catalog';
 import { createRunProviderFetcher } from './query-runtime';
@@ -91,6 +96,7 @@ const MAX_RESULT_SET_ROWS = 150;
 const MAX_AGGREGATE_GROUPS = 100;
 const MAX_SELECTED_ROWS = 500;
 const TOOL_NAMES: QueryAnswerAgentToolName[] = [
+	'compare_splits',
 	'resolve_players',
 	'resolve_teams',
 	'execute_semantic_query',
@@ -162,6 +168,7 @@ type FilterOperator = (typeof FILTER_OPERATORS)[number];
 type AggregationOperator = (typeof AGGREGATION_OPERATORS)[number];
 
 type AggregateEndpointRowsData = {
+	shootingExplorer?: ScatterChartArtifact;
 	endpointId: string;
 	resultSetName: string;
 	totalRows: number;
@@ -250,6 +257,7 @@ type EndpointToolData = {
 };
 
 type ParsedToolRequest =
+	| { ok: true; toolName: 'compare_splits'; request: SplitComparisonRequest }
 	| { ok: true; toolName: 'analyze_possession_stats'; request: PossessionAnalyticsRequest }
 	| { ok: true; toolName: 'resolve_players' | 'resolve_teams'; request: { names: string[] } }
 	| {
@@ -350,6 +358,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			let terminalResponse: DynamicAgentModelResponse | null = null;
 			let hitToolIterationLimit = false;
 			let requestedTrendRepair = false;
+			let requestedShootingRepair = false;
 			let requestedSplitRepair: WinLossSplitRepair | null = null;
 			const modelUsage = { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0 };
 			const activeToolActivities = new Map<string, Pick<QueryProgress, 'stage' | 'message'>>();
@@ -360,7 +369,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				emitProgress(activity.stage, activity.message);
 				const message = await awaitWithSignal(executeToolCall(toolCall, runDependencies, executionContext, clock.nowMs, semanticExecutor, trustedReplay), signal);
 				signal.throwIfAborted();
-				const artifacts = buildProgressiveArtifacts(executionContext.toolResults);
+				const artifacts = presentTables(buildProgressiveArtifacts(executionContext.toolResults), question);
 				if (artifacts.length) options.onArtifacts?.(artifacts);
 				activeToolActivities.delete(toolCall.id);
 				const pendingActivity = activeToolActivities.values().next().value;
@@ -424,6 +433,11 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				messages.push(buildAssistantMessage(modelResponse));
 
 				if (modelResponse.toolCalls.length === 0) {
+					if (!requestedShootingRepair && requestsShootingExplorer(question) && !hasVerifiedShootingExplorer(executionContext.toolResults) && iteration < maxToolIterations - 1) {
+						requestedShootingRepair = true;
+						messages.push({ role: 'system', content: 'A complete totals population is required for this three-point volume/efficiency view. Call aggregate_endpoint_rows on the league-wide player/team Base endpoint with PerMode Totals, GP, FG3M, FG3A and exact identity columns; keep the requested season, dates and qualification. Do not group identities or estimate attempts from rates. The server will compute the scatter plot and qualification from full source totals. If this cannot be retrieved, report that limitation without invented plot values or benchmarks.' });
+						continue;
+					}
 					if (!requestedSplitRepair && iteration < maxToolIterations - 1) {
 						const repair = findWinLossSplitRepair(question, executionContext.toolResults, executionContext.requestedSeason, referenceDate);
 						if (repair && !findVerifiedWinLossSplit(repair, executionContext.toolResults)) {
@@ -483,7 +497,8 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				finalOutput = recovered;
 				executionContext.warnings.push({ code: 'dynamic_agent_final_output_recovered', message: 'The final narration was malformed; the complete canonical clip research supplied the answer.' });
 			}
-			const trendRequested = requiresVerifiedTrend(question);
+			const hasSplitResearch = executionContext.toolResults.some(result => result.toolName === 'compare_splits' && result.response.ok);
+			const trendRequested = requiresVerifiedTrend(question) && !hasSplitResearch;
 			const trendPopulations = collectVerifiedTrendPopulations(executionContext.toolResults, executionContext.resolvedPlayers);
 			const trendMissing = trendRequested && trendPopulations.length === 0;
 			const unverifiedTrendScopes = countUnverifiedTrendScopes(executionContext.toolResults);
@@ -514,18 +529,24 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			const hasPossessionResearch = verifiedPossessionData(executionContext.toolResults).length > 0;
 			const onlyPossessionResearch = hasPossessionResearch && executionContext.researchRequests.every((entry) => entry.toolName === 'analyze_possession_stats');
 			const canonicalPossessionArtifacts = buildPossessionArtifacts(executionContext.toolResults);
-			const canonicalBaseArtifacts = onlyPossessionResearch ? canonicalPossessionArtifacts : hasPossessionResearch ? buildProgressiveArtifacts(executionContext.toolResults) : baseArtifacts;
-			const groundedArtifacts = groundingUnavailable ? [] : splitScope && verifiedSplit
-				? buildVerifiedWinLossArtifacts(splitScope, verifiedSplit) : reconcileOrderedRankings(canonicalBaseArtifacts, executionContext.toolResults);
+			const verifiedSplits = executionContext.toolResults.flatMap(result => result.toolName === 'compare_splits' && result.response.ok && isPlainObject(result.response.data) && result.response.data.artifact ? [result.response.data.artifact as SplitComparisonArtifact] : []);
+			const splitAttempted = executionContext.toolResults.some(result => result.toolName === 'compare_splits');
+			const splitUnavailable = splitAttempted && !verifiedSplits.length;
+			const canonicalBaseArtifacts = splitAttempted ? buildProgressiveArtifacts(executionContext.toolResults) : onlyPossessionResearch ? canonicalPossessionArtifacts : hasPossessionResearch ? buildProgressiveArtifacts(executionContext.toolResults) : baseArtifacts;
+			const groundedArtifacts = presentTables(reconcileShootingExplorers(groundingUnavailable ? [] : splitScope && verifiedSplit
+				? buildVerifiedWinLossArtifacts(splitScope, verifiedSplit) : reconcileOrderedRankings(canonicalBaseArtifacts, executionContext.toolResults), groundingUnavailable ? [] : executionContext.toolResults, question), question);
 			const modelWarnings = finalOutput.warnings.map((warning) => ({
 				code: `dynamic_agent_${warning.kind}`,
 				message: warning.message
 			}));
 			const traceWarnings = mergeWarnings(executionContext.warnings, modelWarnings);
-			const status = groundingUnavailable ? 'coverage_gap' : selectStatus(executionContext, traceWarnings);
+			const shootingMissing = requestsShootingExplorer(question) && !groundedArtifacts.some(artifact => artifact.type === 'scatter_chart');
+			const status = groundingUnavailable || shootingMissing || splitUnavailable ? 'coverage_gap' : selectStatus(executionContext, traceWarnings);
 			const publicWarnings = splitMissing ? [{ code: 'win_loss_split_not_computed', message: 'The requested win/loss averages could not be verified from complete game logs.' }]
 				: trendMissing ? [{ code: 'trend_not_computed', message: 'A verified trend comparison could not be calculated for this scope.' }] : selectPublicWarnings(status, verifiedSplit ? modelWarnings.filter((warning) => !['dynamic_agent_capability_limit', 'dynamic_agent_partial_data'].includes(warning.code)) : modelWarnings, executionContext.toolResults);
-			const groundedAnswer = onlyPossessionResearch ? buildPossessionAnswer(executionContext.toolResults) : splitMissing ? 'I could not verify these win/loss averages from complete game logs for the requested scope.'
+			if (shootingMissing) publicWarnings.push({ code: 'shooting_population_unavailable', message: 'A complete shooting population could not be verified for this view.' });
+			if (splitUnavailable) publicWarnings.push({ code: 'split_population_unavailable', message: 'Complete comparable game logs could not be verified for the requested split.' });
+			const groundedAnswer = shootingMissing ? 'I could not verify a complete three-point volume and efficiency comparison for the requested scope.' : splitUnavailable ? 'I could not verify this split from complete comparable game logs.' : verifiedSplits.length ? verifiedSplits.map(splitComparisonAnswer).join(' ') : onlyPossessionResearch ? buildPossessionAnswer(executionContext.toolResults) : splitMissing ? 'I could not verify these win/loss averages from complete game logs for the requested scope.'
 				: splitScope && verifiedSplit ? buildVerifiedWinLossAnswer(splitScope, verifiedSplit)
 				: trendMissing ? 'I could not verify the trend for this scope.' : trendRequested || trendPopulations.length > 0
 				? buildVerifiedTrendAnswer(executionContext.toolResults, executionContext.resolvedPlayers)
@@ -553,7 +574,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 			).length;
 			const recoveredProviderGapCount = executionContext.toolResults.filter((result) => result.toolName === 'analyze_possession_stats' && !result.response.ok &&
 				executionContext.toolResults.some((success) => success.toolName === result.toolName && success.response.ok && serializeClipRequest(success.request) === serializeClipRequest(result.request))).length;
-			const nextContext = !groundingUnavailable && refinementCompleted && executionContext.researchRequests.length > 0 &&
+			const nextContext = !groundingUnavailable && !shootingMissing && !splitUnavailable && refinementCompleted && executionContext.researchRequests.length > 0 &&
 				executionContext.failedEndpointCalls <= recoveredSemanticGapCount + groundedVideoGapCount + recoveredProviderGapCount ? {
 				questions: [...session.context?.questions ?? [], question],
 				requests: executionContext.researchRequests,
@@ -676,11 +697,13 @@ function buildProgressiveArtifacts(toolResults: QueryAnswerAgentToolResult[]): Q
 	return [...results.values()].flatMap((result): QueryAnswerArtifact[] => {
 		const data = result.response.data;
 		if (!isPlainObject(data)) return [];
+		if (result.toolName === 'compare_splits' && data.artifact) return [data.artifact as SplitComparisonArtifact];
 		if (result.toolName === 'analyze_possession_stats') return buildPossessionArtifacts([result]);
 		const seeds: QueryAnswerArtifact[] = [];
+		if (result.toolName === 'aggregate_endpoint_rows' && data.shootingExplorer) seeds.push(data.shootingExplorer as ScatterChartArtifact);
 		if (result.toolName === 'execute_semantic_query') {
 			const semanticData = result.response.data;
-			if (isStatsQueryResponseWithResult(semanticData) && semanticData.result) seeds.push({ type: 'table', shape: semanticData.result.shape, columns: [...semanticData.result.columns], rows: semanticData.result.rows.map((row) => ({ ...row })) });
+			if (isStatsQueryResponseWithResult(semanticData) && semanticData.result) seeds.push(presentTable({ type: 'table', shape: semanticData.result.shape, columns: [...semanticData.result.columns], rows: semanticData.result.rows.map((row) => ({ ...row })) }, semanticTableIntent(semanticData)));
 			return seeds;
 		}
 		if (result.toolName === 'aggregate_endpoint_rows' && isStringArray(data.selectedColumns) && Array.isArray(data.selectedRows) && data.selectedRows.every(isStatsRow) && data.selectedRows.length) {
@@ -709,6 +732,7 @@ function recordModelUsage(
 
 function buildSystemMessages(now: Date): DynamicAgentChatMessage[] {
 	return [
+		{ role: 'system', content: 'For a player/team before-versus-after date, first/second season halves, home/away, wins/losses or two-season stat comparison, resolve the subject then use compare_splits. Use explicit cutoff dates (cutoff is included in after); do not guess trade, injury or All-Star break dates. For scoring changes request PTS, TS_PCT, FGA, FG3_SHARE and/or FG3_PCT as relevant. Percentages use pooled makes/attempts, never averages of game percentages. The server supplies the split_comparison artifact and exact source values; return no model-written copies or invented deltas. Explain a change descriptively, never as proof of causation. Use analyze_time_series as well only when the question requests the dated trajectory. Artifact presentation follows question intent: ranking first for leaders, change view first for splits, trend first for game progression, court first for maps, film first for watching, tables when explicitly requested.' },
 		{ role: 'system', content: `Available data providers: ${JSON.stringify(listDataProviders())}. Use analyze_possession_stats for PBP Stats on/off, four-factor, player-combination, lineup-ranking and possession-start questions. Resolve canonical NBA team/player IDs. Preserve explicit team, season and season type; do not assume a player's current team for a historical question. For best lineups use netRating desc, for defense use defensiveRating asc. Default lineup qualification is at least 100 offensive AND defensive possessions, with limit 10; honor user thresholds/counts. Only combinations support sameGamesOnly or up to three on/off players; only lineups support date ranges or included player IDs. Possession-start categories overlap and have no sample counts. This tool does not support opponent, quarter, clutch, home/away or last-N filters; never drop those constraints. Do not infer named defenders or tactical labels from lineups. The server supplies provider tables and bar charts; omit model-written copies and describe on/off differences as descriptive rather than causal.` },
 		{ role: 'system', content: 'When all necessary tool results are available, return the final JSON object directly with answer (string), artifacts (array), and warnings (array of {kind,message}, using partial_data/capability_limit/artifact_sample/scope_assumption/diagnostic). Do not add a separate narration or announce a future answer. Tables use rows as arrays aligned with columns. For verified analyze_time_series line charts, filtered shot charts, video playlists, typed semantic tables and ordered rankings, emit the artifact structure with empty data arrays: the server fills their exact canonical points/shots/clips/rows. Do not spend output tokens copying these source populations. When artifacts already display the values, keep answer prose to one or two useful takeaways instead of reciting the same statistics, rows, sample sizes or repeated scope headings. Preserve explanations and limitations that change how to interpret the result. Include short computed-summary tables only when they add information not already shown.' },
 		{
@@ -759,6 +783,11 @@ function buildSystemMessages(now: Date): DynamicAgentChatMessage[] {
 		{
 			role: 'system',
 			content:
+				'For three-point volume versus efficiency or scatterplot questions, use aggregate_endpoint_rows on leaguedashplayerstats or leaguedashteamstats with PerMode Totals, MeasureType Base, the requested Season/SeasonType and explicit date scope. Select PLAYER_ID/PLAYER_NAME (or TEAM_ID/TEAM_NAME), GP, FG3M and FG3A. Do not group away individual identities. Apply only requested qualification filters. The server computes a complete scatter_chart from the full matching totals before row caps; shootingExplorer metadata confirms it. Return a table placeholder or no artifacts and let the server add this plot. Never author scatter coordinates, infer total attempts from rounded per-game values, or claim that a displayed top-N subset establishes league baselines.'
+		},
+		{
+			role: 'system',
+			content:
 				'Use analyze_time_series for questions about trends, direction, or the latest N games. For an initial question involving multiple players, teams, or metrics, resolve every named entity and compute each requested population and metric separately before answering. Preserve the same requested season and game window across comparisons unless the user specifies different windows. It sorts the requested rows chronologically and computes earlier-window average, recent-window average, change, and direction server-side. Use its direction and averages exactly; never reverse newest/oldest chronology or recompute trend arithmetic yourself. Build line charts from the returned oldest-to-newest points. Each metric uses a separate chart and axis; each player/team, season and window is a separately labelled series. If one requested computation fails, preserve the verified populations and state which computation remains unavailable.'
 		}
 	];
@@ -786,6 +815,7 @@ function buildEndpointCatalogForPrompt() {
 
 function buildToolDefinitions(): DynamicAgentToolDefinition[] {
 	return [
+		splitComparisonTool,
 		possessionAnalyticsTool,
 		{
 			type: 'function',
@@ -1126,6 +1156,7 @@ function buildFinalAnswerSchema() {
 							buildTextBlockArtifactSchema(),
 							buildLineChartArtifactSchema(),
 							buildBarChartArtifactSchema(),
+							buildScatterChartArtifactSchema(),
 							buildShotChartArtifactSchema(),
 							buildVideoPlaylistArtifactSchema()
 						]
@@ -1150,6 +1181,10 @@ function buildFinalAnswerSchema() {
 			required: ['answer', 'artifacts', 'warnings']
 		}
 	} as const;
+}
+
+function buildScatterChartArtifactSchema() {
+	return { type: 'object', additionalProperties: false, properties: { type: { type: 'string', enum: ['scatter_chart'] }, title: { type: 'string' } }, required: ['type', 'title'] };
 }
 
 function buildTableArtifactSchema() {
@@ -1327,6 +1362,10 @@ async function executeToolCall(
 		const conflict = findPossessionScopeConflict(context.question, parsed.request);
 		if (conflict) parsed = { ok: false, toolName: parsed.toolName, request: parsed.request, error: conflict };
 	}
+	if (parsed.ok && parsed.toolName === 'compare_splits') {
+		const conflict = splitQuestionConflict(context.question, parsed.request);
+		if (conflict) parsed = { ok: false, toolName: parsed.toolName, request: parsed.request, error: conflict };
+	}
 	let request = parsed.request;
 	let ok = false;
 	let error: string | undefined;
@@ -1337,7 +1376,22 @@ async function executeToolCall(
 	} else {
 		request = parsed.request;
 		try {
-			if (parsed.toolName === 'analyze_possession_stats') {
+			if (parsed.toolName === 'compare_splits') {
+				const id = parsed.request.subjectId;
+				const resolved = parsed.request.entity === 'player' ? context.resolvedPlayers.find(player => player.id === id)?.canonicalName : context.toolResults.flatMap(result => result.toolName === 'resolve_teams' && result.response.ok && isPlainObject(result.response.data) && Array.isArray(result.response.data.teams) ? result.response.data.teams : []).flatMap(entry => isPlainObject(entry) && Array.isArray(entry.matches) && entry.matches.length === 1 ? entry.matches : []).find(entry => isPlainObject(entry) && entry.id === id)?.canonicalName;
+				if (typeof resolved !== 'string') throw new Error('Resolve the exact subject before comparing its splits.');
+				const comparison = await compareSplits(parsed.request, async request => {
+					const source = await dependencies.endpointFetcher(request);
+					context.sourceCalls.push({ endpointId: source.endpointId, cacheStatus: source.cacheStatus, sourceStatus: source.sourceStatus, latencyMs: source.latencyMs, stale: source.stale, isProvisional: source.isProvisional, parserVersion: source.parserVersion });
+					context.retrievalLatencyMs += source.latencyMs;
+					if (source.stale) context.warnings.push({ code: 'stale_source_data', message: 'Showing stored game logs; newer source data could not be confirmed.' });
+					if (source.payload && source.sourceStatus === 'ok') context.successfulEndpointCalls++; else context.failedEndpointCalls++;
+					return source;
+				}, resolved);
+				if (comparison.sources.some(source => source.stale)) comparison.artifact.limitations.push('Showing a stored game-log snapshot.');
+				data = { artifact: comparison.artifact };
+				ok = true;
+			} else if (parsed.toolName === 'analyze_possession_stats') {
 				const analytics = await analyzePossessionStats(parsed.request, dependencies.providerFetcher!, dependencies.now?.() ?? new Date());
 				for (const source of analytics.sources) {
 					context.sourceCalls.push({ endpointId: source.endpointId, cacheStatus: source.cacheStatus, sourceStatus: source.sourceStatus, latencyMs: source.latencyMs, stale: source.stale, isProvisional: source.isProvisional, parserVersion: source.parserVersion });
@@ -1436,6 +1490,11 @@ async function executeToolCall(
 
 /** Keeps model reasoning independent of playlist size while the server retains every exact artifact row. */
 function buildModelToolResponse(toolName: QueryAnswerAgentToolName, response: { ok: boolean; data?: unknown; error?: string }): unknown {
+	if (toolName === 'aggregate_endpoint_rows' && response.ok && isPlainObject(response.data) && response.data.shootingExplorer) {
+		const { shootingExplorer, ...data } = response.data;
+		const plot = shootingExplorer as ScatterChartArtifact;
+		return { ...response, data: { ...data, shootingExplorer: { title: plot.title, populationCount: plot.points.length, qualification: plot.qualification, scope: plot.scope }, artifactsProvidedByServer: ['scatter_chart'] } };
+	}
 	if (toolName !== 'find_video_clips' || !response.ok || !isPlainObject(response.data)) return response;
 	const data = Object.fromEntries(Object.entries(response.data).filter(([key]) => !['clips', 'researchRows', 'joinedEventIds'].includes(key)));
 	return { ...response, data: { ...data, artifactsProvidedByServer: ['video_playlist', ...(Array.isArray(response.data.researchRows) ? ['shot_chart'] : [])] } };
@@ -1479,6 +1538,10 @@ function parseToolRequest(toolCall: DynamicAgentToolCall): ParsedToolRequest {
 			return { ok: false, toolName, request: rawArguments, error: validation.error };
 		}
 		return { ok: true, toolName, request: validation.value };
+	}
+	if (toolName === 'compare_splits') {
+		try { return { ok: true, toolName, request: validateSplitRequest(rawArguments) }; }
+		catch (error) { return { ok: false, toolName, request: rawArguments, error: error instanceof Error ? error.message : 'Invalid split request.' }; }
 	}
 	if (toolName === 'analyze_possession_stats') {
 		const validation = validatePossessionAnalyticsRequest(rawArguments);
@@ -1590,6 +1653,7 @@ function parseToolRequest(toolCall: DynamicAgentToolCall): ParsedToolRequest {
 /** Records effective, validated scope instead of trusting client history or model-written answers. */
 function captureGroundedResearchRequest(parsed: Extract<ParsedToolRequest, { ok: true }>, data: unknown): GroundedResearchRequest | null {
 	if (parsed.toolName === 'resolve_players' || parsed.toolName === 'resolve_teams') return null;
+	if (parsed.toolName === 'compare_splits') return { toolName: parsed.toolName, request: structuredClone(parsed.request) };
 	if (parsed.toolName === 'execute_semantic_query') {
 		if (!isPlainObject(data) || data.status !== 'ok' || !isPlainObject(data.provenance)) return null;
 		const response = data as StatsQueryResponse;
@@ -1634,7 +1698,7 @@ function applyRequestedSeason(
 			parsed.request.params.Season = season;
 		}
 	} else {
-		if (parsed.toolName === 'find_video_clips' || parsed.toolName === 'analyze_player_matchup' || parsed.toolName === 'rank_defender_matchups' || parsed.toolName === 'analyze_possession_stats') season = parsed.request.season;
+		if (parsed.toolName === 'find_video_clips' || parsed.toolName === 'analyze_player_matchup' || parsed.toolName === 'rank_defender_matchups' || parsed.toolName === 'analyze_possession_stats' || parsed.toolName === 'compare_splits') season = parsed.request.season;
 	}
 	if (!season || context.allowMultipleSeasons) return parsed;
 	if (context.requestedSeason && context.requestedSeason !== season) {
@@ -2412,7 +2476,7 @@ async function aggregateEndpointRows(
 		return selectedResultSet;
 	}
 
-	const aggregateResult = aggregateResultSetRows(selectedResultSet.resultSet, request, result);
+	const aggregateResult = aggregateResultSetRows(selectedResultSet.resultSet, request, result, context.question);
 	if (!aggregateResult.ok) {
 		return aggregateResult;
 	}
@@ -2994,7 +3058,8 @@ function selectResultSet(
 function aggregateResultSetRows(
 	resultSet: NormalizedResultSet,
 	request: AggregateEndpointRowsRequest,
-	result: EndpointFetchResult
+	result: EndpointFetchResult,
+	question: string
 ): { ok: true; data: AggregateEndpointRowsData } | { ok: false; error: string } {
 	const headers = buildHeaderLookup(resultSet.headers);
 	const filters = resolveAggregateFilters(request.filters ?? [], headers, resultSet.headers);
@@ -3026,6 +3091,10 @@ function aggregateResultSetRows(
 	}
 
 	let matchedRows = 0;
+	const shootingColumns = requestsShootingExplorer(question) && resultSet.rowCount <= 2000 && ['leaguedashplayerstats', 'leaguedashteamstats'].includes(request.endpointId) && request.params.PerMode === 'Totals'
+		? resultSet.headers.flatMap((header, index) => ['PLAYER_ID', 'PLAYER_NAME', 'TEAM_ID', 'TEAM_NAME', 'TEAM_ABBREVIATION', 'GP', 'FG3A', 'FG3M'].includes(header) ? [{ header, index }] : []) : [];
+	const shootingRows: StatsQueryRow[] = [];
+	const shootingFilters = filters.filters.filter(filter => !(filter.column === 'FG3A' && ['gte', 'gt'].includes(filter.op)));
 	const groups = new Map<string, AggregateGroupState>();
 	const selectedRows: StatsQueryRow[] = [];
 	const orderedRows: OrderedEndpointRow[] = [];
@@ -3033,6 +3102,7 @@ function aggregateResultSetRows(
 	const compareRows = (left: OrderedEndpointRow, right: OrderedEndpointRow) => compareOrderedEndpointRows(left, right, request.orderBy?.direction ?? 'asc');
 
 	for (const [sourceIndex, row] of resultSet.rows.entries()) {
+		if (shootingColumns.length && shootingFilters.every(filter => rowMatchesFilter(row, filter))) shootingRows.push(projectSelectedRow(row, shootingColumns));
 		if (!filters.filters.every((filter) => rowMatchesFilter(row, filter))) {
 			continue;
 		}
@@ -3058,10 +3128,12 @@ function aggregateResultSetRows(
 		return left.keySortValue.localeCompare(right.keySortValue);
 	});
 	const groupsTruncated = sortedGroups.length > MAX_AGGREGATE_GROUPS;
+	const shootingExplorer = shootingColumns.length ? buildShootingExplorer(shootingRows, { toolName: 'aggregate_endpoint_rows', endpointId: result.endpointId, resultSetName: resultSet.name, request: structuredClone(request), population: { attemptQualificationIsLocal: true } }, question) : null;
 
 	return {
 		ok: true,
 		data: {
+			...(shootingExplorer ? { shootingExplorer } : {}),
 			endpointId: result.endpointId,
 			resultSetName: resultSet.name,
 			totalRows: resultSet.rowCount,
@@ -3491,6 +3563,11 @@ function validateArtifact(artifact: unknown): { ok: true; value: QueryAnswerArti
 	if (!isPlainObject(artifact) || typeof artifact.type !== 'string') {
 		return { ok: false, error: 'Dynamic agent artifacts must be typed objects.' };
 	}
+	// Models declare only intent. Reconciliation always replaces this empty placeholder with computed source data.
+	if (artifact.type === 'scatter_chart') {
+		if (typeof artifact.title !== 'string' || Object.keys(artifact).some(key => !['type', 'title'].includes(key))) return { ok: false, error: 'Scatter chart coordinates must come from server computation.' };
+		return { ok: true, value: { type: 'scatter_chart', title: artifact.title, entity: 'player', points: [], qualification: { floor: 0, minimumAttempts: 0 }, rate: 'PerGame', scope: { season: '', seasonType: '' }, populationLabel: '', omittedRows: 0, source: { toolName: 'aggregate_endpoint_rows', endpointId: '', resultSetName: '', request: {} } } };
+	}
 
 	if (artifact.type === 'table') {
 		if (!isStatsShape(artifact.shape) || !isStringArray(artifact.columns) || !Array.isArray(artifact.rows)) {
@@ -3839,6 +3916,17 @@ function describeValidatedShotScope(scope: Record<string, unknown>, toolResults:
 	return labels.filter((label) => label !== undefined && label !== '').join(' · ');
 }
 
+/* Canonical table presentation helpers */
+
+function semanticTableIntent(response: StatsQueryResponse): TableDisplayIntent {
+	const query = response.provenance.resolvedQuery;
+	const perGame = query && (query.entity === 'player' && ['lookup', 'rank', 'compare', 'split'].includes(query.operation) || query.entity === 'team' && ['lookup', 'rank'].includes(query.operation));
+	const entity = query?.entity === 'player' || query?.entity === 'team' ? query.entity : undefined;
+	return { metrics: query?.metrics, entity, ...(perGame ? { perMode: 'PerGame' } : {}) };
+}
+
+/* End canonical table presentation helpers */
+
 function reconcileSemanticTables(
 	artifacts: QueryAnswerArtifact[],
 	toolResults: QueryAnswerAgentToolResult[]
@@ -3854,12 +3942,12 @@ function reconcileSemanticTables(
 		const response = results[resultIndex];
 		if (!response?.result) return artifact;
 		resultIndex += 1;
-		return {
+		return presentTable({
 			type: 'table',
 			shape: response.result.shape,
 			columns: [...response.result.columns],
 			rows: response.result.rows.map((row) => ({ ...row }))
-		};
+		}, semanticTableIntent(response));
 	});
 }
 
@@ -3875,10 +3963,10 @@ function reconcileOrderedRankings(artifacts: QueryAnswerArtifact[], toolResults:
 	const columns = data.selectedColumns as string[];
 	const metric = String((data.orderBy as Record<string, unknown>).column);
 	const source = { toolName: 'aggregate_endpoint_rows' as const, endpointId: String(data.endpointId), resultSetName: String(data.resultSetName), request: structuredClone(result.request) };
-	const ranking: Extract<QueryAnswerArtifact, { type: 'table' }> = {
+	const ranking: Extract<QueryAnswerArtifact, { type: 'table' }> = presentTable({
 		type: 'table', shape: 'ranking', columns: ['rank', ...columns.filter((column) => normalizeLookupKey(column) !== 'rank')],
 		rows: rows.map((row, index) => ({ ...row, rank: index + 1 })), source
-	};
+	}, { metrics: [metric] });
 	const labelColumn = columns.find((column) => ['player_name', 'team_name', 'player', 'team', 'name', 'subject'].includes(normalizeLookupKey(column)));
 	const bars = labelColumn ? rows.flatMap((row) => {
 		const value = coerceFiniteNumber(row[metric]);
@@ -3960,12 +4048,12 @@ function reconcileDefenderLeaderboardTables(
 	if (tableIndex < 0) return artifacts;
 	return artifacts.map((artifact, index) =>
 		index === tableIndex
-			? {
+				? presentTable({
 					type: 'table',
 					shape: 'ranking',
 					columns: [...leaderboard.columns],
 					rows: leaderboard.rows.map((row) => ({ ...row }))
-				}
+				}, { metrics: [leaderboard.ranking.metric], perMode: 'Totals' })
 			: artifact
 	);
 }

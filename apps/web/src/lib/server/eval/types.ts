@@ -9,6 +9,10 @@ import type { StatsQueryResponse } from '$lib/contracts/semantic-query';
 export type EvalMode = 'local' | 'model' | 'live';
 
 export type EvalFixtureId =
+	| 'player_split'
+	| 'team_split'
+	| 'player_shooting_explorer'
+	| 'team_shooting_explorer'
 	| 'scottie_pullup_midrange'
 	| 'jokic_rebound_trend'
 	| 'top_five_assists'
@@ -52,6 +56,8 @@ export type EvalValueSource =
 	| { type: 'artifact'; artifactType: QueryAnswerArtifact['type']; occurrence?: 'first' | 'last' };
 
 export type EvalAssertion =
+	| { kind: 'primary_artifact'; type: QueryAnswerArtifact['type'] }
+	| { kind: 'split_comparison_grounded' }
 	| {
 			kind: 'value';
 			label: string;
@@ -106,6 +112,7 @@ export type EvalEndpointCall = {
 };
 
 export type EvalExecution = {
+	question?: string;
 	response: QueryAnswerResponse;
 	trace: {
 		toolCalls: Array<{
@@ -123,10 +130,12 @@ export type EvalExecution = {
 };
 
 export type EvalArtifactSummary =
+	| { type: 'split_comparison'; metrics: number; games: number[] }
 	| { type: 'table'; rows: number; columns: string[] }
 	| { type: 'text_block'; characters: number }
 	| { type: 'line_chart'; series: number; points: number; firstX: string | number | null; lastX: string | number | null }
 	| { type: 'bar_chart'; bars: number }
+	| { type: 'scatter_chart'; points: number }
 	| { type: 'shot_chart'; attempts: number; makes: number }
 	| { type: 'video_playlist'; clips: number; descriptions: string[] };
 

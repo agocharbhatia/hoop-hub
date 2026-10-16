@@ -1,5 +1,7 @@
 import type { EndpointFetchResult, StatsEndpointFetcher } from '$lib/server/data/adapters/stats-endpoint-client';
 import type { EvalFixtureId } from './types';
+import { shootingFixture } from '$lib/server/research/ui-fixtures';
+import { splitFixture } from '$lib/server/research/split-fixtures';
 
 type FixtureDefinition = {
 	endpointId: string | null;
@@ -22,6 +24,10 @@ const JOKIC_DATES_NEWEST_FIRST = [
 ];
 
 const FIXTURES: Record<EvalFixtureId, FixtureDefinition> = {
+	player_split: { endpointId: 'playergamelog', payload: splitFixture().payload },
+	team_split: { endpointId: 'teamgamelogs', payload: splitFixture('team').payload },
+	player_shooting_explorer: { endpointId: 'leaguedashplayerstats', payload: shootingFixture().payload },
+	team_shooting_explorer: { endpointId: 'leaguedashteamstats', payload: shootingFixture('team').payload },
 	scottie_pullup_midrange: {
 		endpointId: 'shotchartdetail',
 		payload: buildScottieShotChartPayload()
@@ -147,7 +153,7 @@ export function createEvalFixtureFetcher(fixtureId: EvalFixtureId): StatsEndpoin
 
 		return {
 			endpointId: request.endpointId,
-			payload: structuredClone(fixture.payload),
+			payload: fixtureId === 'player_split' || fixtureId === 'team_split' ? splitFixture(fixtureId === 'player_split' ? 'player' : 'team', request.params.Season).payload : structuredClone(fixture.payload),
 			cacheStatus: fixture.payload === null ? 'miss' : 'hit',
 			sourceStatus: fixture.payload === null ? 'error' : 'ok',
 			latencyMs: 0,

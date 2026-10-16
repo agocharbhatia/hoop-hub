@@ -56,7 +56,13 @@ export function summarizeResearchScope(entries: GroundedResearchRequest[], resol
 	let dateFrom: string | undefined;
 	let dateTo: string | undefined;
 	for (const entry of entries) {
-		if (entry.toolName === 'execute_semantic_query') {
+		if (entry.toolName === 'compare_splits') {
+			seasons.add(entry.request.season);
+			if (entry.request.comparisonSeason) seasons.add(entry.request.comparisonSeason);
+			seasonTypes.add(entry.request.seasonType);
+			(entry.request.entity === 'player' ? playerIds : teamIds).add(entry.request.subjectId);
+			dateFrom = entry.request.dateFrom ?? dateFrom; dateTo = entry.request.dateTo ?? dateTo;
+		} else if (entry.toolName === 'execute_semantic_query') {
 			if (entry.request.query.filters.season) seasons.add(entry.request.query.filters.season);
 			if (entry.request.query.filters.seasonType) seasonTypes.add(entry.request.query.filters.seasonType);
 			dateFrom = entry.request.query.filters.dateFrom ?? dateFrom;
@@ -184,6 +190,7 @@ function fourthQuarter(entry: GroundedResearchRequest): GroundedResearchRequest 
 
 function withSeason(entry: GroundedResearchRequest, season: string): GroundedResearchRequest | null {
 	const next = structuredClone(entry);
+	if (next.toolName === 'compare_splits') return null;
 	if (next.toolName === 'execute_semantic_query') {
 		if (next.request.query.filters.dateFrom || next.request.query.filters.dateTo) return null;
 		next.request.query.filters.season = season;

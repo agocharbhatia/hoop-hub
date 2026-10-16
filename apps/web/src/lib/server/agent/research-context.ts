@@ -2,6 +2,7 @@ import type { SemanticQueryRequest } from '$lib/contracts/semantic-query';
 import type { CustomShotFilters } from './custom-shot-clips';
 import type { DefenderMatchupLeaderboardRequest, PlayerMatchupRequest } from './player-matchups';
 import type { PossessionAnalyticsRequest } from './possession-analytics';
+import type { SplitComparisonRequest } from '$lib/contracts/split-comparison';
 
 export type AggregateFilter = {
 	column: string;
@@ -50,6 +51,7 @@ export type FindVideoClipsRequest = {
 
 /** Only validated research requests can be retained; result rows and model prose are deliberately excluded. */
 export type GroundedResearchRequest =
+	| { toolName: 'compare_splits'; request: SplitComparisonRequest }
 	| { toolName: 'execute_semantic_query'; request: SemanticQueryRequest }
 	| { toolName: 'call_nba_stats_endpoint'; request: EndpointRequest }
 	| { toolName: 'aggregate_endpoint_rows'; request: AggregateEndpointRowsRequest }

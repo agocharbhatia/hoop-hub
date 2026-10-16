@@ -105,7 +105,7 @@ async function runEvalRepetition(
 	try {
 		const response = await agent.answerQuestion(prompt);
 		const trace = getDynamicTrace(response.traceId);
-		const execution: EvalExecution = { response, trace, endpointCalls };
+		const execution: EvalExecution = { response, trace, endpointCalls, question: prompt };
 		const failures = mode === 'live' ? evaluateLiveExecution(evalCase, execution) : mode === 'model' ? evaluateFrozenExecution(evalCase, execution) : evaluateEvalExecution(evalCase, execution);
 		return {
 			schemaVersion: 1,
@@ -194,6 +194,8 @@ function summarizeArtifact(artifact: EvalExecution['response']['artifacts'][numb
 	if (artifact.type === 'bar_chart') {
 		return { type: 'bar_chart', bars: artifact.bars.length };
 	}
+	if (artifact.type === 'scatter_chart') return { type: 'scatter_chart', points: artifact.points.length };
+	if (artifact.type === 'split_comparison') return { type: 'split_comparison', metrics: artifact.metrics.length, games: artifact.cohorts.map(cohort => cohort.games) };
 	if (artifact.type === 'shot_chart') {
 		return {
 			type: 'shot_chart',

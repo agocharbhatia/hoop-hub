@@ -5,6 +5,8 @@ import type {
 } from '$lib/contracts/answer-response';
 import type { EvalAssertion, EvalCase, EvalExecution, EvalValueSource } from './types';
 import { evaluatePossessionArtifacts } from './possession-assertions';
+import { evaluateSplitArtifacts } from './split-assertions';
+import { composeResearch } from '$lib/presentation/research-composition';
 
 const PRODUCT_HYGIENE_PATTERNS = [
 	'transport=',
@@ -137,6 +139,8 @@ function evaluateLimits(evalCase: EvalCase, execution: EvalExecution): string[] 
 
 function evaluateAssertion(assertion: EvalAssertion, execution: EvalExecution): string[] {
 	if (assertion.kind === 'possession_artifacts_grounded') return evaluatePossessionArtifacts(execution);
+	if (assertion.kind === 'split_comparison_grounded') return evaluateSplitArtifacts(execution);
+	if (assertion.kind === 'primary_artifact') return composeResearch(execution.response.artifacts, execution.question ?? '').at(0)?.artifact.type === assertion.type ? [] : [`primary_artifact: expected ${assertion.type}`];
 	if (assertion.kind === 'answer_includes') {
 		const answer = execution.response.answer.toLowerCase();
 		return assertion.values
@@ -424,6 +428,8 @@ function getArtifactItemCount(artifact: QueryAnswerArtifact): number {
 	if (artifact.type === 'bar_chart') return artifact.bars.length;
 	if (artifact.type === 'shot_chart') return artifact.shots.length;
 	if (artifact.type === 'video_playlist') return artifact.clips.length;
+	if (artifact.type === 'scatter_chart') return artifact.points.length;
+	if (artifact.type === 'split_comparison') return artifact.metrics.length;
 	return artifact.text.length > 0 ? 1 : 0;
 }
 

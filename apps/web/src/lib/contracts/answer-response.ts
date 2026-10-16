@@ -1,11 +1,13 @@
-import type { TableDisplay } from './table-display';
 import type { Citation } from './chat';
 import type { VideoLinkLookupIssue } from './video-availability';
 import type { QueryEffectiveScope } from './query-context';
 import type { SemanticQueryRequest, StatsQueryResponse, StatsQueryRow, StatsQueryStatus, StatsQueryWarning } from './semantic-query';
+import type { TableDisplay } from './table-display';
+import type { ScatterChartArtifact } from './research-views';
+import type { SplitComparisonArtifact } from './split-comparison';
 
 export type QueryArtifactSource = {
-	toolName: 'aggregate_endpoint_rows' | 'find_video_clips' | 'analyze_possession_stats';
+	toolName: 'aggregate_endpoint_rows' | 'find_video_clips' | 'analyze_possession_stats' | 'compare_splits';
 	providerId?: 'nba_stats' | 'pbpstats';
 	endpointId: string;
 	resultSetName: string;
@@ -14,13 +16,15 @@ export type QueryArtifactSource = {
 	sampled?: boolean;
 };
 export type QueryAnswerArtifact =
+	| ScatterChartArtifact
+	| SplitComparisonArtifact
 	| {
 			type: 'table';
 			shape: NonNullable<StatsQueryResponse['result']>['shape'];
 			columns: string[];
 			rows: StatsQueryRow[];
-			display?: TableDisplay;
 			source?: QueryArtifactSource;
+			display?: TableDisplay;
 	  }
 	| {
 			type: 'text_block';
@@ -99,6 +103,7 @@ export type QueryAnswerToolResult = QueryAnswerPlannedToolRequest & {
 };
 
 export type QueryAnswerAgentToolName =
+	| 'compare_splits'
 	| 'resolve_players'
 	| 'resolve_teams'
 	| 'execute_semantic_query'

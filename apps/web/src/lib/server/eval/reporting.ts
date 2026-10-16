@@ -124,6 +124,8 @@ function summarizeArtifacts(record: EvalRunRecord): string {
 			if (artifact.type === 'line_chart') return `line_chart(${artifact.points} points)`;
 			if (artifact.type === 'bar_chart') return `bar_chart(${artifact.bars} bars)`;
 			if (artifact.type === 'shot_chart') return `shot_chart(${artifact.makes}/${artifact.attempts})`;
+			if (artifact.type === 'scatter_chart') return `scatter_chart(${artifact.points} subjects)`;
+			if (artifact.type === 'split_comparison') return `split_comparison(${artifact.metrics} metrics; ${artifact.games.join('/')} games)`;
 			return `video_playlist(${artifact.clips} clips)`;
 		})
 		.join(', ');

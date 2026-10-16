@@ -2,12 +2,15 @@ import type { EvalCase } from './types';
 import { createEvalFixtureFetcher } from './fixtures';
 import { normalizeEndpointParams, type StatsEndpointFetcher } from '$lib/server/data/adapters/stats-endpoint-client';
 import { buildDefenderMatchupLeaderboardEndpointRequest, buildPlayerMatchupEndpointRequest, type DefenderMatchupLeaderboardRequest, type PlayerMatchupRequest } from '$lib/server/agent/player-matchups';
+import { splitEndpointRequests } from '$lib/server/agent/split-comparison';
+import type { SplitComparisonRequest } from '$lib/contracts/split-comparison';
 
 /** Rejects requests outside the recorded population so a correct-looking answer cannot hide a scope error. */
 export function createScopedFixtureFetcher(evalCase: EvalCase): StatsEndpointFetcher {
 	const fetcher = createEvalFixtureFetcher(evalCase.local.fixtureId);
 	const recorded = evalCase.local.turns.flatMap((turn) => turn.kind === 'tools' ? turn.calls : []).flatMap((call) => {
 		const args = call.arguments;
+		if (call.name === 'compare_splits') return splitEndpointRequests(args as SplitComparisonRequest).map(request => ({ ...request, params: normalizeEndpointParams(request.endpointId, request.params) }));
 		if (typeof args.endpointId === 'string' && args.params && typeof args.params === 'object') {
 			const base = { endpointId: args.endpointId, params: normalizeEndpointParams(args.endpointId, args.params as Record<string, string>) };
 			// This fixture contains exactly the requested latest ten games, so pushing the same window

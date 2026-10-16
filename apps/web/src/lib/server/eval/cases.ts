@@ -1,5 +1,7 @@
 import type { EvalCase } from './types';
 import { POSSESSION_EVAL_CASES } from './possession-cases';
+import { RESEARCH_VIEW_EVAL_CASES } from './research-view-cases';
+import { SPLIT_EVAL_CASES } from './split-cases';
 
 const SHOT_CHART_PARAMS = {
 	PlayerID: '1630567',
@@ -8,6 +10,8 @@ const SHOT_CHART_PARAMS = {
 };
 
 export const DYNAMIC_AGENT_EVAL_CASES: EvalCase[] = [
+	...SPLIT_EVAL_CASES,
+	...RESEARCH_VIEW_EVAL_CASES,
 	...POSSESSION_EVAL_CASES,
 	{
 		id: 'scottie-pullup-midrange-fg-pct',
@@ -275,6 +279,16 @@ export const DYNAMIC_AGENT_EVAL_CASES: EvalCase[] = [
 				kind: 'value', label: 'server-reconciled table value',
 				source: { type: 'artifact', artifactType: 'table' },
 				path: 'rows.0.pts', operator: 'equals', expected: 20.1
+			},
+			{
+				kind: 'value', label: 'verified per-game table unit',
+				source: { type: 'artifact', artifactType: 'table' },
+				path: 'display.columns.pts.unit', operator: 'equals', expected: 'points / game'
+			},
+			{
+				kind: 'value', label: 'requested metric follows identity',
+				source: { type: 'artifact', artifactType: 'table' },
+				path: 'display.primaryColumns.1', operator: 'equals', expected: 'pts'
 			},
 			{ kind: 'answer_includes', values: ['20.1'] }
 		],
@@ -692,6 +706,16 @@ export const DYNAMIC_AGENT_EVAL_CASES: EvalCase[] = [
 				kind: 'value', label: 'tiny sample excluded from artifact',
 				source: { type: 'artifact', artifactType: 'table' },
 				path: 'rows.0.offensivePlayer', operator: 'equals', expected: 'Nickeil Alexander-Walker'
+			},
+			{
+				kind: 'value', label: 'ranking leads with the verified requested percentage',
+				source: { type: 'artifact', artifactType: 'table' },
+				path: 'display.primaryColumns.2', operator: 'equals', expected: 'fgPct'
+			},
+			{
+				kind: 'value', label: 'NBA fractional percentage scale remains explicit',
+				source: { type: 'artifact', artifactType: 'table' },
+				path: 'display.columns.fgPct.scale', operator: 'equals', expected: 100
 			},
 			{ kind: 'answer_includes', values: ['tracking', '10', '25'] }
 		],
