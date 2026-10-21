@@ -19,6 +19,7 @@ export type TraceSourceCall = {
 	isProvisional: boolean;
 	parserVersion: string;
 	sourceStatus: TraceSourceStatus;
+	retryable?: boolean;
 };
 
 export type ChatQueryStatus = 'ok' | 'unsupported';

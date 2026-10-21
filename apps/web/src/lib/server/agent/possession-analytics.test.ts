@@ -176,3 +176,21 @@ test('legacy on/off metric variants share one canonical population and one takea
 	results.push({ toolName: 'analyze_possession_stats', request: anotherSeason.request, response: { ok: true, data: anotherSeason } } as unknown as QueryAnswerAgentToolResult);
 	assert.equal(verifiedPossessionData(results).length, 2, 'different seasons must remain separate');
 });
+
+test('temporary provider failures carry recovery intent through the agent response', async () => {
+	let calls = 0;
+	const agent = createDynamicQueryAgent({
+		model: { async complete() {
+			if (++calls === 1) return { content: null, toolCalls: [{ id: 'pbp', name: 'analyze_possession_stats', arguments: JSON.stringify({ ...base, mode: 'lineups', playerIds: [], limit: 5, minPossessions: 100 }) }] };
+			return { content: JSON.stringify({ answer: 'The lineup data could not be retrieved.', artifacts: [], warnings: [{ kind: 'partial_data', message: 'Lineup data unavailable.' }] }), toolCalls: [] };
+		} },
+		providerFetcher: async () => ({ ...source('lineups', null), cacheStatus: 'miss', sourceStatus: 'timeout', retryable: true, errorDetail: 'PBP Stats retrieval timed out.' }),
+		endpointFetcher: async () => { throw new Error('Wrong provider'); },
+		playerDirectory: { ensureAvailable: () => ({ ok: true }), findByNameOrAlias: () => [] },
+		teamDirectory: { findByNameOrAlias: () => [] }, sessionStore: createQuerySessionStore()
+	});
+	const answer = await agent.answerQuestion('Rank Toronto’s top five lineups by net rating in 2025–26, with at least 100 offensive and defensive possessions.');
+	assert.equal(answer.status, 'coverage_gap');
+	assert.equal(answer.recovery?.kind, 'temporary_source_failure');
+	assert.equal(answer.artifacts.length, 0);
+});

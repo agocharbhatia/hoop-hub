@@ -128,6 +128,7 @@ export type QueryAnswerAgentToolResult = {
 export type QueryAnswerAnyToolResult = QueryAnswerToolResult | QueryAnswerAgentToolResult;
 
 export type QueryAnswerResponse = {
+	recovery?: { kind: 'temporary_source_failure' };
 	sessionId?: string;
 	researchTurnId?: string;
 	followUpSuggestions?: Array<{ label: string; question: string }>;

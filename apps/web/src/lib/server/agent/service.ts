@@ -1,3 +1,4 @@
+import { sourceRecovery } from '$lib/server/agent/source-recovery';
 import type {
 	QueryAnswerAgentToolName,
 	QueryAnswerAgentToolResult,
@@ -611,6 +612,7 @@ export function createDynamicQueryAgent(dependencies: DynamicQueryAgentDependenc
 				...(sessionSaved ? { sessionId: session.sessionId } : {}),
 				...(nextContext && nextContext !== session.context ? { effectiveScope: nextContext.scope } : {}),
 				status,
+				...sourceRecovery(status, executionContext.sourceCalls),
 				answer: buildFinalAnswerText(groundedAnswer, status, publicWarnings),
 				artifacts: groundedArtifacts,
 				toolResults: executionContext.toolResults,
@@ -1394,7 +1396,7 @@ async function executeToolCall(
 			} else if (parsed.toolName === 'analyze_possession_stats') {
 				const analytics = await analyzePossessionStats(parsed.request, dependencies.providerFetcher!, dependencies.now?.() ?? new Date());
 				for (const source of analytics.sources) {
-					context.sourceCalls.push({ endpointId: source.endpointId, cacheStatus: source.cacheStatus, sourceStatus: source.sourceStatus, latencyMs: source.latencyMs, stale: source.stale, isProvisional: source.isProvisional, parserVersion: source.parserVersion });
+					context.sourceCalls.push({ endpointId: source.endpointId, cacheStatus: source.cacheStatus, sourceStatus: source.sourceStatus, retryable: source.retryable, latencyMs: source.latencyMs, stale: source.stale, isProvisional: source.isProvisional, parserVersion: source.parserVersion });
 					context.retrievalLatencyMs += source.latencyMs;
 				}
 				if (analytics.ok) context.successfulEndpointCalls += 1; else context.failedEndpointCalls += 1;

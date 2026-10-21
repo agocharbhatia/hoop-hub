@@ -5,9 +5,9 @@ import { computePayloadChecksum, getDataStore, stableStringify, type DataStore }
 import { listDataProviders, normalizePbpStatsParams, type DataProviderId } from './catalog';
 
 export type ProviderFetchRequest = { providerId: DataProviderId; datasetId: string; params: Record<string, string>; now?: Date; signal?: AbortSignal };
-export type ProviderFetchResult = EndpointFetchResult & { providerId: DataProviderId; datasetId: string; fetchedAt: string | null; sourceUrl: string };
+export type ProviderFetchResult = EndpointFetchResult & { providerId: DataProviderId; datasetId: string; fetchedAt: string | null; sourceUrl: string; retryable?: boolean };
 export type DataProviderFetcher = (request: ProviderFetchRequest) => Promise<ProviderFetchResult>;
-type Options = { fetch?: typeof fetch; store?: DataStore; nbaFetcher?: StatsEndpointFetcher; allowLiveFetch?: boolean; timeoutMs?: number };
+type Options = { fetch?: typeof fetch; store?: DataStore; nbaFetcher?: StatsEndpointFetcher; allowLiveFetch?: boolean; timeoutMs?: number; retryDelayMs?: number; totalTimeoutMs?: number };
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 /** Shares the NBA transport while isolating external provider caching, validation and permissions. */
@@ -41,28 +41,72 @@ export function createDataProviderFetcher(options: Options = {}): DataProviderFe
 		let release: (() => void) | undefined;
 		try {
 			if (!live) throw new Error('Live PBP Stats retrieval is disabled.');
-			const signal = AbortSignal.any([AbortSignal.timeout(options.timeoutMs ?? 20_000), ...(request.signal ? [request.signal] : [])]);
+			const signal = AbortSignal.any([AbortSignal.timeout(options.totalTimeoutMs ?? 30_000), ...(request.signal ? [request.signal] : [])]);
 			release = await acquire(signal);
 			const url = new URL(dataset.path, 'https://api.pbpstats.com');
 			for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
-			const response = await transport(url, { headers: { Accept: 'application/json' }, signal, redirect: 'error' });
-			if (!response.ok) return { ...base, payload: null, cacheStatus: 'miss', sourceStatus: response.status === 429 ? 'rate_limited' : 'error', stale: false, latencyMs: Math.round(performance.now() - started), fetchedAt: null, errorDetail: `PBP Stats returned HTTP ${response.status}.` };
-			const text = await readBoundedResponse(response);
-			const data: unknown = JSON.parse(text);
-			if (!validProviderPayload(dataset.id, data)) throw new Error('PBP Stats returned an unsupported response shape.');
+			const { text, data } = await retrieveProvider(url, dataset.id, transport, signal, options);
 			request.signal?.throwIfAborted();
 			const fetchedAt = now.toISOString();
 			store.putRawEndpointCache({ cacheKey: key, endpointId, paramsJson, payloadJson: text, fetchedAt, expiresAt: new Date(now.getTime() + dataset.ttlMinutes * 60_000).toISOString(), snapshotDate: fetchedAt.slice(0, 10), parserVersion: dataset.parserVersion, isProvisional: false });
 			return { ...base, payload: data, cacheStatus: 'miss', sourceStatus: 'ok', stale: false, latencyMs: Math.round(performance.now() - started), fetchedAt };
 		} catch (error) {
 			request.signal?.throwIfAborted();
-			const timeout = error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name);
-			return { ...base, payload, cacheStatus: payload ? 'stale_hit' : 'miss', sourceStatus: timeout ? 'timeout' : 'error', stale: Boolean(payload), latencyMs: Math.round(performance.now() - started), fetchedAt: payload ? cached!.fetchedAt : null, errorDetail: timeout ? 'PBP Stats retrieval timed out.' : 'PBP Stats data is currently unavailable.' };
+			const timeout = isTimeout(error);
+			const retryable = timeout || error instanceof TypeError || error instanceof ProviderHttpError && error.retryable;
+			return { ...base, payload, cacheStatus: payload ? 'stale_hit' : 'miss', sourceStatus: timeout ? 'timeout' : error instanceof ProviderHttpError && error.status === 429 ? 'rate_limited' : 'error', retryable, stale: Boolean(payload), latencyMs: Math.round(performance.now() - started), fetchedAt: payload ? cached!.fetchedAt : null, errorDetail: timeout ? 'PBP Stats retrieval timed out.' : 'PBP Stats data is currently unavailable.' };
 		} finally { release?.(); }
 	};
 }
 
 /* Helper functions */
+
+class ProviderHttpError extends Error {
+	readonly retryable: boolean;
+	constructor(readonly status: number, readonly retryAfter: string | null) {
+		super(`PBP Stats returned HTTP ${status}.`);
+		this.retryable = [408, 429, 500, 502, 503, 504].includes(status);
+	}
+}
+
+function isTimeout(error: unknown): boolean {
+	return error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name);
+}
+
+/** Retry only transient retrieval failures; one shared deadline bounds queueing, backoff and both attempts. */
+async function retrieveProvider(url: URL, datasetId: string, transport: typeof fetch, budget: AbortSignal, options: Options): Promise<{ text: string; data: unknown }> {
+	for (let attempt = 0; ; attempt += 1) {
+		budget.throwIfAborted();
+		try {
+			const signal = AbortSignal.any([budget, AbortSignal.timeout(options.timeoutMs ?? 20_000)]);
+			const response = await transport(url, { headers: { Accept: 'application/json' }, signal, redirect: 'error' });
+			if (!response.ok) {
+				await response.body?.cancel();
+				throw new ProviderHttpError(response.status, response.headers.get('retry-after'));
+			}
+			const text = await readBoundedResponse(response);
+			const data: unknown = JSON.parse(text);
+			if (!validProviderPayload(datasetId, data)) throw new Error('PBP Stats returned an unsupported response shape.');
+			return { text, data };
+		} catch (error) {
+			budget.throwIfAborted();
+			if (attempt >= 1 || !(isTimeout(error) || error instanceof TypeError || error instanceof ProviderHttpError && error.retryable)) throw error;
+			const header = error instanceof ProviderHttpError ? error.retryAfter : null;
+			const seconds = header === null ? NaN : Number(header);
+			const retryAfterMs = header === null ? 0 : Number.isFinite(seconds) ? Math.max(0, seconds * 1000) : Math.max(0, Date.parse(header) - Date.now());
+			await waitForRetry(Math.max(options.retryDelayMs ?? 250, Number.isFinite(retryAfterMs) ? retryAfterMs : 0), budget);
+		}
+	}
+}
+
+function waitForRetry(ms: number, signal: AbortSignal): Promise<void> {
+	return new Promise((resolve, reject) => {
+		const cancel = () => { clearTimeout(timer); signal.removeEventListener('abort', cancel); reject(signal.reason); };
+		const timer = setTimeout(() => { signal.removeEventListener('abort', cancel); resolve(); }, Math.min(ms, 2_147_483_647));
+		signal.addEventListener('abort', cancel, { once: true });
+		if (signal.aborted) cancel();
+	});
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 function readCachedPayload(text: string): unknown | null { try { const value: unknown = JSON.parse(text); return isRecord(value) ? value : null; } catch { return null; } }
