@@ -1,0 +1,40 @@
+<script lang="ts">
+	import { IconChevronDown } from '@tabler/icons-svelte';
+	import EntityAvatar from '$lib/components/entities/EntityAvatar.svelte';
+	import { resolvePlayerEntity, resolveTeamEntity } from '$lib/entities/entity-media';
+	import type { SplitComparisonArtifact } from '$lib/contracts/split-comparison';
+	import { cohortLabel, splitDate, splitValue, splitDelta, splitPositions } from '$lib/presentation/split-comparison';
+	let { artifact }: { artifact: SplitComparisonArtifact } = $props();
+	let expanded = $state<string | null>(null);
+	const entity = $derived(artifact.subject.entity === 'player' ? resolvePlayerEntity({ id: artifact.subject.id, name: artifact.subject.name }) : resolveTeamEntity({ id: artifact.subject.id, name: artifact.subject.name }));
+</script>
+
+<section class="split-comparison" aria-label={`${artifact.subject.name} ${artifact.title.toLowerCase()}`}>
+	<header class="split-heading"><div class="subject">{#if entity}<EntityAvatar {entity} size={38} decorative />{/if}<div><h3>{artifact.subject.name}</h3><p>{artifact.title} · {artifact.seasonType}{#if artifact.basis !== 'seasons'} · {artifact.cohorts[0].season}{/if}</p></div></div><span class="rate">{artifact.rate === 'PerGame' ? 'Per game' : 'Totals'}</span></header>
+	<div class="cohort-heading"><div class="metric-column">Metric</div>{#each artifact.cohorts as cohort, index}<div class="cohort"><h4><i class:second={index === 1}></i>{cohortLabel(cohort)}</h4><p>{cohort.games} {cohort.games === 1 ? 'game' : 'games'}</p>{#if cohort.dateFrom && cohort.dateTo}<small>{splitDate(cohort.dateFrom)} — {splitDate(cohort.dateTo)}</small>{/if}</div>{/each}<div class="change-heading">Change</div></div>
+	<div class="metrics">{#each artifact.metrics as metric (metric.key)}{@const delta = splitDelta(metric)}{@const positions = splitPositions(metric)}
+		<div class="metric" class:expanded={expanded === metric.key}>
+			<button type="button" class="metric-main" disabled={!metric.support.length} aria-expanded={metric.support.length ? expanded === metric.key : undefined} aria-label={`${metric.label}: ${cohortLabel(artifact.cohorts[0])} ${splitValue(metric.values[0], metric)}, ${cohortLabel(artifact.cohorts[1])} ${splitValue(metric.values[1], metric)}. Change ${delta.text}.${metric.support.length ? ' Inspect source counts.' : ''}`} onclick={() => expanded = expanded === metric.key ? null : metric.key}>
+				<span class="metric-name">{metric.label}{#if metric.support.length}<IconChevronDown size={12} />{/if}{#if metric.unit !== '%'}<small>{metric.unit}</small>{/if}</span>
+				<strong class="baseline">{splitValue(metric.values[0], metric)}</strong><strong>{splitValue(metric.values[1], metric)}</strong><span class={`delta ${delta.tone}`} title={`${artifact.cohorts[1].label} relative to ${artifact.cohorts[0].label}`}>{delta.text}</span>
+				{#if positions}<span class="movement" aria-hidden="true"><span class="track"></span><span class="connector" style={`left:${Math.min(...positions)}%;width:${Math.abs(positions[1] - positions[0])}%`}></span><i style={`left:${positions[0]}%`}></i><i class="second" style={`left:${positions[1]}%`}></i></span>{/if}
+			</button>
+			{#if expanded === metric.key && metric.support.length}<div class="support" aria-label={`${metric.label} source counts`}>{#each metric.support as item}<div><span>{item.label}</span>{#each item.values as value}<span>{value === null ? 'N/A' : value.toLocaleString('en-US', { maximumFractionDigits: 2 })}</span>{/each}<span></span></div>{/each}</div>{/if}
+		</div>
+	{/each}</div>
+	{#if artifact.limitations.length}<div class="limitations" aria-label="Comparison limitations">{#each artifact.limitations as limitation}<p>{limitation}</p>{/each}</div>{/if}
+</section>
+
+<style>
+	.split-comparison { container: split / inline-size; min-width: 0; }
+	.split-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:26px; }
+	.subject { display:flex; gap:11px; align-items:center; min-width:0; } h3 { font-size:15px; font-weight:550; letter-spacing:-.02em; } .subject p { font-size:11px; color:var(--color-muted-foreground); margin-top:5px; line-height:1.6; } .rate { font-size:10px; color:#a3b6cc; border:1px solid var(--color-border); border-radius:5px; padding:6px 9px; flex-shrink:0; }
+	.cohort-heading, .metric-main, .support > div { display:grid; grid-template-columns:minmax(110px,1.05fr) repeat(2,minmax(0,1fr)) minmax(76px,.5fr); column-gap:18px; align-items:center; }
+	.cohort-heading { padding:0 8px 17px; align-items:start; } .metric-column,.change-heading { color:#828e9d; font-size:10px; padding-top:4px; } .change-heading { text-align:right; } .cohort { text-align:right; } h4 { font-size:12px; font-weight:500; line-height:1.7; } .cohort i { display:inline-block; width:6px; height:6px; border:1px solid #95a5b8; border-radius:50%; margin-right:6px; } .cohort i.second { background:#8ebcf4; border-color:#8ebcf4; } .cohort p { color:#a7b1be; font-size:11px; margin-top:5px; } .cohort small { font-size:10px; color:#7f8b9d; line-height:1.7; display:block; margin-top:4px; }
+	.metric { border-top:1px solid var(--color-border); } .metric-main { width:100%; padding:19px 8px 15px; color:var(--color-foreground); text-align:left; position:relative; row-gap:13px; border-radius:5px; } .metric-main:not(:disabled) { cursor:pointer; } .metric-main:not(:disabled):hover,.expanded .metric-main { background:#83b7f205; } .metric-name { font-size:12px; display:flex; align-items:center; flex-wrap:wrap; gap:6px; } .metric-name :global(svg) { color:#8995a5; } .expanded .metric-name :global(svg) { transform:rotate(180deg); } .metric-name small { width:100%; font-size:10px; color:#8592a4; } strong { text-align:right; font-size:25px; font-weight:480; font-variant-numeric:tabular-nums; letter-spacing:-.035em; } strong.baseline { color:#9fa9b7; } .delta { justify-self:end; font-size:12px; font-variant-numeric:tabular-nums; padding:4px 6px; border-radius:4px; white-space:nowrap; } .delta.positive { color:#75d8ba; background:#75d8ba0b; } .delta.negative { color:#ed9ca8; background:#ed9ca80b; } .delta.neutral { color:#a5b5c9; background:#a5b5c908; }
+	.movement { grid-column:2/4; height:9px; position:relative; width:100%; } .track,.connector { position:absolute; top:4px; height:1px; background:#ffffff0a; left:0; right:0; } .connector { right:auto; background:#8cb8ef66; } .movement i { position:absolute; width:6px; height:6px; top:1px; border:1px solid #98a7ba; background:var(--color-card); border-radius:50%; transform:translateX(-50%); } .movement i.second { background:#9ec8fc; border-color:#b6d7ff; }
+	.support { padding:0 8px 13px; } .support > div { padding:8px 0; font-size:11px; border-top:1px solid #ffffff08; color:#95a1b2; font-variant-numeric:tabular-nums; } .support span:not(:first-child) { text-align:right; } .limitations { border-top:1px solid var(--color-border); padding-top:13px; margin-top:8px; } .limitations p { color:#cfb48c; font-size:11px; line-height:1.8; } button:focus-visible { outline:2px solid #8cb8ef; outline-offset:3px; }
+	strong { line-height:1.15; } .metric-main { padding-top:16px; padding-bottom:13px; row-gap:10px; }
+	@container split (width < 580px) { .cohort-heading,.metric-main,.support > div { grid-template-columns:minmax(72px,.9fr) repeat(2,minmax(0,1fr)) minmax(57px,.65fr); column-gap:8px; } .cohort-heading { padding:0 0 13px; } .metric-main { padding:16px 0 13px; } h4 { font-size:10px; } .cohort small { font-size:9px; } .cohort p { font-size:10px; } strong { font-size:21px; } .metric-name { font-size:11px; } .delta { font-size:10px; padding:4px; } .metric-column,.change-heading { font-size:9px; } .support { padding-left:0; padding-right:0; } .cohort i { display:none; } }
+	@container split (width < 340px) { .cohort-heading,.metric-main,.support > div { grid-template-columns:minmax(65px,.9fr) repeat(2,minmax(0,1fr)) 52px; column-gap:5px; } strong { font-size:18px; } .split-heading { gap:8px; } .subject p { font-size:10px; } .rate { font-size:9px; padding:5px; } }
+</style>

@@ -32,6 +32,9 @@ test('research API lists, reopens, renames, validates, and deletes durable rende
 		const sessionId = crypto.randomUUID(); repository.saveResult(sessionId, { question: 'Barnes highlights', response: savedResponse() });
 		const list = await listResearch({ url: new URL('http://localhost/api/research?limit=1') } as never);
 		assert.equal(list.status, 200); assert.equal((await list.json()).sessions[0].sessionId, sessionId);
+		assert.equal((await (await listResearch({ url: new URL('http://localhost/api/research?search=highlights') } as never)).json()).sessions.length, 1);
+		assert.equal((await (await listResearch({ url: new URL('http://localhost/api/research?search=unmatched') } as never)).json()).sessions.length, 0);
+		assert.equal((await listResearch({ url: new URL(`http://localhost/api/research?search=${'x'.repeat(101)}`) } as never)).status, 400);
 		assert.equal((await listResearch({ url: new URL('http://localhost/api/research?limit=999') } as never)).status, 400);
 		assert.equal((await listResearch({ url: new URL('http://localhost/api/research?cursor=invalid') } as never)).status, 400);
 		const detail = await getResearch({ params: { sessionId } } as never);

@@ -7,6 +7,7 @@
 	import ResearchProgress from '$lib/components/research/ResearchProgress.svelte';
 	import type { QueryAnswerArtifact, QueryAnswerResponse } from '$lib/contracts/answer-response';
 	import type { QueryProgress } from '$lib/contracts/query-progress';
+	import { presentTable } from '$lib/presentation/table-display';
 
 	// Design QA page for chart artifacts. Not linked from the app UI.
 	const lineChart: Extract<QueryAnswerArtifact, { type: 'line_chart' }> = {
@@ -137,10 +138,30 @@
 		followUpSuggestions: [{ label: 'Compare another season', question: 'Synthetic follow-up: compare another season.' }, { label: 'Inspect the film', question: 'Synthetic follow-up: inspect the film.' }]
 	};
 	const demoProgress: QueryProgress = { stage: 'fetching', message: 'Fetching the requested NBA game data…', completedTools: 2, elapsedMs: 8_000 };
+	const pairedPlayers = presentTable({ type: 'table', shape: 'comparison', columns: ['PLAYER_ID', 'TS_PCT', 'FGA', 'PLAYER_NAME', 'PTS', 'FTA', 'GP', 'AST', 'TOV', 'REB'], rows: [
+		{ PLAYER_ID: 1630567, PLAYER_NAME: 'Scottie Barnes', GP: 68, PTS: 22.4, REB: 7.6, AST: 5.8, TOV: 2.4, TS_PCT: .582, FGA: 17.4, FTA: 4.3 },
+		{ PLAYER_ID: 1628369, PLAYER_NAME: 'Jayson Tatum', GP: 65, PTS: 26.8, REB: 8.2, AST: 4.9, TOV: 3.1, TS_PCT: .61, FGA: 19.5, FTA: 5.5 }
+	] }, { perMode: 'PerGame', metrics: ['PTS', 'REB', 'AST', 'TS_PCT', 'TOV'] });
+	const pairedTeams = presentTable({ type: 'table', shape: 'comparison', columns: ['TEAM_NAME', 'GP', 'offensiveRating', 'defensiveRating', 'netRating', 'fg3Pct', 'fg3m', 'fg3a'], rows: [
+		{ TEAM_NAME: 'Toronto Raptors', GP: 82, offensiveRating: 116.4, defensiveRating: 109.2, netRating: 7.2, fg3Pct: .371, fg3m: 13.7, fg3a: 36.9 },
+		{ TEAM_NAME: 'Boston Celtics', GP: 80, offensiveRating: 118.1, defensiveRating: 112.3, netRating: 5.8, fg3Pct: .386, fg3m: 16.4, fg3a: 42.5 }
+	] }, { perMode: 'PerGame', metrics: ['netRating', 'offensiveRating', 'defensiveRating', 'fg3Pct'] });
+	const longComparison = presentTable({ type: 'table', shape: 'comparison', columns: ['metric', 'value', 'subject'], rows: [
+		{ subject: 'Scottie Barnes', metric: 'pts', value: 22.4 }, { subject: 'Scottie Barnes', metric: 'ast', value: 5.8 },
+		{ subject: 'Jayson Tatum', metric: 'pts', value: 26.8 }, { subject: 'Jayson Tatum', metric: 'ast', value: 4.9 }
+	] }, { perMode: 'PerGame', metrics: ['pts', 'ast'] });
+	const questionTable: Extract<QueryAnswerArtifact, { type: 'table' }> = { type: 'table', shape: 'ranking', columns: ['PLAYER_ID', 'FG_PCT', 'GP', 'FG3A', 'AST', 'PLAYER_NAME', 'rank', 'FG3_PCT', 'FG3M'], rows: [
+		{ PLAYER_ID: 1, PLAYER_NAME: 'Synthetic player A', rank: 1, GP: 50, FG_PCT: .45, FG3_PCT: .39, FG3A: 100, FG3M: 39, AST: 5 },
+		{ PLAYER_ID: 2, PLAYER_NAME: 'Synthetic player B', rank: 2, GP: 60, FG_PCT: .47, FG3_PCT: .37, FG3A: 200, FG3M: 74, AST: 4 }
+	] };
 </script>
 
 <main class="mx-auto flex w-full max-w-[1440px] flex-col gap-6 px-4 py-10">
 	<header><p class="text-xs uppercase tracking-[0.2em] text-muted-foreground">Hoop Hub · Artifact lab</p><h1 class="mt-2 text-2xl font-semibold">Explore the evidence</h1><p class="mt-2 text-sm text-muted-foreground">Synthetic fixtures for interaction QA. These values are not NBA research results.</p></header>
+	<section id="player-comparison" class="rounded-2xl border border-border bg-card px-4 py-4"><ArtifactTable artifact={pairedPlayers} /></section>
+	<section id="team-comparison" class="rounded-2xl border border-border bg-card px-4 py-4"><ArtifactTable artifact={pairedTeams} /></section>
+	<section id="long-comparison" class="rounded-2xl border border-border bg-card px-4 py-4"><ArtifactTable artifact={longComparison} /></section>
+	<section id="question-table" class="rounded-2xl border border-border bg-card px-4 py-4"><ArtifactTable artifact={questionTable} question="Rank players by three-point percentage" /></section>
 	<section class="space-y-4 rounded-2xl border border-border p-4 sm:p-6">
 		<div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-sm font-medium">Research layout and activity</h2><div class="flex gap-2"><button type="button" aria-pressed={pendingDemo} onclick={() => pendingDemo = !pendingDemo} class="rounded-md border border-border px-3 py-1.5 text-xs">{pendingDemo ? 'Show final result' : 'Show partial evidence'}</button><button type="button" aria-pressed={longWaitDemo} onclick={() => longWaitDemo = !longWaitDemo} class="rounded-md border border-border px-3 py-1.5 text-xs">{longWaitDemo ? 'Normal wait' : 'Long wait'}</button></div></div>
 		{#if pendingDemo}<ResearchProgress progress={demoProgress} elapsedMs={longWaitDemo ? 38_000 : 8_000} lastUpdateAgeMs={1_000} stageAgeMs={longWaitDemo ? 35_000 : 4_000} oncancel={() => { pendingDemo = false; demoFeedback = 'Synthetic request canceled; no query was sent.'; }} />{/if}

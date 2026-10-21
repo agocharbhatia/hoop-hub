@@ -35,6 +35,17 @@ This file contains durable engineering rules. It is not a roadmap or issue track
 - Missing or malformed video join keys remain missing; never admit unrelated clips to fill a playlist.
 - Named-defender requests must not silently degrade to opponent-team filtering.
 
+## Research interface
+
+- Design for analysts and basketball creators. Assume familiarity with standard basketball metrics; omit routine stat definitions and instructional panels.
+- Two-player and two-team comparisons share paired metric rows, signed first-minus-second deltas, and compact inline supporting values. Keep the removed delta formula caption out of both UI and exports. Higher/lower direction and favorable direction are separate; do not assign favorable colors to ambiguous metrics.
+- Split comparisons use canonical game logs, ordered cohorts and second-minus-first changes. Pool exact shooting counts; never average game percentages. Preserve the independent cutoff when refining overall dates. Do not offer partial-date edits for complete two-season comparisons or silently drop unsupported situational/opponent filters.
+- Artifact reading order follows the question's analytical task, with stable original indices for pins and exports. Generic comparison language must not outrank an explicit trend, ranking, film, shot-map or table request.
+- Table presentation follows verified metric intent and source units. Preserve canonical rows, exact precision, missing values, and access to additional fields. Never infer percentage scales from numeric magnitude.
+- Scatter references and percentiles use the full qualifying source population, independently of highlights, searches, rankings or display caps. Three-point rates require exact makes/attempts and games from totals; do not reconstruct denominators from rounded rates. Trend smoothing requires a complete trailing window and labels its observation grain.
+- Scatter headshots/logos must not move measured coordinates, remove points or change populations. Use canonical identity resolution and bounded image decluttering; selected/inspected subjects take priority. Portable images embed bounded same-origin media bytes, retaining initials if the CDN fails. The media endpoint must resolve known identities rather than accept arbitrary URLs.
+- Board pins resolve account-owned saved artifacts on the server and retain immutable evidence snapshots plus validated view settings. Never accept client-authored evidence values or let source-history expiry remove pinned research. Exports retain scope, qualification, source and units.
+
 ## Testing and release
 
 - Default verification is `bun run check`, `bun run check:endpoint-catalog-contracts`, `bun run test`, `bun run eval`, `bun run eval:custom-shots`, and `bun run build` from `apps/web`.

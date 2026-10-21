@@ -158,7 +158,7 @@
 	{/if}
 
 	{#if selectionUnavailable}<p class="mt-2 text-xs text-muted-foreground" role="status">The selected shot has no clip in this playlist.</p>{/if}
-	{#if playbackError}<p class="mt-2 text-xs text-amber-700 dark:text-amber-300" role="status">{playbackError}</p>{/if}
+	{#if playbackError}<p class="mt-2 text-sm text-warning" role="status">{playbackError}</p>{/if}
 
 	{#if clips.length > 1}
 		<ol class="mt-3 max-h-48 space-y-0.5 overflow-y-auto rounded-md border border-border p-1" aria-label="Clips">

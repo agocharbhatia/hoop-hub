@@ -81,3 +81,22 @@ test('oversized display or grounding never replaces previously saved usable evid
 		assert.equal(store.listResearchTurns(session.sessionId).length, 0);
 	} finally { store.close(); }
 });
+
+test('history search covers saved questions beyond display titles, preserves pagination and owner isolation', () => {
+	const store = new DataStore({ dbPath: ':memory:' }); let now = 1000;
+	try {
+		const owner = createResearchRepository({ store, ownerId: 'one', nowMs: () => now });
+		const other = createResearchRepository({ store, ownerId: 'two', nowMs: () => now });
+		for (let index = 0; index < 4; index++) { now++; const id = crypto.randomUUID(); owner.saveResult(id, { question: `Toronto 3P% question ${index}: before 2025-01-01 in 2024-25`, response: response() }); owner.rename(id, `Saved analysis ${index}`); }
+		other.saveResult(crypto.randomUUID(), { question: 'Toronto 3P% private', response: response() });
+		const first = owner.list(2, undefined, 'toronto'), second = owner.list(2, first.nextCursor, 'toronto');
+		assert.equal(first.sessions.length, 2); assert.ok(first.nextCursor);
+		assert.equal(first.sessions[0].scopeLabel, '2024-25');
+		assert.equal(second.sessions.length, 2); assert.equal(second.nextCursor, undefined);
+		assert.equal(new Set([...first.sessions, ...second.sessions].map(entry => entry.sessionId)).size, 4);
+		assert.equal(owner.list(20, undefined, '3P%').sessions.length, 4);
+		assert.equal(owner.list(20, undefined, '%').sessions.length, 4);
+		assert.equal(owner.list(20, undefined, "' OR 1=1 --").sessions.length, 0);
+		assert.equal(owner.list(20, undefined, 'analysis 2').sessions.length, 1);
+	} finally { store.close(); }
+});

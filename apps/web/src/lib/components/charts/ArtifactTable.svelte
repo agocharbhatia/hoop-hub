@@ -1,17 +1,23 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import ComparisonHeatmap from './ComparisonHeatmap.svelte';
 	import CompactRanking from './CompactRanking.svelte';
+	import EntityComparisonRows from './EntityComparisonRows.svelte';
+	import { buildEntityComparison } from './entity-comparison';
+	import { buildTableDisplay } from '$lib/presentation/table-display';
 	import { comparisonPresentation } from './comparison-presentation';
 	import type { QueryAnswerArtifact } from '$lib/contracts/answer-response';
 	import type { StatsQueryRow } from '$lib/contracts/semantic-query';
 	import EntityAvatar from '$lib/components/entities/EntityAvatar.svelte';
 	import { resolvePlayerEntity, resolveTeamEntity, type EntityMedia } from '$lib/entities/entity-media';
-	import { buildTablePresentation, formatTableCell, sortTableRows, tableColumnLabel, tableMetricUnit, type SortDirection } from './table-utils';
+	import { buildTablePresentation, formatTableCell, sortTableRows, tableColumnLabel, tableColumnUnit, tableMetricUnit, type SortDirection } from './table-utils';
 
 	type TableArtifact = Extract<QueryAnswerArtifact, { type: 'table' }>;
-	let { artifact, title = 'Results', onselectrow, canSelectRow = () => true, rowLabel = 'Inspect row' }: {
+	let { artifact, title, question = '', initialLayout = 'visual', onselectrow, canSelectRow = () => true, rowLabel = 'Inspect row' }: {
 		artifact: TableArtifact;
 		title?: string;
+		question?: string;
+		initialLayout?: 'visual' | 'table';
 		onselectrow?: (row: StatsQueryRow, originalIndex: number) => void;
 		canSelectRow?: (row: StatsQueryRow, originalIndex: number) => boolean;
 		rowLabel?: string;
@@ -19,14 +25,18 @@
 
 	const PAGE_SIZE = 20;
 	let search = $state('');
-	let layout = $state<'visual' | 'table'>('visual');
-	const comparison = $derived(comparisonPresentation(artifact));
+	let layout = $state<'visual' | 'table'>(untrack(() => initialLayout));
+	const display = $derived(artifact.display ?? buildTableDisplay(artifact, { question }));
+	const displayedArtifact = $derived({ ...artifact, display });
+	const paired = $derived(onselectrow ? null : buildEntityComparison(displayedArtifact));
+	const comparison = $derived(comparisonPresentation(displayedArtifact));
+	const resultTitle = $derived(title ?? (paired ? `${paired.kind === 'team' ? 'Team' : 'Player'} comparison` : display.title));
 	let sortColumn = $state<string | null>(null);
 	let sortDirection = $state<SortDirection>('ascending');
 	let page = $state(0);
 	let exact = $state(false);
 	let expandedRows = $state(new Set<number>());
-	const presentation = $derived(buildTablePresentation(artifact.columns, artifact.rows));
+	const presentation = $derived(buildTablePresentation(artifact.columns, artifact.rows, display));
 	const indexedRows = $derived(artifact.rows.map((row, index) => ({ row, index })));
 	const filteredRows = $derived.by(() => {
 		const query = search.trim().toLocaleLowerCase();
@@ -56,8 +66,9 @@
 	}
 
 	function cell(row: StatsQueryRow, column: string): string {
-		return formatTableCell(row[column], { row, column, exact });
+		return formatTableCell(row[column], { row, column, exact, display });
 	}
+	function label(column: string) { return tableColumnLabel(column, display); }
 
 	/** Only decorate an exact subject name; a date, lineup or numeric statistic must not become an identity. */
 	function identityEntity(row: StatsQueryRow): EntityMedia | null {
@@ -69,7 +80,7 @@
 </script>
 
 {#snippet field(row: StatsQueryRow, column: string)}
-	<dt>{tableColumnLabel(column)}</dt><dd class:numeric={numericColumns.has(column)}>{cell(row, column)}{#if tableMetricUnit(row, column)}<span class="metric-unit">{tableMetricUnit(row, column)}</span>{/if}</dd>
+	<dt>{label(column)}{#if tableColumnUnit(column, display)}<span class="metric-unit">{tableColumnUnit(column, display)}</span>{/if}</dt><dd class:numeric={numericColumns.has(column)}>{cell(row, column)}{#if tableMetricUnit(row, column, display)}<span class="metric-unit">{tableMetricUnit(row, column, display)}</span>{/if}</dd>
 {/snippet}
 
 {#snippet evidence(row: StatsQueryRow, index: number)}
@@ -82,37 +93,39 @@
 	<span class="identity-value">{#if entity}<EntityAvatar {entity} size={24} decorative />{/if}<span class="identity-text">{cell(row, column)}</span></span>
 {/snippet}
 
-<section class="artifact-table" aria-label={title}>
+<section class="artifact-table" aria-label={resultTitle}>
 	<div class="table-heading">
-		<div class="result-count"><h3>{title}</h3><span>{artifact.rows.length} {artifact.rows.length === 1 ? 'row' : 'rows'}</span></div>
-		{#if artifact.rows.length > 5}
-			<label class="search-label"><span class="sr-only">Filter {title.toLowerCase()} rows</span><input type="search" value={search} oninput={(event) => { search = event.currentTarget.value; page = 0; }} placeholder="Filter rows" /></label>
+		<div class="result-count"><h3>{resultTitle}</h3><span>{paired && layout === 'visual' ? `${paired.metrics.length} metrics` : `${artifact.rows.length} ${artifact.rows.length === 1 ? 'row' : 'rows'}`}</span></div>
+		{#if artifact.rows.length > 5 && !(paired && layout === 'visual')}
+			<label class="search-label"><span class="sr-only">Filter {resultTitle.toLowerCase()} rows</span><input type="search" value={search} oninput={(event) => { search = event.currentTarget.value; page = 0; }} placeholder="Filter rows" /></label>
 		{/if}
 	</div>
 	{#if presentation.context.length}
 		<dl class="table-context" aria-label="Shared result context">
-			{#each presentation.context as { column, value }}<div><dt>{tableColumnLabel(column)}</dt><dd>{formatTableCell(value, { column, exact })}</dd></div>{/each}
+			{#each presentation.context as { column, value }}<div><dt>{label(column)}</dt><dd>{formatTableCell(value, { column, exact, display })}</dd></div>{/each}
 		</dl>
 	{/if}
 	<div class="table-tools">
-		{#if comparison && !onselectrow}<div class="view-toggle" aria-label="Result presentation"><button type="button" aria-pressed={layout === 'visual'} onclick={() => layout = 'visual'}>{artifact.shape === 'ranking' ? 'Ranking' : 'Heatmap'}</button><button type="button" aria-pressed={layout === 'table'} onclick={() => layout = 'table'}>Table</button></div>{/if}
-		<label class="sort-control"><span>Sort by</span><select value={sortColumn ?? ''} onchange={(event) => { sortColumn = event.currentTarget.value || null; page = 0; }}><option value="">Source order</option>{#each presentation.columns as column}<option value={column}>{tableColumnLabel(column)}</option>{/each}</select></label>
-		{#if sortColumn}<button class="direction-button" type="button" onclick={() => sortDirection = sortDirection === 'ascending' ? 'descending' : 'ascending'} aria-label="Change to {sortDirection === 'ascending' ? 'descending' : 'ascending'} order">{sortDirection === 'ascending' ? 'Ascending ↑' : 'Descending ↓'}</button>{/if}
-		<label class="precision-control"><input type="checkbox" bind:checked={exact} /><span>Exact values</span></label>
+		{#if (comparison || paired) && !onselectrow}<div class="view-toggle" aria-label="Result presentation"><button type="button" aria-pressed={layout === 'visual'} onclick={() => layout = 'visual'}>{paired ? 'Comparison' : artifact.shape === 'ranking' ? 'Ranking' : 'Heatmap'}</button><button type="button" aria-pressed={layout === 'table'} onclick={() => layout = 'table'}>Table</button></div>{/if}
+		{#if !(paired && layout === 'visual')}<label class="sort-control"><span>Sort by</span><select value={sortColumn ?? ''} onchange={(event) => { sortColumn = event.currentTarget.value || null; page = 0; }}><option value="">Source order</option>{#each presentation.columns as column}<option value={column}>{label(column)}</option>{/each}</select></label>
+		{#if sortColumn}<button class="direction-button" type="button" onclick={() => sortDirection = sortDirection === 'ascending' ? 'descending' : 'ascending'} aria-label="Change to {sortDirection === 'ascending' ? 'descending' : 'ascending'} order">{sortDirection === 'ascending' ? 'Ascending ↑' : 'Descending ↓'}</button>{/if}{/if}
+		<label class="precision-control"><input type="checkbox" bind:checked={exact} /><span>Show full precision</span></label>
 	</div>
-	{#if comparison && !onselectrow && layout === 'visual'}
+	{#if paired && layout === 'visual'}
+		<EntityComparisonRows comparison={paired} {exact} />
+	{:else if comparison && !onselectrow && layout === 'visual'}
 		{#if !visibleRows.length}<p class="empty-message">{search ? 'No rows match this filter.' : 'No results in this table.'}</p>
-		{:else if artifact.shape === 'ranking'}<CompactRanking offset={currentPage * PAGE_SIZE} rows={visibleRows} population={artifact.rows} identity={comparison.identity} metrics={comparison.metrics} {exact} />
-		{:else}<ComparisonHeatmap rows={visibleRows} population={artifact.rows} identity={comparison.identity} metrics={comparison.metrics} {exact} />{/if}
+		{:else if artifact.shape === 'ranking'}<CompactRanking offset={currentPage * PAGE_SIZE} rows={visibleRows} population={artifact.rows} identity={comparison.identity} metrics={comparison.metrics} {exact} {display} />
+		{:else}<ComparisonHeatmap rows={visibleRows} population={artifact.rows} identity={comparison.identity} metrics={comparison.metrics} {exact} {display} />{/if}
 	{:else}
 	<div class="desktop-view">
 		<table>
-			<caption class="sr-only">{title}. Column headers sort the results. Additional fields expand within each row.</caption>
+			<caption class="sr-only">{resultTitle}. Column headers sort the results. Additional fields expand within each row.</caption>
 			<thead>
 				<tr>
 					{#each presentation.primaryColumns as column}
 						<th scope="col" aria-sort={sortColumn === column ? sortDirection : 'none'} class:numeric={numericColumns.has(column)} class:identity={column === presentation.identityColumn}>
-							<button type="button" class="column-button" onclick={() => sortBy(column)} aria-label="Sort by {tableColumnLabel(column)}{sortColumn === column ? `, currently ${sortDirection}` : ''}"><span>{tableColumnLabel(column)}</span><span class="sort-indicator" aria-hidden="true">{sortColumn === column ? sortDirection === 'ascending' ? '↑' : '↓' : '↕'}</span></button>
+							<button type="button" class="column-button" onclick={() => sortBy(column)} aria-label="Sort by {label(column)}{sortColumn === column ? `, currently ${sortDirection}` : ''}"><span>{label(column)}{#if tableColumnUnit(column, display)}<small class="metric-unit">{tableColumnUnit(column, display)}</small>{/if}</span><span class="sort-indicator" aria-hidden="true">{sortColumn === column ? sortDirection === 'ascending' ? '↑' : '↓' : '↕'}</span></button>
 						</th>
 					{/each}
 					{#if hasActions}<th scope="col" class="action-cell"><span class="sr-only">Row details and evidence</span></th>{/if}
@@ -121,7 +134,7 @@
 			<tbody>
 				{#each visibleRows as { row, index } (index)}
 					<tr>
-						{#each presentation.primaryColumns as column}<td class:numeric={numericColumns.has(column)} class:identity={column === presentation.identityColumn} title={String(row[column] ?? 'Unavailable')}>{#if column === presentation.identityColumn}{@render identityValue(row, column, index)}{:else}{cell(row, column)}{/if}{#if tableMetricUnit(row, column)}<span class="metric-unit">{tableMetricUnit(row, column)}</span>{/if}</td>{/each}
+						{#each presentation.primaryColumns as column}<td class:numeric={numericColumns.has(column)} class:identity={column === presentation.identityColumn} title={String(row[column] ?? 'Unavailable')}>{#if column === presentation.identityColumn}{@render identityValue(row, column, index)}{:else}{cell(row, column)}{/if}{#if tableMetricUnit(row, column, display)}<span class="metric-unit">{tableMetricUnit(row, column, display)}</span>{/if}</td>{/each}
 						{#if hasActions}<td class="action-cell"><div class="row-actions">{#if presentation.detailColumns.length}<button type="button" class="details-button" aria-expanded={expandedRows.has(index)} onclick={() => toggleRow(index)}>{expandedRows.has(index) ? 'Less' : `More (${presentation.detailColumns.length})`}</button>{/if}{@render evidence(row, index)}</div></td>{/if}
 					</tr>
 					{#if expandedRows.has(index) && presentation.detailColumns.length}<tr class="detail-row"><td colspan={presentation.primaryColumns.length + Number(hasActions)}><dl class="field-grid">{#each presentation.detailColumns as column}<div>{@render field(row, column)}</div>{/each}</dl></td></tr>{/if}
@@ -134,7 +147,7 @@
 	<div class="mobile-view">
 		{#each visibleRows as { row, index } (index)}
 			<article class="mobile-row">
-				{#if presentation.identityColumn}<h4>{@render identityValue(row, presentation.identityColumn, index)}</h4>{#if tableMetricUnit(row, presentation.identityColumn)}<p class="mobile-unit">{tableMetricUnit(row, presentation.identityColumn)}</p>{/if}{/if}
+				{#if presentation.identityColumn}<h4>{@render identityValue(row, presentation.identityColumn, index)}</h4>{#if tableMetricUnit(row, presentation.identityColumn, display)}<p class="mobile-unit">{tableMetricUnit(row, presentation.identityColumn, display)}</p>{/if}{/if}
 				<dl class="field-grid">{#each presentation.primaryColumns.filter((column) => column !== presentation.identityColumn) as column}<div>{@render field(row, column)}</div>{/each}</dl>
 				{#if expandedRows.has(index) && presentation.detailColumns.length}<dl class="field-grid extra-fields">{#each presentation.detailColumns as column}<div>{@render field(row, column)}</div>{/each}</dl>{/if}
 				{#if hasActions}<div class="row-actions">{#if presentation.detailColumns.length}<button type="button" class="details-button" aria-expanded={expandedRows.has(index)} onclick={() => toggleRow(index)}>{expandedRows.has(index) ? 'Fewer fields' : `${presentation.detailColumns.length} more fields`}</button>{/if}{@render evidence(row, index)}</div>{/if}

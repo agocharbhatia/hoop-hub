@@ -1,11 +1,18 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
+	import type { ArtifactViewState } from '$lib/contracts/research-views';
+	import { rollingSeries, seriesMean, trendObservationUnit } from '$lib/presentation/trend-analysis';
 	import type { QueryAnswerArtifact } from '$lib/contracts/answer-response';
 	import { CHART_INK, CHART_SERIES_COLORS, collectChartXValues, createLinearScale, formatChartNumber, niceTicks, resolveValueDomain } from './chart-utils';
 	import { formatLineTick, lineTickIndexes } from './line-chart-utils';
 
 	type LineChartArtifact = Extract<QueryAnswerArtifact, { type: 'line_chart' }>;
-	let { artifact }: { artifact: LineChartArtifact } = $props();
+	let { artifact, initialView = {}, onviewchange }: { artifact: LineChartArtifact; initialView?: ArtifactViewState; onviewchange?: (view: ArtifactViewState) => void } = $props();
+	let analysisView = $state<ArtifactViewState>(untrack(() => ({ ...initialView })));
+	const rollingWindow = $derived(analysisView.rollingWindow ?? 1);
+	const observationUnit = $derived(trendObservationUnit(artifact));
+	const showReference = $derived(analysisView.showReference ?? false);
+	$effect(() => { onviewchange?.(analysisView); });
 	const componentId = $props.id();
 
 	const HEIGHT = 260;
@@ -51,6 +58,10 @@
 		};
 	}));
 	const seriesPaths = $derived(allSeriesPaths.filter((entry) => !hiddenSeries.includes(entry.sourceIndex)));
+	const rollingPaths = $derived(series.filter(entry => !hiddenSeries.includes(entry.sourceIndex)).map(entry => {
+		const points = rollingSeries(entry, rollingWindow).points;
+		return { name: entry.name, color: CHART_SERIES_COLORS[entry.sourceIndex % CHART_SERIES_COLORS.length], path: points.map((point, index) => `${index ? 'L' : 'M'}${xPosition(xValues.findIndex(value => String(value) === String(point.x)))},${yScale(point.y)}`).join(''), byX: new Map(points.map(point => [String(point.x), point.y])), mean: seriesMean(entry) };
+	}));
 	const inspectedRows = $derived(seriesPaths.map((entry) => ({ name: entry.name, color: entry.color, value: entry.byIndex.get(activeIndex)?.value })));
 
 	/* Coordinate and interaction helpers */
@@ -90,6 +101,7 @@
 <figure class="line-artifact w-full min-w-0">
 	<figcaption class="text-sm font-medium">{artifact.title}</figcaption>
 	<p class="mt-1 text-xs text-muted-foreground">{artifact.yLabel}</p>
+	<div class="trend-controls"><div class="trend-switch" aria-label="Trend smoothing">{#each [1, 5, 10] as window}<button type="button" aria-pressed={rollingWindow === window} onclick={() => analysisView = { ...analysisView, rollingWindow: window }}>{window === 1 ? observationUnit === 'game' ? 'Game log' : 'Source values' : `${window}-${observationUnit} avg.`}</button>{/each}</div><label><input type="checkbox" checked={showReference} onchange={(event) => analysisView = { ...analysisView, showReference: event.currentTarget.checked }} />Window mean</label></div>
 	{#if allSeriesPaths.length >= 2}
 		<div class="series-legend" aria-label="Chart series">
 			{#each allSeriesPaths as entry}
@@ -102,6 +114,7 @@
 	{/if}
 	<div bind:this={chartHost} class="relative mt-2" role="group" aria-label="{artifact.title}: line chart of {artifact.yLabel} by {artifact.xLabel}">
 		<svg viewBox="0 0 {width} {HEIGHT}" class="block w-full" style="height: {HEIGHT}px" role="presentation">
+			{#each rollingPaths as entry}{#if showReference && entry.mean !== null}<line x1={MARGIN.left} x2={width - MARGIN.right} y1={yScale(entry.mean)} y2={yScale(entry.mean)} stroke={entry.color} stroke-opacity=".5" stroke-dasharray="4 5" />{/if}{/each}
 			{#each yTicks as tick}
 				<line x1={MARGIN.left} x2={width - MARGIN.right} y1={yScale(tick)} y2={yScale(tick)} stroke={CHART_INK.grid} stroke-width="1" />
 				<text x={MARGIN.left - 8} y={yScale(tick) + 4} text-anchor="end" class="chart-tick">{formatChartNumber(tick)}</text>
@@ -114,7 +127,8 @@
 				<line x1={xPosition(activeIndex)} x2={xPosition(activeIndex)} y1={MARGIN.top} y2={HEIGHT - MARGIN.bottom} stroke={CHART_INK.axis} stroke-width="1" stroke-dasharray="3 3" />
 			{/if}
 			{#each seriesPaths as entry}
-				<path d={entry.path} fill="none" stroke={entry.color} stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+				{#if rollingWindow > 1}{@const rolling = rollingPaths.find(path => path.name === entry.name)}{#if rolling}<path d={rolling.path} fill="none" stroke={entry.color} stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />{/if}{/if}
+				<path d={entry.path} fill="none" stroke={entry.color} stroke-opacity={rollingWindow > 1 ? .25 : 1} stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
 				{#if entry.coordinates.length === 1}<circle cx={entry.coordinates[0].x} cy={entry.coordinates[0].y} r="4" fill={entry.color} />{/if}
 				{#if inspectedIndex !== null && entry.byIndex.has(activeIndex)}
 					{@const point = entry.byIndex.get(activeIndex)!}
@@ -136,7 +150,7 @@
 			</div>
 			<dl class="inspection-values">
 				{#each inspectedRows as row}
-					<div><dt><span class="series-swatch" style="background: {row.color}" aria-hidden="true"></span>{row.name}</dt><dd>{row.value === undefined ? 'No value' : formatChartNumber(row.value)}</dd></div>
+					<div><dt><span class="series-swatch" style="background: {row.color}" aria-hidden="true"></span>{row.name}</dt><dd>{row.value === undefined ? 'No value' : formatChartNumber(row.value)}{#if rollingWindow > 1}{@const average = rollingPaths.find(entry => entry.name === row.name)?.byX.get(String(xValues[activeIndex]))}<small>{average === undefined ? 'Insufficient window' : `${formatChartNumber(average)} · ${rollingWindow}-${observationUnit} avg.`}</small>{/if}</dd></div>
 				{/each}
 			</dl>
 		</div>
@@ -145,6 +159,7 @@
 </figure>
 
 <style>
+	.trend-controls { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; align-items: center; margin: 14px 0 5px; font-size: 11px; color: var(--color-muted-foreground); } .trend-switch { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--color-border); border-radius: 7px; } .trend-switch button { padding: 6px 8px; border-radius: 4px; } .trend-switch button[aria-pressed=true] { background: #213244; color: #dcecff; } .trend-controls label { display: flex; gap: 6px; align-items: center; } .trend-controls input { accent-color: #3987e5; } dd small { display: block; margin-top: 4px; font-size: 10px; color: var(--color-muted-foreground); }
 	.series-legend { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 8px; }
 	.series-toggle { display: flex; align-items: center; gap: 7px; min-height: 40px; max-width: 100%; padding: 6px 8px; border: 1px solid var(--color-border); border-radius: 6px; font-size: 12px; text-align: left; color: var(--color-foreground); cursor: pointer; }
 	.series-toggle span:last-child { overflow-wrap: anywhere; }

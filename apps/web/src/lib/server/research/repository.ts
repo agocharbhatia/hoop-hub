@@ -1,4 +1,5 @@
 import { currentOwnerId } from '$lib/server/beta/context';
+import { researchSeasonLabel } from '$lib/presentation/research-title';
 import type { QueryAnswerResponse } from '$lib/contracts/answer-response';
 import { RESEARCH_RETENTION_DAYS, type SavedResearchDetail, type SavedResearchList, type SavedResearchResponse, type SavedResearchSummary, type SavedResearchTurn } from '$lib/contracts/research-contract';
 import { DataStore, getDataStore, type ResearchSessionRecord, type ResearchTurnRecord } from '$lib/server/data/store/data-store';
@@ -45,10 +46,10 @@ export function createResearchRepository(options: { store?: DataStore | (() => D
 			prune(true);
 			return { turnId, createdAt: timestamp };
 		},
-		list(limit = 20, cursor?: string): SavedResearchList {
+		list(limit = 20, cursor?: string, search = ''): SavedResearchList {
 			prune();
 			const before = cursor ? parseResearchCursor(cursor) : undefined;
-			const records = store().listResearchSessions(limit + 1, before, ownerId());
+			const records = store().listResearchSessions(limit + 1, before, ownerId(), search.trim());
 			const selected = records.slice(0, limit);
 			const last = selected.at(-1);
 			return { sessions: selected.map(mapSummary), ...(records.length > limit && last ? { nextCursor: Buffer.from(JSON.stringify({ updatedAt: last.updatedAt, sessionId: last.sessionId })).toString('base64url') } : {}) };
@@ -57,7 +58,7 @@ export function createResearchRepository(options: { store?: DataStore | (() => D
 			const session = readSession(sessionId);
 			if (!session) return null;
 			const turns = store().listResearchTurns(sessionId).map(mapTurn);
-			return { session: mapSummary({ ...session, turnCount: turns.length }), turns };
+			return { session: mapSummary({ ...session, turnCount: turns.length, firstQuestion: turns[0]?.question }), turns };
 		},
 		getTurn(sessionId: string, turnId: string): SavedResearchTurn | null {
 			if (!readSession(sessionId)) return null;
@@ -79,8 +80,9 @@ export const researchRepository = createResearchRepository();
 
 /* Serialization helpers */
 
-function mapSummary(record: ResearchSessionRecord & { turnCount: number }): SavedResearchSummary {
-	return { sessionId: record.sessionId, title: record.title, createdAt: record.createdAt, updatedAt: record.updatedAt, turnCount: record.turnCount };
+function mapSummary(record: ResearchSessionRecord & { turnCount: number; firstQuestion?: string }): SavedResearchSummary {
+	const scopeLabel = researchSeasonLabel(record.firstQuestion ?? record.title);
+	return { sessionId: record.sessionId, title: record.title, createdAt: record.createdAt, updatedAt: record.updatedAt, turnCount: record.turnCount, ...(scopeLabel ? { scopeLabel } : {}) };
 }
 
 function mapTurn(record: ResearchTurnRecord): SavedResearchTurn {

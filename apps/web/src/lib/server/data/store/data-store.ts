@@ -625,17 +625,20 @@ export class DataStore {
 			owner_user_id AS ownerId,created_at AS createdAt,updated_at AS updatedAt FROM research_sessions WHERE session_id=?`).get(sessionId) ?? null;
 	}
 
-	listResearchSessions(limit: number, before?: { updatedAt: string; sessionId: string }, ownerId?: string): Array<ResearchSessionRecord & { turnCount: number }> {
+	listResearchSessions(limit: number, before?: { updatedAt: string; sessionId: string }, ownerId?: string, search = ''): Array<ResearchSessionRecord & { turnCount: number; firstQuestion?: string }> {
 		if (!this.sqlite) return [...this.researchSessionsMemory.values()]
 			.filter((record) => ownerId === undefined || (record.ownerId ?? 'local') === ownerId)
+			.filter((record) => !search || record.title.toLowerCase().includes(search.toLowerCase()) || [...this.researchTurnsMemory.values()].some(turn => turn.sessionId === record.sessionId && turn.question.toLowerCase().includes(search.toLowerCase())))
 			.filter((record) => !before || record.updatedAt < before.updatedAt || (record.updatedAt === before.updatedAt && record.sessionId < before.sessionId))
 			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.sessionId.localeCompare(a.sessionId)).slice(0, limit)
-			.map((record) => ({ ...record, turnCount: [...this.researchTurnsMemory.values()].filter((turn) => turn.sessionId === record.sessionId).length }));
-		return this.sqlite.query<ResearchSessionRecord & { turnCount: number }>(`SELECT s.session_id AS sessionId,s.title,s.context_json AS contextJson,
-			s.owner_user_id AS ownerId,s.created_at AS createdAt,s.updated_at AS updatedAt,(SELECT COUNT(*) FROM research_turns t WHERE t.session_id=s.session_id) AS turnCount
+			.map((record) => { const turns = [...this.researchTurnsMemory.values()].filter(turn => turn.sessionId === record.sessionId).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.turnId.localeCompare(b.turnId)); return { ...record, turnCount: turns.length, firstQuestion: turns[0]?.question }; });
+		return this.sqlite.query<ResearchSessionRecord & { turnCount: number; firstQuestion?: string }>(`SELECT s.session_id AS sessionId,s.title,s.context_json AS contextJson,
+			s.owner_user_id AS ownerId,s.created_at AS createdAt,s.updated_at AS updatedAt,(SELECT COUNT(*) FROM research_turns t WHERE t.session_id=s.session_id) AS turnCount,
+			(SELECT question FROM research_turns f WHERE f.session_id=s.session_id ORDER BY created_at,turn_id LIMIT 1) AS firstQuestion
 			FROM research_sessions s WHERE (@ownerId IS NULL OR s.owner_user_id=@ownerId) AND
+			(@search='' OR instr(lower(s.title),lower(@search))>0 OR EXISTS (SELECT 1 FROM research_turns q WHERE q.session_id=s.session_id AND instr(lower(q.question),lower(@search))>0)) AND
 			(@beforeDate IS NULL OR s.updated_at<@beforeDate OR (s.updated_at=@beforeDate AND s.session_id<@beforeId))
-			ORDER BY s.updated_at DESC,s.session_id DESC LIMIT @limit`).all({ ownerId: ownerId ?? null, beforeDate: before?.updatedAt ?? null, beforeId: before?.sessionId ?? null, limit });
+			ORDER BY s.updated_at DESC,s.session_id DESC LIMIT @limit`).all({ ownerId: ownerId ?? null, beforeDate: before?.updatedAt ?? null, beforeId: before?.sessionId ?? null, limit, search });
 	}
 
 	putResearchTurn(record: ResearchTurnRecord): void {
