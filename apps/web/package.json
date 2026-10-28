@@ -21,6 +21,7 @@
 	"private": true,
 	"scripts": {
 		"dev": "node --env-file-if-exists=.env ./node_modules/vite/bin/vite.js dev",
+		"demo": "HOOP_HUB_AUTH_MODE=local HOOP_HUB_DB_PATH=.data/demo.sqlite HOOP_HUB_UI_FIXTURES=1 HOOP_HUB_ENABLE_LIVE_NBA=0 HOOP_HUB_ENABLE_LIVE_PBPSTATS=0 bun run dev --host 127.0.0.1 --port 4173",
 		"build": "bun --bun vite build && bun ./scripts/package-server-assets.ts && NODE_ENV=production bun build ./scripts/start-server.ts --target=node --packages=external --outfile=./build/start-server.mjs && bun ./scripts/check-node-transport-build.ts",
 		"preview": "HOOP_HUB_AUTH_MODE=local node --env-file-if-exists=.env ./node_modules/vite/bin/vite.js preview",
 		"eval": "bun ./scripts/run-evals.ts --mode local",
@@ -31,6 +32,7 @@
 		"nightly:audit": "bun ./scripts/nightly-audit.ts",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:repo": "node ../../scripts/check-repository.mjs",
 		"check:endpoint-catalog-contracts": "bun ./scripts/check-endpoint-catalog-contracts.ts",
 		"check:node-transport-build": "bun ./scripts/check-node-transport-build.ts",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
