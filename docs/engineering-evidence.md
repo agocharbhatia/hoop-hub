@@ -86,4 +86,4 @@ Verified on **2026-10-28** during repository cleanup:
 | Production build | Passed, including relocated Node transports |
 | Production HTTP smoke | Passed with a loopback model fixture |
 
-These are local correctness and packaging results. Docker container verification requires a running daemon; it was unavailable for this run. Paid live-model evaluations and production load testing were outside this verification. The visualization screenshots in the README come from the synthetic UI labs.
+These are local correctness and packaging results. Docker container verification requires a running daemon; it was unavailable for this run. Paid live-model evaluations and production load testing were outside this verification. The README question/result screenshots use source-backed query results and saved research sessions. The separate visualization gallery and hero image use synthetic UI lab fixtures. The playlist image preserves an earlier successful playback capture; a fresh check reproduced the 64/173 shooting sample, but footage delivery was unavailable. Saved lineup rankings explicitly retain the provider population-cap warning.
