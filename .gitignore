@@ -1,4 +1,9 @@
 .codex/
+.agents/
+.impeccable/
+.vibe-wise/
+.playwright-mcp/
+.playwright-cli/
 
 # macOS
 .DS_Store
@@ -15,6 +20,16 @@ apps/web/.data/
 build/
 coverage/
 apps/web/.svelte-kit/
+output/playwright/
+playwright-report/
+test-results/
+
+# Local databases and test scratch files
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+.tmp-tests/
 
 # Logs
 *.log

@@ -1,6 +1,12 @@
 .git
 .codex
 .agents
+.impeccable
+.vibe-wise
+.playwright-mcp
+.playwright-cli
+.sandcastle
+.superset
 .DS_Store
 **/node_modules
 **/.svelte-kit
@@ -14,6 +20,9 @@
 **/eval-results
 **/playwright-report
 **/test-results
+**/.tmp-tests
+output
+docs
 .docs
 agents
 tasks

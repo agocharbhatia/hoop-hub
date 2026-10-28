@@ -374,7 +374,7 @@ describe('stats-endpoint-client', () => {
 
 	test('normalizes raw host:port:user:pass proxy entries for the live transport', async () => {
 		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
-		process.env.HOOP_HUB_NBA_PROXY_URL = 'rp.scrapegw.com:6060:osnt1uszgxopk9s:nvdoud7ri9a3za0';
+		process.env.HOOP_HUB_NBA_PROXY_URL = 'proxy.example:8080:example-user:example-password';
 
 		let capturedProxyUrls: unknown = null;
 		_setLiveStatsTransportForTests(async (_url, _timeoutMs, proxyUrls) => {
@@ -399,14 +399,14 @@ describe('stats-endpoint-client', () => {
 			}
 		});
 
-		assert.deepEqual(capturedProxyUrls, ['http://osnt1uszgxopk9s:nvdoud7ri9a3za0@rp.scrapegw.com:6060']);
+		assert.deepEqual(capturedProxyUrls, ['http://example-user:example-password@proxy.example:8080']);
 	});
 
 	test('accepts newline-delimited proxy lists and preserves normalized order', async () => {
 		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
 		process.env.HOOP_HUB_NBA_PROXY_URL = [
 			'http://proxy-one.example:8080',
-			'rp.scrapegw.com:6060:osnt1uszgxopk9s:nvdoud7ri9a3za0'
+			'proxy.example:8080:example-user:example-password'
 		].join('\n');
 
 		let capturedProxyUrls: unknown = null;
@@ -434,16 +434,16 @@ describe('stats-endpoint-client', () => {
 
 		assert.deepEqual(capturedProxyUrls, [
 			'http://proxy-one.example:8080/',
-			'http://osnt1uszgxopk9s:nvdoud7ri9a3za0@rp.scrapegw.com:6060'
+			'http://example-user:example-password@proxy.example:8080'
 		]);
 	});
 
 	test('includes transport diagnostics in live fetch errors', async () => {
 		process.env.HOOP_HUB_ENABLE_LIVE_NBA = '1';
-		process.env.HOOP_HUB_NBA_PROXY_URL = 'rp.scrapegw.com:6060:osnt1uszgxopk9s:nvdoud7ri9a3za0';
+		process.env.HOOP_HUB_NBA_PROXY_URL = 'proxy.example:8080:example-user:example-password';
 
 		_setLiveStatsTransportForTests(async () => {
-			throw new Error('phase=proxy_connect; proxy=http://osnt1uszgxopk9s:***@rp.scrapegw.com:6060; Request timed out after 30000ms');
+			throw new Error('phase=proxy_connect; proxy=http://example-user:***@proxy.example:8080; Request timed out after 30000ms');
 		});
 
 		const result = await fetchStatsEndpointWithCache({
@@ -464,7 +464,7 @@ describe('stats-endpoint-client', () => {
 		assert.match(result.errorDetail ?? '', /transport=proxy/);
 		assert.match(result.errorDetail ?? '', /retry_count=2/);
 		assert.match(result.errorDetail ?? '', /proxy_count=1/);
-		assert.match(result.errorDetail ?? '', /rp\.scrapegw\.com:6060/);
+		assert.match(result.errorDetail ?? '', /proxy\.example:8080/);
 		assert.match(result.errorDetail ?? '', /phase=proxy_connect/);
 	});
 
