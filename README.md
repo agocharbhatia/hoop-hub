@@ -6,6 +6,19 @@ An NBA research workspace that turns natural-language questions into source-back
 
 Ask how a player's shooting changed, compare lineups, or filter shots by opponent and action. Results retain their source, filters, sample sizes, and missing-data warnings. Follow-up questions refine the same research; saved sessions and boards keep the useful findings together.
 
+## Questions you can ask
+
+| Research | Example prompt |
+| --- | --- |
+| Filtered shots and a video playlist | “Show Scottie Barnes' pull-up mid-range FG% against Boston in the 2024-25 regular season, plot the attempts, and build a video playlist of the available makes.” |
+| Multiple players and different metrics | “Compare Nikola Jokic's rebound trend with Victor Wembanyama's block trend over their last ten games in the 2024-25 regular season. Show charts and compare the earlier five with the latest five for each player.” |
+| Before-and-after analysis with supporting trends | “What changed in Scottie Barnes' per-game scoring and TS% before versus on/after January 1, 2025 in the 2024-25 regular season? Include the full season game-by-game points trajectory.” |
+| League-wide qualification and rankings | “Compare three-point volume and efficiency across NBA players in 2025-26, with at least 200 attempts. Show the scatterplot and qualified ranking.” |
+| Defender matchup statistics | “What did Jayson Tatum shoot when guarded by Scottie Barnes in the 2024-25 regular season? Include matchup attempts and FG%.” |
+| Possession-based lineup rankings | “Rank the Toronto Raptors' top five lineups by net rating in the 2025-26 regular season, with at least 100 offensive and defensive possessions.” |
+
+For filtered shot research, follow up with “Only the fourth quarter” or “Show the misses instead” to refine the same scope. Results depend on source coverage; possession-based lineup analysis requires the optional PBP Stats provider.
+
 ![Three-point shooting explorer with player portraits, highlighted subjects, population benchmarks and synchronized rankings](docs/assets/shooting-explorer.png)
 
 *Explore shooting volume and efficiency with qualified populations, player highlights, and linked rankings. This preview uses synthetic fixtures; reproduce it with `bun run demo`.*
@@ -53,12 +66,6 @@ bun run demo
 Open **http://127.0.0.1:4173/dev/research**. This preview renders the real research components with synthetic fixtures in a dedicated `.data/demo.sqlite` database. No model credentials or live NBA retrieval are needed for the preview. Use `/dev/charts` to inspect the individual chart interactions.
 
 For natural-language research, copy the [environment template](apps/web/.env.example) to `apps/web/.env`, configure `OPENAI_API_KEY` and `OPENAI_AGENT_MODEL`, and run `bun run dev` instead. Setup and the distinction between live and materialized data are in the [development guide](docs/development.md).
-
-Examples of supported research:
-
-- “Compare Nikola Jokic's rebounds over his final ten recorded games in the 2024-25 regular season. Show the earlier five versus the latest five.”
-- “Show Scottie Barnes' pull-up mid-range FG% against Boston in 2024-25, plot the attempts, and play the available makes.”
-- “Compare Scottie Barnes' home and away numbers in the 2024-25 regular season.”
 
 ## Architecture at a glance
 
