@@ -6,9 +6,9 @@ An NBA research workspace that turns natural-language questions into source-back
 
 Ask how a player's shooting changed, compare lineups, or filter shots by opponent and action. Results retain their source, filters, sample sizes, and missing-data warnings. Follow-up questions refine the same research; saved sessions and boards keep the useful findings together.
 
-![Hoop Hub research interface showing a before-and-after comparison](docs/assets/research-preview.png)
+![Three-point shooting explorer with player portraits, highlighted subjects, population benchmarks and synchronized rankings](docs/assets/shooting-explorer.png)
 
-*Interface preview using explicitly labeled synthetic fixtures. Reproduce it locally with `bun run demo`; these numbers are not NBA findings.*
+*Explore shooting volume and efficiency with qualified populations, player highlights, and linked rankings. This preview uses synthetic fixtures; reproduce it with `bun run demo`.*
 
 ## The engineering behind it
 
@@ -24,6 +24,20 @@ The hard part is keeping a flexible language-model interface tied to the right d
 | Research must remain private across sessions and exports. | Server-side ownership checks cover saved research, boards, traces, feedback, and clip exports. Admission controls bound per-user and global work. | [Ownership tests](apps/web/src/lib/server/beta/ownership.test.ts), [board isolation](apps/web/src/lib/server/research/boards.test.ts), [admission controls](apps/web/src/lib/server/beta/limits.ts) |
 
 See [architecture and tradeoffs](docs/architecture.md) for the request flow and [engineering evidence](docs/engineering-evidence.md) for concrete failure cases and reproducible checks.
+
+## Visualizations
+
+Captured from the running app with synthetic QA data. Click any image for the full-size view. Explore the controls locally at `/dev/research` and `/dev/charts`.
+
+| Shot-zone analysis | Multi-player trends |
+| --- | --- |
+| [<img src="docs/assets/shot-zones.png" width="400" alt="Half-court shooting zones with FG percentages, makes, attempts and unavailable samples">](docs/assets/shot-zones.png) | [<img src="docs/assets/player-trends.png" width="400" alt="Scottie Barnes and Jayson Tatum game logs with five-game rolling averages and window means">](docs/assets/player-trends.png) |
+| Court regions retain exact makes and attempts; empty zones stay unavailable. Switch between zones, individual shots, density, and FG% views. | Compare original observations with rolling averages and window means. Toggle subjects or inspect individual games. |
+
+| Player comparison | Before-and-after splits |
+| --- | --- |
+| [<img src="docs/assets/player-comparison.png" width="400" alt="Paired player comparison with scoring, rebounds, assists, shooting efficiency and turnovers">](docs/assets/player-comparison.png) | [<img src="docs/assets/research-preview.png" width="400" alt="Before-and-after comparison with cohort game counts, date ranges and percentage-point changes">](docs/assets/research-preview.png) |
+| Paired metric rows preserve units, sample sizes, signed differences, and expandable supporting counts. | Compare dated cohorts with pooled shooting percentages, exact sample windows, and metric-specific change indicators. |
 
 ## Try it locally
 

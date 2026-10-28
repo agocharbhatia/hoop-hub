@@ -86,4 +86,4 @@ Verified on **2026-10-28** during repository cleanup:
 | Production build | Passed, including relocated Node transports |
 | Production HTTP smoke | Passed with a loopback model fixture |
 
-These are local correctness and packaging results. Docker container verification requires a running daemon; it was unavailable for this run. Paid live-model evaluations and production load testing were outside this verification. The screenshot in the README comes from the synthetic UI lab.
+These are local correctness and packaging results. Docker container verification requires a running daemon; it was unavailable for this run. Paid live-model evaluations and production load testing were outside this verification. The visualization screenshots in the README come from the synthetic UI labs.
