@@ -4,6 +4,8 @@ Selected constraint: hosting must cost $0; card verification is acceptable. Mode
 
 ## Current deployment
 
+The public address is now **https://tryhoophub.duckdns.org**. The old `sslip.io` address redirects to it. Pushes to `main` deploy after CI passes through the [production workflow and server updater](../docs/deployment.md). The notes below record the original provisioning and earlier acceptance checks.
+
 - Instance: `hoop-hub-demo`, Ubuntu 24.04 Minimal, x86_64, approximately 1 GB RAM, default boot volume of about 47 GB.
 - Public IP: `132.145.109.69` (ephemeral). HTTPS: `https://hoop-hub.132.145.109.69.sslip.io`. Caddy obtained a valid Let's Encrypt certificate.
 - SSH accepts only the deployment operator's current IPv4 address; public TCP ports 80/443 are enabled. Port 3000 stays on loopback. Host firewall rules are persisted.

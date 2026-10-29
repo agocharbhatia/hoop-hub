@@ -4,7 +4,7 @@
 
 Ask NBA questions and get stats, charts, and clips of the matching plays.
 
-**[Try Hoop Hub](https://hoop-hub.132.145.109.69.sslip.io)** · [Run locally](#try-it-locally) · [Architecture](docs/architecture.md)
+**[Try Hoop Hub](https://tryhoophub.duckdns.org)** · [Run locally](#try-it-locally) · [Architecture](docs/architecture.md)
 
 Compare players and lineups, track changes over a season, or find specific shots. Each result shows its sources, filters, sample size, and missing data. Ask follow-up questions, reopen saved research, or collect results on a board.
 
@@ -114,3 +114,5 @@ The app runs as one process with SQLite. The export queue and concurrency limits
 NBA data and video availability depend on the source and network. Matchup stats cannot identify the defender in an individual clip. The app flags unsupported filters and missing data. Server calculations cover supported stats; generated text can still be wrong.
 
 Deployment: [Docker and recovery](.docs/BETA_DEPLOYMENT.md), [environment settings](deploy/beta.env.example), and [hosted checks](.docs/RELEASE_CHECKLIST.md). Public data display requires separate permission checks enforced by the app. NBA data, logos, and footage belong to their respective owners. This project is not affiliated with the NBA.
+
+Pushes to `main` deploy to the Oracle server after CI passes. See [production updates and rollback](docs/deployment.md).

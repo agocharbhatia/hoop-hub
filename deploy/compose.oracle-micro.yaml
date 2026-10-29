@@ -10,5 +10,7 @@ services:
       NODE_OPTIONS: --max-old-space-size=256
       HOOP_HUB_CONCURRENT_RESEARCH: 1
   proxy:
+    volumes:
+      - ./deploy/Caddyfile.oracle:/etc/caddy/Caddyfile:ro
     mem_limit: 96m
     cpus: 0.25

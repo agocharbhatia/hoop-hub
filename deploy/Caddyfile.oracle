@@ -1,0 +1,11 @@
+{$BETA_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000 {
+		flush_interval -1
+	}
+}
+
+# Keep links shared before the Duck DNS migration working.
+hoop-hub.132.145.109.69.sslip.io {
+	redir https://{$BETA_DOMAIN}{uri} permanent
+}
