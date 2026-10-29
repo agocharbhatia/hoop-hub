@@ -300,8 +300,8 @@
 			{#if detailLoading}<p role="status" class="py-6 text-sm text-muted-foreground">Opening saved research…</p>{/if}
 			{#if !messages.length}
 				<section class="research-start">
-					<h1>Know the numbers. <span>See the plays.</span></h1>
-					<p class="start-description">Explore NBA stats, inspect the shots behind them, and watch the matching film.</p>
+					<h1>NBA stats and film</h1>
+					<p class="start-description">Ask about players, teams, or games. Get stats, charts, and available clips.</p>
 					{@render composer(true)}
 					<div class="example-heading"><h2>Try a question</h2></div>
 					<div class="example-questions">{#each suggestions.slice(0, 3) as suggestion}<button type="button" onclick={() => void sendMessage(suggestion.text)} disabled={workspaceBusy}><span>{suggestion.label}</span><p>{suggestion.text}</p></button>{/each}</div>
@@ -341,7 +341,6 @@
 	.workspace-link { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; font-size: 12px; color: var(--color-action); white-space: nowrap; }
 	.research-start { width: 100%; max-width: 960px; margin: auto 0; padding: 54px 0; }
 	.research-start h1 { font-size: 32px; font-weight: 500; letter-spacing: -.03em; line-height: 1.25; text-wrap: balance; }
-	.research-start h1 span { color: var(--color-muted-foreground); }
 	.start-description { color: var(--color-muted-foreground); font-size: 14px; line-height: 1.8; margin: 16px 0 28px; max-width: 65ch; }
 	.question-composer { display: flex; align-items: flex-end; gap: 8px; padding: 6px; background: var(--color-card); border: 1px solid var(--color-input); border-radius: var(--radius-xl); }
 	.question-composer:focus-within { border-color: var(--color-focus); }
