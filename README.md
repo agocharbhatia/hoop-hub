@@ -4,6 +4,8 @@
 
 An NBA research workspace that turns natural-language questions into source-backed statistics, interactive charts, and video playlists of the exact plays being analyzed.
 
+**[Try Hoop Hub](https://hoop-hub.132.145.109.69.sslip.io)** · [Run locally](#try-it-locally) · [Architecture](docs/architecture.md)
+
 Ask how a player's shooting changed, compare lineups, or filter shots by opponent and action. Results retain their source, filters, sample sizes, and missing-data warnings. Follow-up questions refine the same research; saved sessions and boards keep the useful findings together.
 
 ## Questions you can ask
