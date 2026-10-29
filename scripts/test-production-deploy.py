@@ -54,6 +54,7 @@ if command == 'curl':
 
 
 class ProductionDeploymentTests(unittest.TestCase):
+    # Test fixture helpers
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -82,6 +83,8 @@ class ProductionDeploymentTests(unittest.TestCase):
                                 capture_output=True, text=True, timeout=10)
         calls = [json.loads(line) for line in (self.root / 'calls').read_text().splitlines()]
         return result, calls
+
+    # End test fixture helpers
 
     def test_success_backs_up_before_replacing_the_app(self):
         result, calls = self.deploy()

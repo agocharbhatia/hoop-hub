@@ -41,7 +41,11 @@ jobs:
         shell: bash
         run: |
           head=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)
-          if [[ "$head" == "$REVISION" ]]; then echo 'deploy=true' >> "$GITHUB_OUTPUT"; fi
+          if [[ "$head" != "$REVISION" ]]; then
+            echo 'A newer main revision superseded this build; no deployment was made.' >&2
+            exit 1
+          fi
+          echo 'deploy=true' >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
         if: steps.current.outputs.deploy == 'true'
