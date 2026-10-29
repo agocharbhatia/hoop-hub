@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for a new Hoop Hub production build
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=2min
+RandomizedDelaySec=5s
+
+[Install]
+WantedBy=timers.target

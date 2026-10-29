@@ -1,0 +1,119 @@
+name: Production
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL || 'https://tryhoophub.duckdns.org' }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      REVISION: ${{ github.event.workflow_run.head_sha || github.sha }}
+      PRODUCTION_URL: ${{ vars.PRODUCTION_URL || 'https://tryhoophub.duckdns.org' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.REVISION }}
+
+      - name: Check the revision is still main
+        id: current
+        shell: bash
+        run: |
+          head=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)
+          if [[ "$head" == "$REVISION" ]]; then echo 'deploy=true' >> "$GITHUB_OUTPUT"; fi
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.current.outputs.deploy == 'true'
+
+      - name: Build the production image
+        if: steps.current.outputs.deploy == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: hoop-hub-prod:${{ env.REVISION }}
+          build-args: VCS_REF=${{ env.REVISION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Publish the image and release manifest
+        if: steps.current.outputs.deploy == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Do not publish a superseded build after a newer push.
+          head=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)
+          [[ "$head" == "$REVISION" ]] || exit 1
+          asset="hoop-hub-$REVISION.tar.gz"
+          docker save "hoop-hub-prod:$REVISION" | gzip -1 > "$asset"
+          export ASSET="$asset"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          asset = Path(os.environ['ASSET'])
+          with asset.open('rb') as source:
+              checksum = hashlib.file_digest(source, 'sha256').hexdigest()
+          Path('production.json').write_text(json.dumps({
+              'version': 1, 'repository': os.environ['GH_REPO'],
+              'revision': os.environ['REVISION'], 'sha256': checksum, 'asset': asset.name
+          }))
+          PY
+          if ! gh release view production >/dev/null 2>&1; then
+            gh release create production --target "$REVISION" --title 'Production build' --prerelease \
+              --notes 'Container image and checksum manifest used by the Oracle deployment.'
+          fi
+          gh release upload production "$asset" --clobber
+          # Publish the pointer only after the complete archive is available.
+          gh release upload production production.json --clobber
+
+      - name: Verify the live revision
+        if: steps.current.outputs.deploy == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --location --max-time 10 "$PRODUCTION_URL/api/health" -o /tmp/health.json &&
+              python3 -c 'import json,os; assert json.load(open("/tmp/health.json"))["revision"] == os.environ["REVISION"]' &&
+              curl --fail --silent --location --max-time 10 "$PRODUCTION_URL/api/ready" >/dev/null; then
+              echo "Live at $PRODUCTION_URL ($REVISION)" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'The server did not deploy this revision within ten minutes.' >&2
+          exit 1
+
+      - name: Retain the three most recent image archives
+        if: steps.current.outputs.deploy == 'true'
+        shell: bash
+        run: |
+          gh api "repos/$GH_REPO/releases/tags/production" > /tmp/release.json
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          assets = json.load(open('/tmp/release.json'))['assets']
+          images = sorted((a for a in assets if re.fullmatch(r'hoop-hub-[0-9a-f]{40}\.tar\.gz', a['name'])), key=lambda a: a['id'], reverse=True)
+          for asset in images[3:]:
+              subprocess.run(['gh', 'api', '--method', 'DELETE', f"repos/{os.environ['GH_REPO']}/releases/assets/{asset['id']}"], check=True)
+          PY

@@ -37,6 +37,9 @@ jobs:
       - name: Repository hygiene and public documentation links
         run: bun run check:repo
 
+      - name: Production deployment safety checks
+        run: python3 ../../scripts/test-production-deploy.py
+
       - name: Type check
         run: bun run check
 

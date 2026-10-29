@@ -20,4 +20,16 @@ describe('GET /api/health', () => {
 		assert.equal(payload.service, 'web');
 		assert.equal(Number.isNaN(Date.parse(payload.timestamp)), false);
 	});
+
+	test('exposes the image revision so deployment checks can distinguish old and new builds', async () => {
+		const previous = process.env.HOOP_HUB_REVISION;
+		try {
+			process.env.HOOP_HUB_REVISION = 'a'.repeat(40);
+			const payload = await (await GET({} as Parameters<typeof GET>[0])).json();
+			assert.equal(payload.revision, 'a'.repeat(40));
+		} finally {
+			if (previous === undefined) delete process.env.HOOP_HUB_REVISION;
+			else process.env.HOOP_HUB_REVISION = previous;
+		}
+	});
 });

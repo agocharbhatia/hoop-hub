@@ -22,6 +22,10 @@ COPY --from=build --chown=node:node /app/src/lib/server ./src/lib/server
 COPY --from=build --chown=node:node /app/src/lib/contracts ./src/lib/contracts
 # Operator scripts use the same aliases as the app without depending on generated development files.
 RUN printf '%s\n' '{"compilerOptions":{"baseUrl":".","paths":{"$lib/*":["src/lib/*"]}}}' > tsconfig.json
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.source="https://github.com/agocharbhatia/hoop-hub" \
+    org.opencontainers.image.revision=$VCS_REF
+ENV HOOP_HUB_REVISION=$VCS_REF
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 BODY_SIZE_LIMIT=16384 \
     HOOP_HUB_DB_PATH=/data/hoop-hub.sqlite \
     HOOP_HUB_EXPORT_DIR=/data/exports HOOP_HUB_BACKUP_DIR=/backups
